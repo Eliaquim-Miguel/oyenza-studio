@@ -1,6 +1,397 @@
-//! Minimal HTTPS GET (placeholder — replaced by the full implementation).
+//! Minimal HTTPS GET over WinRT `Windows.Web.Http.HttpClient`.
+//!
+//! Every call blocks until the response (headers and body) has arrived or the
+//! timeout has passed, so use it on worker threads only, never on the UI
+//! thread. Waiting costs no CPU: the calling thread sleeps on a channel that
+//! the operation's `Completed` callback signals; on timeout the operation is
+//! cancelled.
+//!
+//! [`Client`] keeps one `HttpClient` (and its connection pool) for a worker's
+//! lifetime; the free function [`get`] is a one-shot convenience.
 
-/// GET `url`; returns (status, body).
-pub fn get(_url: &str, _user_agent: &str) -> Result<(u16, String), String> {
-    Err("http not implemented".into())
+use std::fmt;
+use std::sync::mpsc::{self, RecvTimeoutError};
+use std::time::{Duration, Instant};
+use windows::core::{h, RuntimeType, HSTRING};
+use windows::Foundation::{AsyncOperationWithProgressCompletedHandler, AsyncStatus, IAsyncOperationWithProgress, Uri};
+use windows::Storage::Streams::{DataReader, IBuffer};
+use windows::Web::Http::{HttpClient, HttpResponseMessage, IHttpContent};
+use windows::Win32::Foundation::RPC_E_CHANGED_MODE;
+use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_MULTITHREADED};
+
+pub use pure::parse_retry_after;
+use pure::{decode_body, network_detail};
+
+/// Budget for one request: connect + headers + body.
+pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(8);
+
+/// Bodies larger than this are refused (nothing Poni fetches comes close).
+const MAX_BODY_BYTES: u64 = 8 * 1024 * 1024;
+
+/// A complete response.
+#[derive(Clone, Debug)]
+pub struct Response {
+    pub status: u16,
+    /// The body decoded as UTF-8 (BOM stripped, invalid bytes replaced).
+    pub body: String,
+    /// Seconds the server asked us to wait (`Retry-After`, delta or HTTP-date).
+    pub retry_after_s: Option<u64>,
+}
+
+/// Why a request produced no response.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FetchError {
+    /// Nothing arrived within the timeout; the request was cancelled.
+    Timeout,
+    /// DNS, connect or TLS failure: no working path to the server.
+    Network(String),
+    /// Anything else (bad URL, COM failure, oversized or unreadable body, …).
+    Other(String),
+}
+
+impl fmt::Display for FetchError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FetchError::Timeout => f.write_str("timed out"),
+            FetchError::Network(s) | FetchError::Other(s) => f.write_str(s),
+        }
+    }
+}
+
+/// Keeps the calling thread in the multithreaded COM apartment for the
+/// guard's lifetime. Balanced: `CoUninitialize` runs on drop only when the
+/// matching `CoInitializeEx` succeeded (`S_OK` or `S_FALSE`). A thread that is
+/// already single-threaded (`RPC_E_CHANGED_MODE`) is left alone; WinRT works
+/// there too, but such a thread is probably a UI thread and must not block.
+pub struct MtaGuard {
+    initialized: bool,
+}
+
+impl MtaGuard {
+    pub fn new() -> Self {
+        let hr = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
+        if hr == RPC_E_CHANGED_MODE {
+            crate::pwarn!("http: called on a single-threaded apartment thread; requests block this thread");
+        } else if let Err(e) = hr.ok() {
+            crate::pwarn!("http: CoInitializeEx failed ({e})");
+        }
+        Self { initialized: hr.is_ok() }
+    }
+}
+
+impl Default for MtaGuard {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Drop for MtaGuard {
+    fn drop(&mut self) {
+        if self.initialized {
+            unsafe { CoUninitialize() };
+        }
+    }
+}
+
+/// A reusable HTTP client that sends a fixed `User-Agent`.
+///
+/// Create and use it on one worker thread that is in a COM apartment (see
+/// [`MtaGuard`]); drop it before that apartment is left.
+pub struct Client {
+    http: HttpClient,
+}
+
+impl Client {
+    pub fn new(user_agent: &str) -> Result<Self, FetchError> {
+        let http = HttpClient::new().map_err(|e| other("could not create an HTTP client", &e))?;
+        let headers = http.DefaultRequestHeaders().map_err(|e| other("could not set request headers", &e))?;
+        let ua = HSTRING::from(user_agent);
+        // The typed collection validates "product/version (comment)"; fall
+        // back to the raw header if a future UA string doesn't parse.
+        let parsed = headers.UserAgent().and_then(|c| c.TryParseAdd(&ua)).unwrap_or(false);
+        if !parsed && !headers.TryAppendWithoutValidation(h!("User-Agent"), &ua).unwrap_or(false) {
+            crate::pwarn!("http: could not set the User-Agent header");
+        }
+        Ok(Self { http })
+    }
+
+    /// GET `url`. Any HTTP status counts as a response; only a missing
+    /// response is an error.
+    pub fn get(&self, url: &str, timeout: Duration) -> Result<Response, FetchError> {
+        let deadline = Instant::now() + timeout;
+        let uri = Uri::CreateUri(&HSTRING::from(url)).map_err(|e| other("invalid URL", &e))?;
+        let op = self.http.GetAsync(&uri).map_err(classify)?;
+        let resp = wait(&op, deadline)?;
+        let out = read_response(&resp, deadline);
+        let _ = resp.Close();
+        out
+    }
+}
+
+impl Drop for Client {
+    fn drop(&mut self) {
+        let _ = self.http.Close();
+    }
+}
+
+/// GET `url`; returns (status, body). Worker threads only.
+#[allow(dead_code)] // shared helper for services that need a one-off GET
+pub fn get(url: &str, user_agent: &str) -> Result<(u16, String), String> {
+    get_full(url, user_agent, DEFAULT_TIMEOUT).map(|r| (r.status, r.body)).map_err(|e| e.to_string())
+}
+
+/// GET `url` with a one-shot client, returning the full [`Response`]
+/// (including `Retry-After`). Worker threads only.
+#[allow(dead_code)] // shared helper for services that need a one-off GET
+pub fn get_full(url: &str, user_agent: &str, timeout: Duration) -> Result<Response, FetchError> {
+    let _com = MtaGuard::new();
+    let client = Client::new(user_agent)?;
+    client.get(url, timeout)
+    // `client` drops (and releases its COM object) before `_com`.
+}
+
+fn read_response(resp: &HttpResponseMessage, deadline: Instant) -> Result<Response, FetchError> {
+    let status = resp.StatusCode().map_err(|e| other("response without a status", &e))?;
+    let status = status.0.clamp(0, u16::MAX as i32) as u16;
+    let retry_after_s = header(resp, "Retry-After").and_then(|v| parse_retry_after(&v, crate::clock::unix_now()));
+    let body = match resp.Content() {
+        Ok(content) => {
+            let body = read_body(&content, deadline);
+            let _ = content.Close();
+            body?
+        }
+        // No content object at all (e.g. some 204/304 replies).
+        Err(_) => String::new(),
+    };
+    Ok(Response { status, body, retry_after_s })
+}
+
+fn read_body(content: &IHttpContent, deadline: Instant) -> Result<String, FetchError> {
+    if let Ok(len) = content.Headers().and_then(|h| h.ContentLength()).and_then(|r| r.Value()) {
+        if len > MAX_BODY_BYTES {
+            return Err(FetchError::Other(format!("response too large ({len} bytes)")));
+        }
+    }
+    let op = content.ReadAsBufferAsync().map_err(classify)?;
+    let buf = wait(&op, deadline)?;
+    let bytes = buffer_bytes(&buf)?;
+    Ok(decode_body(&bytes))
+}
+
+fn buffer_bytes(buf: &IBuffer) -> Result<Vec<u8>, FetchError> {
+    let len = buf.Length().map_err(|e| other("unreadable response body", &e))?;
+    if len == 0 {
+        return Ok(Vec::new());
+    }
+    if u64::from(len) > MAX_BODY_BYTES {
+        return Err(FetchError::Other(format!("response too large ({len} bytes)")));
+    }
+    let reader = DataReader::FromBuffer(buf).map_err(|e| other("unreadable response body", &e))?;
+    let mut bytes = vec![0u8; len as usize];
+    reader.ReadBytes(&mut bytes).map_err(|e| other("unreadable response body", &e))?;
+    // Give the buffer back instead of closing it with the reader.
+    let _ = reader.DetachBuffer();
+    Ok(bytes)
+}
+
+fn header(resp: &HttpResponseMessage, name: &str) -> Option<String> {
+    let headers = resp.Headers().ok()?;
+    let key = HSTRING::from(name);
+    // `Lookup` fails on a missing key, so ask first.
+    if !headers.HasKey(&key).unwrap_or(false) {
+        return None;
+    }
+    headers.Lookup(&key).ok().map(|v| v.to_string_lossy())
+}
+
+/// Block until `op` finishes or `deadline` passes (then cancel it).
+fn wait<T, P>(op: &IAsyncOperationWithProgress<T, P>, deadline: Instant) -> Result<T, FetchError>
+where
+    T: RuntimeType + 'static,
+    P: RuntimeType + 'static,
+{
+    if op.Status().map_err(classify)? == AsyncStatus::Started {
+        let (tx, rx) = mpsc::channel::<()>();
+        // Runs on a thread-pool thread, or right away if `op` already finished.
+        let done = AsyncOperationWithProgressCompletedHandler::new(move |_, _| {
+            let _ = tx.send(());
+            Ok(())
+        });
+        op.SetCompleted(&done).map_err(classify)?;
+        let left = deadline.saturating_duration_since(Instant::now());
+        if let Err(RecvTimeoutError::Timeout) = rx.recv_timeout(left) {
+            let _ = op.Cancel();
+            return Err(FetchError::Timeout);
+        }
+    }
+    match op.Status().map_err(classify)? {
+        // For `Error`, GetResults returns the operation's failure code.
+        AsyncStatus::Completed | AsyncStatus::Error => op.GetResults().map_err(classify),
+        AsyncStatus::Canceled => Err(FetchError::Other("request cancelled".into())),
+        _ => {
+            // The completion handler went away without firing.
+            let _ = op.Cancel();
+            Err(FetchError::Timeout)
+        }
+    }
+}
+
+fn classify(e: windows::core::Error) -> FetchError {
+    let code = e.code().0 as u32;
+    // WinINet / WinHTTP errors are Win32 codes 12001..=12199 (HRESULT 0x80072EE1..).
+    let win32 = if code & 0xFFFF_0000 == 0x8007_0000 { code & 0xFFFF } else { 0 };
+    match win32 {
+        12002 => FetchError::Timeout,
+        12001..=12199 => FetchError::Network(format!("{} (0x{code:08X})", network_detail(win32))),
+        _ => other("request failed", &e),
+    }
+}
+
+fn other(what: &str, e: &windows::core::Error) -> FetchError {
+    let msg = e.message();
+    let msg = msg.trim();
+    if msg.is_empty() {
+        FetchError::Other(format!("{what} (0x{:08X})", e.code().0 as u32))
+    } else {
+        FetchError::Other(format!("{what}: {msg} (0x{:08X})", e.code().0 as u32))
+    }
+}
+
+/// OS-free helpers (unit-tested on any host).
+mod pure {
+    use poni_core::datetime::{days_from_civil, days_in_month};
+
+    /// Seconds to wait according to a `Retry-After` value: delta-seconds
+    /// (`"120"`) or an HTTP-date (IMF-fixdate or the obsolete RFC 850 form),
+    /// relative to `now_unix`. A date in the past means "now" (0).
+    pub fn parse_retry_after(value: &str, now_unix: i64) -> Option<u64> {
+        let v = value.trim();
+        if v.is_empty() {
+            return None;
+        }
+        if v.bytes().all(|b| b.is_ascii_digit()) {
+            // An absurdly long delta saturates; callers clamp it anyway.
+            return Some(v.parse::<u64>().unwrap_or(u64::MAX));
+        }
+        let at = parse_http_date(v)?;
+        Some(at.saturating_sub(now_unix).max(0) as u64)
+    }
+
+    /// `"Sun, 06 Nov 1994 08:49:37 GMT"` or `"Sunday, 06-Nov-94 08:49:37 GMT"`
+    /// → unix seconds.
+    pub fn parse_http_date(s: &str) -> Option<i64> {
+        let (_weekday, rest) = s.split_once(',')?;
+        let mut parts = rest.split_whitespace();
+        let first = parts.next()?;
+        let (day, mon, year) = if first.contains('-') {
+            // RFC 850: 06-Nov-94
+            let mut dmy = first.split('-');
+            let day = dmy.next()?;
+            let mon = dmy.next()?;
+            let yy: i32 = dmy.next()?.parse().ok()?;
+            let year = if yy < 100 { if yy < 70 { 2000 + yy } else { 1900 + yy } } else { yy };
+            (day, mon, year)
+        } else {
+            (first, parts.next()?, parts.next()?.parse().ok()?)
+        };
+        let day: u8 = day.parse().ok()?;
+        let month = month_number(mon)?;
+        let mut hms = parts.next()?.split(':');
+        let hour: i64 = hms.next()?.parse().ok()?;
+        let minute: i64 = hms.next()?.parse().ok()?;
+        let second: i64 = hms.next()?.parse().ok()?;
+        if hms.next().is_some() || !matches!(parts.next()?, "GMT" | "UTC") || parts.next().is_some() {
+            return None;
+        }
+        if !(1970..=9999).contains(&year)
+            || day == 0
+            || day > days_in_month(year, month)
+            || hour > 23
+            || minute > 59
+            || second > 60
+        {
+            return None;
+        }
+        Some(days_from_civil(year, month, day) * 86_400 + hour * 3600 + minute * 60 + second)
+    }
+
+    fn month_number(m: &str) -> Option<u8> {
+        const MONTHS: [&str; 12] = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+        let m = m.to_ascii_lowercase();
+        MONTHS.iter().position(|x| *x == m).map(|i| i as u8 + 1)
+    }
+
+    /// Response bytes → text: UTF-8 with an optional BOM; invalid sequences
+    /// become U+FFFD instead of failing the whole response.
+    pub fn decode_body(bytes: &[u8]) -> String {
+        let bytes = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
+        String::from_utf8_lossy(bytes).into_owned()
+    }
+
+    /// Short description of a WinINet/WinHTTP error code (Win32 12001..=12199).
+    pub fn network_detail(win32: u32) -> &'static str {
+        match win32 {
+            12007 => "server not found",
+            12029 => "could not connect",
+            12030 => "connection aborted",
+            12031 => "connection reset",
+            12152 => "invalid server response",
+            12157 | 12175 => "secure connection failed",
+            12037 | 12038 | 12044 | 12045 => "certificate problem",
+            _ => "network error",
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn retry_after_delta_seconds() {
+            assert_eq!(parse_retry_after("120", 0), Some(120));
+            assert_eq!(parse_retry_after("  7 ", 0), Some(7));
+            assert_eq!(parse_retry_after("0", 0), Some(0));
+            assert_eq!(parse_retry_after("99999999999999999999999", 0), Some(u64::MAX));
+            assert_eq!(parse_retry_after("", 0), None);
+            assert_eq!(parse_retry_after("-5", 0), None);
+            assert_eq!(parse_retry_after("soon", 0), None);
+        }
+
+        #[test]
+        fn retry_after_http_dates() {
+            // The RFC 9110 example date.
+            let t = parse_http_date("Sun, 06 Nov 1994 08:49:37 GMT");
+            assert_eq!(t, Some(784_111_777));
+            assert_eq!(parse_http_date("Sunday, 06-Nov-94 08:49:37 GMT"), Some(784_111_777));
+            assert_eq!(parse_retry_after("Sun, 06 Nov 1994 08:49:57 GMT", 784_111_777), Some(20));
+            // Already past → wait 0.
+            assert_eq!(parse_retry_after("Sun, 06 Nov 1994 08:49:37 GMT", 784_200_000), Some(0));
+            assert_eq!(parse_http_date("Thu, 29 Feb 2024 23:59:59 GMT"), Some(1_709_251_199));
+        }
+
+        #[test]
+        fn rejects_malformed_dates() {
+            assert_eq!(parse_http_date("Sun 06 Nov 1994 08:49:37 GMT"), None);
+            assert_eq!(parse_http_date("Sun, 31 Feb 2023 08:49:37 GMT"), None);
+            assert_eq!(parse_http_date("Sun, 06 Nov 1994 25:00:00 GMT"), None);
+            assert_eq!(parse_http_date("Sun, 06 Foo 1994 08:49:37 GMT"), None);
+            assert_eq!(parse_http_date("Sun, 06 Nov 1994 08:49:37 PST"), None);
+            assert_eq!(parse_http_date("Sun, 06 Nov 1994 08:49 GMT"), None);
+        }
+
+        #[test]
+        fn decodes_utf8_with_bom_and_garbage() {
+            assert_eq!(decode_body(b"\xEF\xBB\xBF{\"a\":1}"), "{\"a\":1}");
+            assert_eq!(decode_body("caf\u{e9}".as_bytes()), "caf\u{e9}");
+            assert_eq!(decode_body(b"ok\xFF"), "ok\u{FFFD}");
+            assert_eq!(decode_body(b""), "");
+        }
+
+        #[test]
+        fn names_common_network_errors() {
+            assert_eq!(network_detail(12007), "server not found");
+            assert_eq!(network_detail(12029), "could not connect");
+            assert_eq!(network_detail(12100), "network error");
+        }
+    }
 }
