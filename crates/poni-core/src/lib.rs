@@ -1,0 +1,21 @@
+//! Platform-independent models and logic for Poni.
+//!
+//! Everything here is pure Rust with no OS calls so it can be unit-tested on
+//! any machine. The Windows crate (`poni`) owns all I/O and rendering and
+//! feeds clocks/dates into these types.
+
+pub mod cliphist;
+pub mod datetime;
+pub mod geom;
+pub mod lrc;
+pub mod lrclib;
+pub mod pomodoro;
+pub mod settings;
+pub mod shelf;
+pub mod spring;
+pub mod store;
+pub mod svgpath;
+pub mod timeline;
+pub mod todo;
+pub mod urlenc;
+pub mod water;

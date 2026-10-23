@@ -1,0 +1,61 @@
+name: ci
+
+on:
+  push:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core:
+    name: Core logic tests (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test -p poni-core
+
+  windows:
+    name: Build, self-test and smoke-run (Windows)
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build release
+        run: cargo build -p poni --release
+
+      - name: Unit tests
+        run: cargo test --workspace --release
+
+      - name: Self-test (scripted screenshots)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path selftest-out | Out-Null
+          $p = Start-Process -FilePath target\release\poni.exe -ArgumentList "--selftest","selftest-out" -PassThru -Wait
+          "selftest exit code: $($p.ExitCode)"
+          if ($p.ExitCode -ne 0) { exit 1 }
+
+      - name: Smoke run (real desktop, hover, idle CPU/RAM)
+        shell: pwsh
+        run: ./tools/ci-smoke.ps1 -Exe target\release\poni.exe -Out smoke-out
+
+      - name: Upload screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: poni-screens
+          path: |
+            selftest-out
+            smoke-out
+          if-no-files-found: warn
+
+      - name: Upload poni.exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: poni-exe
+          path: target/release/poni.exe

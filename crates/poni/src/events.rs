@@ -1,0 +1,88 @@
+//! Messages from service threads to the UI thread.
+//!
+//! Services hold an [`EventSink`]. `send` pushes onto an mpsc channel and posts
+//! `WM_APP_EVENT` to the island window; the UI thread drains the channel.
+
+use crate::gfx::Image;
+use crate::state::{MediaSession, PowerState, SysStats};
+use poni_core::lrc::Lyrics;
+use poni_core::timeline::Timeline;
+use std::sync::mpsc::Sender;
+use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_APP};
+
+pub const WM_APP_EVENT: u32 = WM_APP + 1;
+pub const WM_APP_FRAME: u32 = WM_APP + 2;
+pub const WM_APP_TRAY: u32 = WM_APP + 3;
+pub const WM_APP_APPBAR: u32 = WM_APP + 4;
+
+/// An HWND that can cross threads (only used for PostMessage).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SendHwnd(pub isize);
+unsafe impl Send for SendHwnd {}
+unsafe impl Sync for SendHwnd {}
+
+impl SendHwnd {
+    pub fn new(h: HWND) -> Self {
+        Self(h.0 as isize)
+    }
+    pub fn hwnd(self) -> HWND {
+        HWND(self.0 as *mut core::ffi::c_void)
+    }
+}
+
+#[derive(Clone)]
+pub struct EventSink {
+    tx: Sender<AppEvent>,
+    hwnd: SendHwnd,
+}
+
+impl EventSink {
+    pub fn new(tx: Sender<AppEvent>, hwnd: SendHwnd) -> Self {
+        Self { tx, hwnd }
+    }
+
+    pub fn send(&self, ev: AppEvent) {
+        if self.tx.send(ev).is_ok() {
+            unsafe {
+                let _ = PostMessageW(self.hwnd.hwnd(), WM_APP_EVENT, WPARAM(0), LPARAM(0));
+            }
+        }
+    }
+
+    pub fn hwnd(&self) -> SendHwnd {
+        self.hwnd
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum LyricsResult {
+    Found { lyrics: Lyrics, source: String },
+    NotFound,
+    Error(String),
+}
+
+pub enum AppEvent {
+    /// The current media session changed (None = nothing playing / no session).
+    Media(Option<MediaSession>),
+    /// Only the timeline/playback state of the current track changed.
+    MediaTimeline { track_key: String, timeline: Timeline },
+    /// Album art finished decoding for a track.
+    MediaArt { track_key: String, art: Option<Image> },
+    Lyrics { track_key: String, result: LyricsResult },
+    /// Master volume changed (0..=1).
+    Volume { level: f32, muted: bool },
+    Power(PowerState),
+    Bluetooth { name: String, connected: bool, battery: Option<u8>, audio: bool },
+    /// A full-screen app took over (or left) the island's monitor.
+    Fullscreen(bool),
+    /// Files dropped on the island.
+    ShelfAdd(Vec<String>),
+    /// Files are being dragged over the island (true) or left (false).
+    DragHover(bool),
+    ShelfThumb { path: String, image: Option<Image> },
+    Stats(SysStats),
+    ClipboardText(String),
+    /// Free-form log line from a service thread.
+    Log(String),
+}
