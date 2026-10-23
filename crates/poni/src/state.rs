@@ -169,6 +169,8 @@ pub struct AppState {
     /// The page currently shown when expanded.
     pub page: PageKind,
     pub pinned: bool,
+    /// Files are being dragged over the island right now.
+    pub drag_hover: bool,
     /// Side effects requested during the frame.
     pub cmds: Vec<Command>,
 }
@@ -202,6 +204,7 @@ impl AppState {
             water_last_reminded: None,
             page,
             pinned: false,
+            drag_hover: false,
             cmds: Vec::new(),
         }
     }

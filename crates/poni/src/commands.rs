@@ -38,6 +38,8 @@ pub enum Command {
     BlurText,
     /// Persist `AppState::store` soon.
     SaveStore,
+    /// Persist `AppState::settings` now (after a page toggled a setting).
+    SaveSettings,
     SetPage(PageKind),
     /// Keep the island open even when the cursor leaves.
     SetPinned(bool),

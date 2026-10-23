@@ -767,11 +767,13 @@ impl App {
                 self.st.save();
                 self.st.page = PageKind::Shelf;
                 self.drag_hover = false;
+                self.st.drag_hover = false;
                 self.expand();
                 pinfo!("shelf: {n} new item(s)");
             }
             AppEvent::DragHover(on) => {
                 self.drag_hover = on;
+                self.st.drag_hover = on;
                 if on {
                     self.st.page = PageKind::Shelf;
                     self.expand();
@@ -1149,6 +1151,12 @@ impl App {
                 }
                 Command::FocusText => self.focus_text(),
                 Command::BlurText => self.blur_text(),
+                Command::SaveSettings => {
+                    self.st.pomodoro.cfg = self.st.settings.pomodoro.clone();
+                    if let Err(e) = save_json_atomic(&paths::settings_path(), &self.st.settings) {
+                        pwarn!("saving settings failed: {e}");
+                    }
+                }
                 Command::SaveStore => unsafe {
                     SetTimer(self.hwnd, TIMER_SAVE, 800, None);
                 },
