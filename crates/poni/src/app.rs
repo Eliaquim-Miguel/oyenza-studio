@@ -93,6 +93,7 @@ fn run(selftest_dir: Option<String>) -> Result<i32> {
     window::register_classes(island_wndproc, helper_wndproc)?;
     let hwnd = window::create_island_window()?;
     let helper = window::create_helper_window()?;
+    pinfo!("windows created");
 
     let (settings, err): (Settings, _) = load_json(&paths::settings_path());
     if let Some(e) = err {
@@ -112,6 +113,7 @@ fn run(selftest_dir: Option<String>) -> Result<i32> {
     let app = App::new(hwnd, helper, sink, rx, settings, store, selftest_dir)?;
     APP.with(|c| *c.borrow_mut() = Some(app));
     with_app(|app| app.start());
+    pinfo!("started; entering message loop");
 
     let mut msg = MSG::default();
     unsafe {
@@ -290,7 +292,19 @@ impl App {
             s.stop(self.helper);
         }
         dragdrop::revoke(self.hwnd);
+        unsafe {
+            let _ = DestroyWindow(self.hwnd);
+            let _ = DestroyWindow(self.helper);
+        }
         self.exit_code
+    }
+
+    /// Leave the message loop. Never call DestroyWindow while the app is
+    /// borrowed: WM_DESTROY would re-enter and be swallowed.
+    fn quit(&mut self, code: i32) {
+        self.exit_code = code;
+        self.clock.set_active(false);
+        unsafe { PostQuitMessage(code) };
     }
 
     pub fn request_frame(&mut self) {
@@ -486,13 +500,7 @@ impl App {
                 Some(LRESULT(0))
             }
             WM_CLOSE => {
-                unsafe {
-                    let _ = DestroyWindow(self.hwnd);
-                }
-                Some(LRESULT(0))
-            }
-            WM_DESTROY => {
-                unsafe { PostQuitMessage(self.exit_code) };
+                self.quit(0);
                 Some(LRESULT(0))
             }
             _ => None,
@@ -603,11 +611,10 @@ impl App {
                 if let Some(mut t) = self.selftest.take() {
                     let done = t.step(self);
                     if let Some(code) = done {
-                        self.exit_code = code;
                         unsafe {
                             let _ = KillTimer(self.hwnd, TIMER_SELFTEST);
-                            let _ = DestroyWindow(self.hwnd);
                         }
+                        self.quit(code);
                     }
                     self.selftest = Some(t);
                 }
@@ -649,10 +656,10 @@ impl App {
             }
             OpenDataFolder => shell::open(&paths::data_dir().to_string_lossy()),
             About => shell::open("https://lrclib.net"),
-            Quit => unsafe {
-                let _ = DestroyWindow(self.hwnd);
+            Quit => {
+                self.quit(0);
                 return;
-            },
+            }
         }
         let _ = save_json_atomic(&paths::settings_path(), &self.st.settings);
         self.request_frame();
