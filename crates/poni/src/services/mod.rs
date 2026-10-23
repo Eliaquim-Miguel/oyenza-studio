@@ -61,6 +61,13 @@ impl Services {
         }
     }
 
+    /// Explorer restarted: AppBar registrations are lost and must be redone.
+    pub fn on_taskbar_created(&self) {
+        if let Some(f) = &self.fullscreen {
+            f.on_taskbar_created();
+        }
+    }
+
     pub fn media_cmd(&self, c: MediaCmd) {
         if let Some(m) = &self.media {
             m.send(c);

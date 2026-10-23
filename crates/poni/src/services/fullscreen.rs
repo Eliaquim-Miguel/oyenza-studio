@@ -37,14 +37,17 @@ use windows::Win32::UI::Shell::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     FindWindowExW, GetClassNameW, GetForegroundWindow, GetWindowLongW, GetWindowRect, GetWindowThreadProcessId,
-    IsIconic, IsWindow, IsWindowVisible, IsZoomed, CHILDID_SELF, EVENT_OBJECT_DESTROY, EVENT_OBJECT_HIDE,
+    GetDesktopWindow, GetShellWindow, IsIconic, IsWindow, IsWindowVisible, IsZoomed, CHILDID_SELF, EVENT_OBJECT_DESTROY, EVENT_OBJECT_HIDE,
     EVENT_OBJECT_LOCATIONCHANGE, EVENT_SYSTEM_FOREGROUND, GWL_STYLE, OBJID_WINDOW, WINEVENT_OUTOFCONTEXT, WS_CAPTION,
     WS_THICKFRAME,
 };
 
 /// Desktop and shell surfaces that cover a whole monitor without being a
 /// full-screen app: the desktop, taskbars, and the Alt+Tab / Task View hosts.
-const SHELL_CLASSES: [&str; 7] = [
+const SHELL_CLASSES: [&str; 8] = [
+    // The desktop window itself (GetDesktopWindow); it can be "foreground"
+    // when nothing else is, e.g. right after the last window closes.
+    "#32769",
     "Progman",
     "WorkerW",
     "Shell_TrayWnd",
@@ -179,7 +182,6 @@ impl FullscreenWatcher {
 
     /// Re-register the AppBar after Explorer restarted (`TaskbarCreated`):
     /// a new shell has no record of the old registration.
-    #[allow(dead_code)] // wired up by the app's TaskbarCreated handler
     pub fn on_taskbar_created(&self) {
         if self.appbar.get() {
             unregister_appbar(self.helper);
@@ -487,6 +489,9 @@ fn spans(w: &Watch, hwnd: HWND, mon: &RECT) -> bool {
         }
         let mut r = RECT::default();
         if GetWindowRect(hwnd, &mut r).is_err() || !contains(&r, mon) {
+            return false;
+        }
+        if hwnd == GetDesktopWindow() || hwnd == GetShellWindow() {
             return false;
         }
         let mut pid = 0u32;

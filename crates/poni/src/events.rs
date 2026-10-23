@@ -58,6 +58,8 @@ impl EventSink {
 #[derive(Clone, Debug)]
 pub enum LyricsResult {
     Found { lyrics: Lyrics, source: String },
+    /// The song is marked instrumental (no words to show).
+    Instrumental,
     NotFound,
     Error(String),
 }

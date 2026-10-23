@@ -509,6 +509,7 @@ fn lyrics_view<'a>(lyr: &'a LyricsState, track_key: &str) -> View<'a> {
     }
     match &lyr.status {
         LyricsStatus::Loading => View::Status { msg: "Finding lyrics\u{2026}", busy: true },
+        LyricsStatus::Instrumental => View::Status { msg: "Instrumental", busy: false },
         LyricsStatus::NotFound => View::Status { msg: "No synced lyrics for this song", busy: false },
         LyricsStatus::Error(_) | LyricsStatus::Idle => View::Status { msg: "Lyrics unavailable", busy: false },
         LyricsStatus::Found => match &lyr.lyrics {

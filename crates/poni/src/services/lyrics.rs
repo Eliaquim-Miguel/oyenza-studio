@@ -426,6 +426,9 @@ impl Worker {
 }
 
 fn to_result(record: Option<&LrclibRecord>) -> LyricsResult {
+    if record.is_some_and(|r| r.instrumental) {
+        return LyricsResult::Instrumental;
+    }
     match record.and_then(lyrics_from_record) {
         Some(lyrics) => LyricsResult::Found { lyrics, source: SOURCE.into() },
         None => LyricsResult::NotFound,

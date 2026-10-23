@@ -206,6 +206,8 @@ pub struct App {
     own_clip: Option<String>,
     last_present: (i32, i32),
     exit_code: i32,
+    /// Settings as last written to disk (to diff page-made changes).
+    saved_settings: Settings,
 }
 
 impl App {
@@ -222,6 +224,7 @@ impl App {
         let clock = FrameClock::start(SendHwnd::new(hwnd));
         let taskbar_created_msg = unsafe { RegisterWindowMessageW(w!("TaskbarCreated")) };
         let selftest = selftest_dir.map(selftest::SelfTest::new);
+        let saved_settings = st.settings.clone();
         Ok(Self {
             hwnd,
             helper,
@@ -251,6 +254,7 @@ impl App {
             own_clip: None,
             last_present: (i32::MIN, i32::MIN),
             exit_code: 0,
+            saved_settings,
         })
     }
 
@@ -513,6 +517,9 @@ impl App {
                 t.remove();
             }
             self.tray = Tray::add(self.helper).ok();
+            if let Some(s) = self.services.as_ref() {
+                s.on_taskbar_created();
+            }
             return Some(LRESULT(0));
         }
         match msg {
@@ -624,8 +631,32 @@ impl App {
         self.request_frame();
     }
 
+    /// Apply side effects of a settings change (from the menu, a reload or a page).
+    fn settings_changed(&mut self, before: &Settings) {
+        let now = &self.st.settings;
+        if before.clipboard_history && !now.clipboard_history {
+            // Privacy: turning history off forgets everything, pinned items included.
+            self.st.clip = poni_core::cliphist::ClipHistory::default();
+            self.st.ui.clip_flash = None;
+            self.st.ui.clip_scroll = 0.0;
+        }
+        if !before.lyrics && now.lyrics {
+            if let Some(m) = self.st.media.clone() {
+                let stale = self.st.lyrics.track_key != m.track_key || self.st.lyrics.status == LyricsStatus::Idle;
+                if stale && !m.title.is_empty() {
+                    if let Some(svc) = self.services.as_ref() {
+                        self.st.lyrics = LyricsState { track_key: m.track_key.clone(), status: LyricsStatus::Loading, ..Default::default() };
+                        svc.request_lyrics(&m);
+                    }
+                }
+            }
+        }
+        self.st.pomodoro.cfg = self.st.settings.pomodoro.clone();
+    }
+
     fn on_menu(&mut self, cmd: tray::MenuCmd) {
         use tray::MenuCmd::*;
+        let before = self.st.settings.clone();
         let s = &mut self.st.settings;
         match cmd {
             ToggleIdleStyle(style) => s.idle_style = style,
@@ -651,7 +682,6 @@ impl App {
                     pwarn!("{e}");
                 }
                 self.st.settings = s2.sanitized();
-                self.st.pomodoro.cfg = self.st.settings.pomodoro.clone();
                 self.refresh_monitor();
             }
             OpenDataFolder => shell::open(&paths::data_dir().to_string_lossy()),
@@ -661,7 +691,9 @@ impl App {
                 return;
             }
         }
+        self.settings_changed(&before);
         let _ = save_json_atomic(&paths::settings_path(), &self.st.settings);
+        self.saved_settings = self.st.settings.clone();
         self.request_frame();
     }
 
@@ -725,6 +757,7 @@ impl App {
                             self.st.lyrics.lyrics = Some(lyrics);
                             self.st.lyrics.source = source;
                         }
+                        crate::events::LyricsResult::Instrumental => self.st.lyrics.status = LyricsStatus::Instrumental,
                         crate::events::LyricsResult::NotFound => self.st.lyrics.status = LyricsStatus::NotFound,
                         crate::events::LyricsResult::Error(e) => self.st.lyrics.status = LyricsStatus::Error(e),
                     }
@@ -1159,7 +1192,9 @@ impl App {
                 Command::FocusText => self.focus_text(),
                 Command::BlurText => self.blur_text(),
                 Command::SaveSettings => {
-                    self.st.pomodoro.cfg = self.st.settings.pomodoro.clone();
+                    let before = self.saved_settings.clone();
+                    self.settings_changed(&before);
+                    self.saved_settings = self.st.settings.clone();
                     if let Err(e) = save_json_atomic(&paths::settings_path(), &self.st.settings) {
                         pwarn!("saving settings failed: {e}");
                     }

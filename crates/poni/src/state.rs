@@ -52,6 +52,7 @@ pub enum LyricsStatus {
     Idle,
     Loading,
     Found,
+    Instrumental,
     NotFound,
     Error(String),
 }

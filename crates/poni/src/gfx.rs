@@ -522,13 +522,11 @@ impl Gfx {
                             sink.BeginFigure(pt(cur.0, cur.1), begin);
                             open = true;
                         }
-                        sink.AddArc(&D2D1_ARC_SEGMENT {
-                            point: pt(x, y),
-                            size: D2D_SIZE_F { width: rx, height: ry },
-                            rotationAngle: rot,
-                            sweepDirection: if sweep { D2D1_SWEEP_DIRECTION_CLOCKWISE } else { D2D1_SWEEP_DIRECTION_COUNTER_CLOCKWISE },
-                            arcSize: if large { D2D1_ARC_SIZE_LARGE } else { D2D1_ARC_SIZE_SMALL },
-                        });
+                        // Flatten to Béziers ourselves: native arc support varies
+                        // between Direct2D implementations (Wine draws chords).
+                        for c in poni_core::svgpath::arc_to_cubics(cur.0, cur.1, rx, ry, rot, large, sweep, x, y) {
+                            sink.AddBezier(&D2D1_BEZIER_SEGMENT { point1: pt(c[0], c[1]), point2: pt(c[2], c[3]), point3: pt(c[4], c[5]) });
+                        }
                         cur = (x, y);
                     }
                     Seg::Close => {

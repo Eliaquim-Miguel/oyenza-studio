@@ -204,6 +204,94 @@ pub fn parse(d: &str) -> Result<Vec<Seg>, ParseError> {
     Ok(out)
 }
 
+/// Convert an SVG elliptical arc (endpoint parameterisation) into cubic
+/// Bézier segments `[c1x, c1y, c2x, c2y, x, y]`, at most 90° each.
+///
+/// Renderers differ in how well they draw native arcs (Wine's Direct2D, for
+/// one, draws them as straight chords), so Poni always flattens arcs into
+/// Béziers itself. Follows SVG 1.1 appendix F.6.5/F.6.6. `sweep = true` is
+/// the positive-angle direction (clockwise on a y-down screen).
+#[allow(clippy::too_many_arguments)]
+pub fn arc_to_cubics(x1: f32, y1: f32, rx: f32, ry: f32, rot_deg: f32, large: bool, sweep: bool, x2: f32, y2: f32) -> Vec<[f32; 6]> {
+    let (x1d, y1d, x2d, y2d) = (x1 as f64, y1 as f64, x2 as f64, y2 as f64);
+    if (x1d - x2d).abs() < 1e-9 && (y1d - y2d).abs() < 1e-9 {
+        return Vec::new();
+    }
+    let (mut rx, mut ry) = ((rx as f64).abs(), (ry as f64).abs());
+    if rx < 1e-9 || ry < 1e-9 {
+        // Degenerate radius: a straight line (as a cubic with collinear controls).
+        return vec![[x1, y1, x2, y2, x2, y2]];
+    }
+    let phi = (rot_deg as f64).to_radians();
+    let (sin_p, cos_p) = phi.sin_cos();
+    let dx = (x1d - x2d) / 2.0;
+    let dy = (y1d - y2d) / 2.0;
+    let x1p = cos_p * dx + sin_p * dy;
+    let y1p = -sin_p * dx + cos_p * dy;
+    // Scale radii up if the arc can't reach the endpoint.
+    let lambda = (x1p * x1p) / (rx * rx) + (y1p * y1p) / (ry * ry);
+    if lambda > 1.0 {
+        let s = lambda.sqrt();
+        rx *= s;
+        ry *= s;
+    }
+    let num = rx * rx * ry * ry - rx * rx * y1p * y1p - ry * ry * x1p * x1p;
+    let den = rx * rx * y1p * y1p + ry * ry * x1p * x1p;
+    let mut coef = if den.abs() < 1e-12 { 0.0 } else { (num / den).max(0.0).sqrt() };
+    if large == sweep {
+        coef = -coef;
+    }
+    let cxp = coef * (rx * y1p / ry);
+    let cyp = coef * (-ry * x1p / rx);
+    let cx = cos_p * cxp - sin_p * cyp + (x1d + x2d) / 2.0;
+    let cy = sin_p * cxp + cos_p * cyp + (y1d + y2d) / 2.0;
+
+    let angle = |ux: f64, uy: f64, vx: f64, vy: f64| -> f64 {
+        let dot = ux * vx + uy * vy;
+        let len = (ux * ux + uy * uy).sqrt() * (vx * vx + vy * vy).sqrt();
+        let mut a = (dot / len).clamp(-1.0, 1.0).acos();
+        if ux * vy - uy * vx < 0.0 {
+            a = -a;
+        }
+        a
+    };
+    let ux = (x1p - cxp) / rx;
+    let uy = (y1p - cyp) / ry;
+    let vx = (-x1p - cxp) / rx;
+    let vy = (-y1p - cyp) / ry;
+    let theta1 = angle(1.0, 0.0, ux, uy);
+    let mut delta = angle(ux, uy, vx, vy);
+    let tau = std::f64::consts::TAU;
+    if !sweep && delta > 0.0 {
+        delta -= tau;
+    } else if sweep && delta < 0.0 {
+        delta += tau;
+    }
+
+    let n = ((delta.abs() / std::f64::consts::FRAC_PI_2) - 1e-9).ceil().max(1.0) as usize;
+    let step = delta / n as f64;
+    let k = 4.0 / 3.0 * (step / 4.0).tan();
+    let map = |ex: f64, ey: f64| -> (f32, f32) {
+        let x = rx * ex;
+        let y = ry * ey;
+        ((cos_p * x - sin_p * y + cx) as f32, (sin_p * x + cos_p * y + cy) as f32)
+    };
+    let mut out = Vec::with_capacity(n);
+    let mut t = theta1;
+    for i in 0..n {
+        let t2 = t + step;
+        let (s1, c1) = t.sin_cos();
+        let (s2, c2) = t2.sin_cos();
+        let p1 = map(c1 - k * s1, s1 + k * c1);
+        let p2 = map(c2 + k * s2, s2 - k * c2);
+        // Land exactly on the requested endpoint.
+        let p3 = if i + 1 == n { (x2, y2) } else { map(c2, s2) };
+        out.push([p1.0, p1.1, p2.0, p2.1, p3.0, p3.1]);
+        t = t2;
+    }
+    out
+}
+
 /// Convenience: SVG `<circle>` as path data (two arcs).
 pub fn circle(cx: f32, cy: f32, r: f32) -> String {
     format!("M{} {}a{r} {r} 0 1 0 {} 0a{r} {r} 0 1 0 {} 0", cx - r, cy, 2.0 * r, -2.0 * r)
@@ -268,6 +356,71 @@ mod tests {
         assert!(parse(&circle(12.0, 12.0, 10.0)).unwrap().len() == 3);
         assert!(parse(&rect(2.0, 2.0, 20.0, 20.0, 4.0)).is_ok());
         assert!(parse(&rect(2.0, 2.0, 20.0, 20.0, 0.0)).is_ok());
+    }
+
+    fn bezier_point(p0: (f32, f32), c: &[f32; 6], t: f32) -> (f32, f32) {
+        let mt = 1.0 - t;
+        let x = mt * mt * mt * p0.0 + 3.0 * mt * mt * t * c[0] + 3.0 * mt * t * t * c[2] + t * t * t * c[4];
+        let y = mt * mt * mt * p0.1 + 3.0 * mt * mt * t * c[1] + 3.0 * mt * t * t * c[3] + t * t * t * c[5];
+        (x, y)
+    }
+
+    /// Every sampled point of the flattened arc must lie on the circle.
+    fn assert_on_circle(start: (f32, f32), cubics: &[[f32; 6]], cx: f32, cy: f32, r: f32) {
+        let mut p0 = start;
+        for c in cubics {
+            for i in 0..=8 {
+                let (x, y) = bezier_point(p0, c, i as f32 / 8.0);
+                let d = ((x - cx).powi(2) + (y - cy).powi(2)).sqrt();
+                assert!((d - r).abs() < r * 0.003 + 1e-3, "point ({x},{y}) is {d} from centre, want {r}");
+            }
+            p0 = (c[4], c[5]);
+        }
+    }
+
+    #[test]
+    fn quarter_arc_clockwise() {
+        // (10,0) → (0,10) around the origin, sweep=1 (clockwise on screen), small arc.
+        let c = arc_to_cubics(10.0, 0.0, 10.0, 10.0, 0.0, false, true, 0.0, 10.0);
+        assert_eq!(c.len(), 1);
+        assert_eq!((c[0][4], c[0][5]), (0.0, 10.0));
+        assert_on_circle((10.0, 0.0), &c, 0.0, 0.0, 10.0);
+    }
+
+    #[test]
+    fn large_arc_goes_the_long_way() {
+        // Same endpoints, large arc, sweep=0 → 270° around the origin.
+        let c = arc_to_cubics(10.0, 0.0, 10.0, 10.0, 0.0, true, false, 0.0, 10.0);
+        assert_eq!(c.len(), 3);
+        assert_on_circle((10.0, 0.0), &c, 0.0, 0.0, 10.0);
+    }
+
+    #[test]
+    fn half_circles_from_helper() {
+        // The circle helper: two 180° arcs about (12,12) r=9.
+        let segs = parse(&circle(12.0, 12.0, 9.0)).unwrap();
+        let mut cur = (0.0, 0.0);
+        for s in segs {
+            match s {
+                Seg::MoveTo(x, y) => cur = (x, y),
+                Seg::ArcTo(rx, ry, rot, large, sweep, x, y) => {
+                    let c = arc_to_cubics(cur.0, cur.1, rx, ry, rot, large, sweep, x, y);
+                    assert_eq!(c.len(), 2);
+                    assert_on_circle(cur, &c, 12.0, 12.0, 9.0);
+                    cur = (x, y);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    #[test]
+    fn radii_scale_up_and_degenerate_cases() {
+        // Radius too small to span the endpoints: scaled to a half circle of r=5.
+        let c = arc_to_cubics(0.0, 0.0, 1.0, 1.0, 0.0, false, true, 10.0, 0.0);
+        assert_on_circle((0.0, 0.0), &c, 5.0, 0.0, 5.0);
+        assert!(arc_to_cubics(1.0, 1.0, 5.0, 5.0, 0.0, false, true, 1.0, 1.0).is_empty());
+        assert_eq!(arc_to_cubics(0.0, 0.0, 0.0, 5.0, 0.0, false, true, 4.0, 0.0).len(), 1);
     }
 
     #[test]
