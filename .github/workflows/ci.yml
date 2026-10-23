@@ -8,6 +8,10 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # Keep in sync with Cargo.toml's workspace version and installer/poni.iss.
+  PONI_VERSION: "0.1.0"
+
 jobs:
   core:
     name: Core logic tests (Linux)
@@ -19,7 +23,7 @@ jobs:
       - run: cargo test -p poni-core
 
   windows:
-    name: Build, self-test and smoke-run (Windows)
+    name: Build, self-test, smoke-run and package (Windows)
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v4
@@ -35,14 +39,53 @@ jobs:
       - name: Self-test (scripted screenshots)
         shell: pwsh
         run: |
+          # Park the cursor mid-screen so a hover can't change the scripted states.
+          Add-Type -AssemblyName System.Windows.Forms
+          Add-Type -Namespace PoniCi -Name User32 -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);'
+          $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          [PoniCi.User32]::SetCursorPos([int]($b.Width / 2), [int]($b.Height / 2)) | Out-Null
+
           New-Item -ItemType Directory -Force -Path selftest-out | Out-Null
-          $p = Start-Process -FilePath target\release\poni.exe -ArgumentList "--selftest","selftest-out" -PassThru -Wait
-          "selftest exit code: $($p.ExitCode)"
-          if ($p.ExitCode -ne 0) { exit 1 }
+          $p = Start-Process -FilePath target\release\poni.exe -ArgumentList "--selftest","selftest-out" -PassThru
+          $null = $p.Handle  # keep the handle so ExitCode is available after exit
+          if (-not $p.WaitForExit(120000)) {
+            Stop-Process -Id $p.Id -Force
+            Write-Host "self-test did not finish within 120 s"
+            $code = -1
+          } else {
+            $code = $p.ExitCode
+          }
+          "selftest exit code: $code"
+
+          "---- report.json"
+          if (Test-Path selftest-out\report.json) { Get-Content selftest-out\report.json -Raw } else { "(missing)" }
+          "---- screenshots"
+          Get-ChildItem selftest-out -Filter *.png | ForEach-Object { "  $($_.Name)  $($_.Length) bytes" }
+
+          if ($code -ne 0) {
+            "---- poni.log (tail)"
+            Get-Content selftest-out\home\cache\poni.log -Tail 80 -ErrorAction SilentlyContinue
+            exit 1
+          }
 
       - name: Smoke run (real desktop, hover, idle CPU/RAM)
         shell: pwsh
         run: ./tools/ci-smoke.ps1 -Exe target\release\poni.exe -Out smoke-out
+
+      - name: Build installer (Inno Setup)
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $iscc = (Get-Command iscc.exe -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) {
+            $iscc = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe") |
+              Where-Object { Test-Path $_ } | Select-Object -First 1
+          }
+          if (-not $iscc) { Write-Error "ISCC.exe not found after installing Inno Setup"; exit 1 }
+          & $iscc "/DAppVersion=$env:PONI_VERSION" installer\poni.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-Item "dist\Poni-Setup-$env:PONI_VERSION.exe" | Format-List Name, Length
 
       - name: Upload screenshots and logs
         if: always()
@@ -59,3 +102,36 @@ jobs:
         with:
           name: poni-exe
           path: target/release/poni.exe
+          if-no-files-found: error
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: poni-setup
+          path: dist/Poni-Setup-${{ env.PONI_VERSION }}.exe
+          if-no-files-found: error
+
+  release:
+    name: GitHub Release (tags v*)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [core, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: poni-exe
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: poni-setup
+          path: dist
+      - name: Attach poni.exe and the installer
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/poni.exe
+            dist/Poni-Setup-${{ env.PONI_VERSION }}.exe
+          fail_on_unmatched_files: true
+          generate_release_notes: true
