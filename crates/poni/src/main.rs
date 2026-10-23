@@ -37,6 +37,7 @@ mod island;
 mod pages;
 #[cfg(windows)]
 mod paths;
+#[cfg(windows)] mod png;
 #[cfg(windows)]
 mod selftest;
 #[cfg(windows)]
