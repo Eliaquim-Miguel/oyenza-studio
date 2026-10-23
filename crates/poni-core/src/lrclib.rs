@@ -162,11 +162,11 @@ pub fn normalize_query(q: &TrackQuery) -> TrackQuery {
 
     title = strip_decorations(&title);
     // Remove "feat." parts from the title; LRCLIB keys usually omit them.
-    for marker in [" (feat.", " (ft.", " feat. ", " ft. ", " (with "] {
-        if let Some(i) = title.to_lowercase().find(marker.trim_start()) {
-            if i > 0 {
-                title = title[..i].trim().to_string();
-            }
+    // ASCII-only matching keeps byte offsets valid for the original string
+    // (`to_lowercase` changes the length of e.g. "İ" and the Kelvin sign).
+    for marker in ["(feat.", "(ft.", "[feat.", "[ft.", "feat.", "ft.", "(with "] {
+        if let Some(i) = find_marker(&title, marker) {
+            title = title[..i].trim().to_string();
         }
     }
     // Primary artist only ("A, B & C" → "A") for the search fallback.
@@ -223,14 +223,52 @@ fn strip_decorations(s: &str) -> String {
             break;
         }
     }
-    // " - Remastered 2011" style suffixes.
-    if let Some(i) = out.to_lowercase().rfind(" - ") {
+    // " - Remastered 2011" style suffixes. The separator is searched in `out`
+    // itself so the index is valid for slicing it.
+    if let Some(i) = out.rfind(" - ") {
         let tail = out[i + 3..].to_lowercase();
         if tail.contains("remaster") || tail.contains("live") && tail.contains("version") || tail.starts_with("mono") {
             out = out[..i].trim().to_string();
         }
     }
     out
+}
+
+/// Byte index of the first ASCII-case-insensitive occurrence of `needle` in
+/// `hay`. Only ASCII letters are folded, so the index always lies on a char
+/// boundary of `hay` and can be used to slice it.
+pub fn find_ascii_ci(hay: &str, needle: &str) -> Option<usize> {
+    find_ascii_ci_from(hay, needle, 0)
+}
+
+fn find_ascii_ci_from(hay: &str, needle: &str, from: usize) -> Option<usize> {
+    let (h, n) = (hay.as_bytes(), needle.as_bytes());
+    if n.is_empty() {
+        return (from <= h.len()).then_some(from);
+    }
+    if n.len() > h.len() {
+        return None;
+    }
+    (from..=h.len() - n.len()).find(|&i| h[i..i + n.len()].eq_ignore_ascii_case(n))
+}
+
+/// Where a "feat." style `marker` starts in `title`, if it does so after some
+/// text and at a word start ("Defeat." and "Left." are not markers).
+fn find_marker(title: &str, marker: &str) -> Option<usize> {
+    let mut from = 0;
+    while let Some(i) = find_ascii_ci_from(title, marker, from) {
+        let at_word_start = marker.starts_with(['(', '['])
+            || title[..i].chars().next_back().is_some_and(|c| !c.is_alphanumeric());
+        if i > 0 && at_word_start {
+            return Some(i);
+        }
+        from = i + 1;
+        // Step to the next char boundary (the match start is ASCII, so i + 1 is one).
+        while from < title.len() && !title.is_char_boundary(from) {
+            from += 1;
+        }
+    }
+    None
 }
 
 /// Stable file-name-safe cache key for a query.
@@ -278,6 +316,52 @@ mod tests {
         // A hyphen in a real title with a non-matching artist stays put.
         let n = normalize_query(&q("Up - Down", "Other Band", "", 0));
         assert_eq!(n.title, "Up - Down");
+    }
+
+    #[test]
+    fn non_ascii_case_folding_does_not_panic() {
+        // "İ" lowercases to 3 bytes (from 2) and the Kelvin sign "K" to 1 byte
+        // (from 3), so lowercase indexes do not fit the original string.
+        let n = normalize_query(&q("İzmir - Çiçek", "Other", "", 0));
+        assert_eq!(n.title, "İzmir - Çiçek");
+        let n = normalize_query(&q("İİ - X", "", "", 0));
+        assert_eq!((n.artist.as_str(), n.title.as_str()), ("İİ", "X"));
+        let n = normalize_query(&q("İİ - X", "Someone", "", 0));
+        assert_eq!(n.title, "İİ - X");
+        let n = normalize_query(&q("Kelvin \u{212A} feat. Y", "Kelvin", "", 0));
+        assert_eq!(n.title, "Kelvin \u{212A}");
+        let n = normalize_query(&q("\u{212A}\u{212A}\u{212A} (Ft. Y)", "", "", 0));
+        assert_eq!(n.title, "\u{212A}\u{212A}\u{212A}");
+        let n = normalize_query(&q("GİTME (Official Video)", "Artist", "", 0));
+        assert_eq!(n.title, "GİTME");
+        let n = normalize_query(&q("GİTME - Remastered 2011", "Artist", "İİ (Official Audio)", 0));
+        assert_eq!(n.title, "GİTME");
+        assert_eq!(n.album, "İİ");
+        assert_eq!(strip_decorations("İİ - X"), "İİ - X");
+        assert_eq!(strip_decorations("İİ - Remastered"), "İİ");
+        assert_eq!(strip_decorations("ÇİÇEK [Lyrics]"), "ÇİÇEK");
+    }
+
+    #[test]
+    fn feat_markers_need_a_word_start() {
+        assert_eq!(normalize_query(&q("Accept Defeat. Again", "A", "", 0)).title, "Accept Defeat. Again");
+        assert_eq!(normalize_query(&q("Turn Left. Now", "A", "", 0)).title, "Turn Left. Now");
+        assert_eq!(normalize_query(&q("Defeat. Song ft. B", "A", "", 0)).title, "Defeat. Song");
+        assert_eq!(normalize_query(&q("Song FEAT. B", "A", "", 0)).title, "Song");
+        assert_eq!(normalize_query(&q("Song [ft. B]", "A", "", 0)).title, "Song");
+        assert_eq!(normalize_query(&q("Song (with B)", "A", "", 0)).title, "Song");
+        assert_eq!(normalize_query(&q("feat. Only", "A", "", 0)).title, "feat. Only");
+    }
+
+    #[test]
+    fn ascii_ci_find() {
+        assert_eq!(find_ascii_ci("Song FEAT. x", "feat."), Some(5));
+        assert_eq!(find_ascii_ci("İİ feat. x", "feat."), Some(5));
+        assert_eq!(find_ascii_ci("\u{212A} ft.", "ft."), Some(4));
+        assert_eq!(find_ascii_ci("abc", "abcd"), None);
+        assert_eq!(find_ascii_ci("abc", ""), Some(0));
+        // The Kelvin sign is not ASCII "k".
+        assert_eq!(find_ascii_ci("\u{212A}", "k"), None);
     }
 
     #[test]

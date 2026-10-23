@@ -142,6 +142,17 @@ impl Pomodoro {
         self.cycle_done = 0;
     }
 
+    /// Switch to `phase` (e.g. picked by the user), stopped at its start.
+    /// Picking anything but a long break while one is due counts as skipping
+    /// it, so the cycle restarts, as it does when a long break finishes.
+    pub fn set_phase(&mut self, phase: Phase) {
+        self.phase = phase;
+        self.run = RunState::Idle;
+        if phase != Phase::LongBreak && self.cfg.long_every > 0 && self.cycle_done >= self.cfg.long_every {
+            self.cycle_done = 0;
+        }
+    }
+
     fn next_phase(&self, ended: Phase, cycle_done_after: u32) -> Phase {
         match ended {
             Phase::Focus => {
@@ -244,6 +255,62 @@ mod tests {
         p.skip(10.0);
         assert_eq!(p.cycle_done, 0);
         assert_eq!(p.phase, Phase::ShortBreak);
+    }
+
+    #[test]
+    fn set_phase_stops_at_start_of_phase() {
+        let mut p = pomo();
+        p.start(0.0);
+        p.set_phase(Phase::ShortBreak);
+        assert_eq!(p.phase, Phase::ShortBreak);
+        assert_eq!(p.run, RunState::Idle);
+        assert_eq!(p.remaining(50.0), 300.0);
+        assert!(p.tick(99999.0).is_none());
+        p.start(10.0);
+        p.pause(20.0);
+        p.set_phase(Phase::Focus);
+        assert_eq!(p.run, RunState::Idle);
+        assert_eq!(p.remaining(30.0), 1500.0);
+    }
+
+    #[test]
+    fn set_phase_resets_a_due_cycle_unless_long_break() {
+        let mut p = pomo(); // long_every = 2
+        p.cycle_done = 2;
+        p.set_phase(Phase::LongBreak);
+        assert_eq!(p.cycle_done, 2, "taking the due long break keeps the count");
+        p.set_phase(Phase::Focus);
+        assert_eq!(p.cycle_done, 0, "skipping the due long break restarts the cycle");
+
+        p.cycle_done = 3;
+        p.set_phase(Phase::ShortBreak);
+        assert_eq!(p.cycle_done, 0);
+
+        p.cycle_done = 1;
+        p.set_phase(Phase::ShortBreak);
+        assert_eq!(p.cycle_done, 1, "not yet due: keep progress");
+        p.set_phase(Phase::Focus);
+        assert_eq!(p.cycle_done, 1);
+    }
+
+    #[test]
+    fn set_phase_with_long_breaks_off_keeps_count() {
+        let mut p = pomo();
+        p.cfg.long_every = 0;
+        p.cycle_done = 5;
+        p.set_phase(Phase::Focus);
+        assert_eq!(p.cycle_done, 5);
+    }
+
+    #[test]
+    fn long_break_finishing_after_set_phase_resets_cycle() {
+        let mut p = pomo();
+        p.cycle_done = 2;
+        p.set_phase(Phase::LongBreak);
+        p.start(0.0);
+        let e = p.tick(900.0).unwrap();
+        assert_eq!((e.ended, e.next), (Phase::LongBreak, Phase::Focus));
+        assert_eq!(p.cycle_done, 0);
     }
 
     #[test]
