@@ -50,7 +50,7 @@ Native Rust, no web view, no runtime, around 1.7 MB, and **zero CPU while nothin
 <tr><td width="84" align="center"><img src="docs/brand/art/poses/oyen-tasks.webp" width="64" alt=""></td><td><b>Tasks</b><br>A tiny to-do list</td></tr>
 <tr><td width="84" align="center"><img src="docs/brand/art/poses/oyen-clipboard.webp" width="64" alt=""></td><td><b>Clipboard</b><br>Recent copied text, kept in memory only. It skips anything password managers mark as private.</td></tr>
 <tr><td width="84" align="center"><img src="docs/brand/art/poses/oyen-today.webp" width="64" alt=""></td><td><b>Today</b><br>Date and calendar, plus CPU, memory, disk and battery. Click a ring to open it on the System page</td></tr>
-<tr><td width="84" align="center"></td><td><b>System</b><br>CPU, memory, drives, network and battery, each with the last minute of history and the apps using the most. Readings run only while the page is open, without drivers or admin rights, and never leave your PC</td></tr>
+<tr><td width="84" align="center"></td><td><b>System</b><br>CPU, GPU, memory, drives, network and battery: rings and gauges, each core's load, the last minute of history and the processes using the most. Read straight from Windows' own kernel counters, without drivers or admin rights, and never leaves your PC. The minute keeps going while the page is closed (a light reading once a second; switch it off with right-click › Keep System page history)</td></tr>
 <tr><td width="84" align="center"></td><td><b>Prayer</b> (an <a href="#add-ons">add-on</a>)<br>Today's prayer times for your kab/kota from Kemenag RI, the next prayer and how long until it, and the qibla</td></tr>
 </table>
 
@@ -59,11 +59,11 @@ Native Rust, no web view, no runtime, around 1.7 MB, and **zero CPU while nothin
 | ![Focus](docs/screenshots/11-page-focus.png) | ![Health](docs/screenshots/12-page-health.png) |
 | ![Shelf](docs/screenshots/13-page-shelf.png) | ![Tasks](docs/screenshots/15-page-tasks.png) |
 | ![Clipboard](docs/screenshots/16-page-clipboard.png) | ![Today](docs/screenshots/17-page-today.png) |
-| ![System: CPU and the apps using it](docs/screenshots/page-system.png) | ![System: network](docs/screenshots/page-system-network.png) |
+| ![System: CPU rings, a minute of history, each core and the processes using the most](docs/screenshots/page-system.png) | ![System: download and upload, the mirrored chart and the connection](docs/screenshots/page-system-network.png) |
 
 ### The Oyen theme
 
-The island stays black by default. Switch on the Oyen theme (the gear › **Theme › Oyen**, or right-click › **Theme › Oyen**) and the whole island becomes Oyen's: warm cream with dark brown text, his orange on the play button, the bars and the switches, and Outfit, the Oyen Poni typeface. Oyen, the Oyenza cat, moves in too: he peeks over the island's edge while it rests, watches your pointer when it comes near, sits beside the clock, peeks up beside the pin when the island is open and bobs along while music plays. He sleeps from midnight to five. He is drawn from the Oyenza logo, not a picture, so he stays sharp at any scaling, and he only moves for a moment now and then, so the app still uses no CPU at rest.
+The island stays black by default. Switch on the Oyen theme (the gear › **Theme › Oyen**, or right-click › **Theme › Oyen**) and the whole island becomes Oyen's: warm cream with dark brown text, his orange on the play button, the bars and the switches, and Outfit, the Oyen Poni typeface. Oyen, the Oyenza cat, moves in too: he peeks over the island's edge while it rests, watches your pointer when it comes near, sits beside the clock, peeks up beside the pin when the island is open and bobs along while music plays. He sleeps from midnight to five. He is drawn from the Oyenza logo, not a picture, so he stays sharp at any scaling, and he only moves for a moment now and then, so he costs no CPU at rest.
 
 ![Classic and the Oyen theme side by side: resting, with the clock, and playing music](docs/screenshots/oyen-theme.png)
 
