@@ -390,3 +390,77 @@ fn draw_game(ui: &mut Ui, st: &AppState, body: Rect) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use poni_core::frames::FrameRate;
+    use poni_core::pomodoro::RunState;
+    use poni_core::settings::{Settings, Theme};
+    use poni_core::store::Store;
+    use poni_core::sysmon::{GpuReading, Reading};
+
+    fn state() -> AppState {
+        let mut st = AppState::new(Settings::default(), Store::default());
+        st.settings.theme = Theme::Pill;
+        st.now = 1000.0;
+        st
+    }
+
+    fn game(st: &mut AppState, fps: f32, util: f32, temp: Option<f32>) {
+        st.game.rate = Some(FrameRate { fps, frame_ms: 1000.0 / fps, worst_ms: 1000.0 / fps });
+        st.system.latest = Some(Reading { gpu: Some(GpuReading { util, temp_c: temp, ..Default::default() }), ..Default::default() });
+    }
+
+    #[test]
+    fn every_live_pill_is_a_32_dip_capsule() {
+        let mut st = state();
+        game(&mut st, 144.0, 0.97, Some(71.0));
+        for a in [Activity::Timer, Activity::MediaTimer, Activity::Game] {
+            let g = geom(a, &st).expect("a Pill size");
+            assert_eq!((g.h, g.r), (32.0, 16.0), "{a:?}");
+        }
+        assert!(geom(Activity::Media, &st).is_none(), "the music pill is pill::media's");
+    }
+
+    #[test]
+    fn the_timer_widens_only_for_a_third_minute_digit() {
+        let mut st = state();
+        st.pomodoro.run = RunState::Running { ends_at: st.now + 99.0 * 60.0 + 59.0 };
+        assert_eq!(geom(Activity::Timer, &st).unwrap().w, TIMER_W, "99:59");
+        st.pomodoro.run = RunState::Running { ends_at: st.now + 100.0 * 60.0 };
+        assert_eq!(geom(Activity::Timer, &st).unwrap().w, TIMER_LONG_W, "100:00");
+        // Music with the timer keeps the music pill's width either way.
+        assert_eq!(geom(Activity::MediaTimer, &st).unwrap().w, MEDIA_TIMER_W);
+    }
+
+    #[test]
+    fn the_readout_keeps_its_width_while_its_numbers_change() {
+        let mut st = state();
+        game(&mut st, 61.0, 0.42, Some(64.0));
+        let key = game_key(&st);
+        // As if drawn: the width it measured for these slots.
+        GAME_FIT.with(|f| f.set(Some((key, 251.0))));
+        for (fps, util, temp) in [(144.0, 1.0, 71.0), (999.4, 0.0, 99.4), (9.0, 0.97, 30.0)] {
+            game(&mut st, fps, util, Some(temp));
+            assert_eq!(game_key(&st), key);
+            assert_eq!(geom(Activity::Game, &st).unwrap().w, 251.0, "{fps} fps, GPU {util} at {temp} deg");
+        }
+        // Only a fourth frame-rate digit, a GPU at 100 degrees or one without
+        // a temperature changes the slots, and so the width.
+        for (fps, temp) in [(999.6, Some(64.0)), (144.0, Some(99.6)), (144.0, None)] {
+            game(&mut st, fps, 0.5, temp);
+            assert_ne!(game_key(&st), key, "{fps} fps at {temp:?} deg");
+            assert_ne!(geom(Activity::Game, &st).unwrap().w, 251.0);
+        }
+    }
+
+    #[test]
+    fn nothing_in_the_live_pills_moves_by_itself() {
+        let st = state();
+        assert_eq!(is_live(Activity::MediaTimer, &st), Some(false));
+        for a in [Activity::Timer, Activity::Prayer, Activity::Game] {
+            assert_eq!(is_live(a, &st), None, "{a:?}: Classic's answer (no frames) stands");
+        }
+    }
+}
