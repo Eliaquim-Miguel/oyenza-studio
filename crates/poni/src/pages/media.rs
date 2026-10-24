@@ -44,12 +44,12 @@ const ART_RADIUS: f32 = 14.0;
 /// The art's first ink is the content top, like every page.
 const ART_TOP: f32 = 0.0;
 /// Art shrinks a little while paused (animated).
-const ART_PAUSED_SCALE: f32 = 0.94;
+pub(crate) const ART_PAUSED_SCALE: f32 = 0.94;
 const GAP_ART: f32 = 16.0;
-const GAP_LYRICS: f32 = 20.0;
-const LYRICS_SHARE: f32 = 0.42;
+pub(crate) const GAP_LYRICS: f32 = 20.0;
+pub(crate) const LYRICS_SHARE: f32 = 0.42;
 const MIN_MID_W: f32 = 176.0;
-const MIN_LYRICS_W: f32 = 110.0;
+pub(crate) const MIN_LYRICS_W: f32 = 110.0;
 
 // Middle column rows (offsets from the content top). The title's text box
 // starts above the top so its cap height (not its line box) meets the art's
@@ -111,7 +111,7 @@ const CREDIT_FADE_S: f32 = 0.15;
 const DEFAULT_SOURCE: &str = "LRCLIB";
 
 /// Where the shown lyrics come from.
-fn lyrics_source(lyr: &LyricsState) -> &str {
+pub(crate) fn lyrics_source(lyr: &LyricsState) -> &str {
     if lyr.source.is_empty() {
         DEFAULT_SOURCE
     } else {
@@ -120,7 +120,7 @@ fn lyrics_source(lyr: &LyricsState) -> &str {
 }
 
 /// The site the credit opens.
-fn source_url(source: &str) -> &'static str {
+pub(crate) fn source_url(source: &str) -> &'static str {
     match source {
         "Apple Music" => "https://music.apple.com",
         _ => "https://lrclib.net",
@@ -140,7 +140,7 @@ const LYRIC_OMEGA: f32 = 12.0;
 /// gap since the last frame, so it doesn't open with a jump.
 const START_STEP_S: f32 = 1.0 / 120.0;
 const SCROLL_OMEGA: f32 = 18.0;
-const ART_OMEGA: f32 = 14.0;
+pub(crate) const ART_OMEGA: f32 = 14.0;
 
 /// A gap this long since the page last drew means it was hidden meanwhile.
 const RESUME_GAP_S: f64 = 0.5;
@@ -150,11 +150,11 @@ const MAX_CACHE: usize = 4096;
 // ---------------------------------------------------------------- animation state
 
 #[derive(Default)]
-struct Anim {
+pub(crate) struct Anim {
     last_t: Option<f64>,
     /// Current art scale (0 = not initialised yet).
-    art_scale: f32,
-    art_vel: f32,
+    pub(crate) art_scale: f32,
+    pub(crate) art_vel: f32,
     lyric_vel: f32,
     /// Unsynced lyrics: wanted scroll offset (DIPs); `lyric_pos` follows it.
     scroll_target: f32,
@@ -162,7 +162,7 @@ struct Anim {
     /// Lyrics credit opacity (0..1), following the pointer over the column.
     credit_k: f32,
     /// Steady playback clock for synced lyrics (eases over jumpy reports).
-    clock: LyricClock,
+    pub(crate) clock: LyricClock,
     /// Identity of the lyrics shown last frame (track, synced, shape).
     sig: Option<Sig>,
     /// Column width and DPI scale the measurements below were made at.
@@ -182,16 +182,16 @@ struct Sig {
     last: u64,
 }
 
-struct Frame {
-    dt: f32,
+pub(crate) struct Frame {
+    pub(crate) dt: f32,
     /// The page was not drawn for a while (collapsed or another page).
     resumed: bool,
     /// Resumed while the island is still fading its content in.
-    opening: bool,
+    pub(crate) opening: bool,
 }
 
 impl Anim {
-    fn frame(&mut self, now: f64, content_alpha: f32) -> Frame {
+    pub(crate) fn frame(&mut self, now: f64, content_alpha: f32) -> Frame {
         let gap = self.last_t.map_or(f64::INFINITY, |t| now - t);
         self.last_t = Some(now);
         let resumed = !(0.0..=RESUME_GAP_S).contains(&gap);
@@ -228,17 +228,17 @@ thread_local! {
     static ANIM: Cell<Option<Box<Anim>>> = const { Cell::new(None) };
 }
 
-fn take_anim() -> Box<Anim> {
+pub(crate) fn take_anim() -> Box<Anim> {
     ANIM.try_with(|c| c.take()).ok().flatten().unwrap_or_default()
 }
 
-fn put_anim(a: Box<Anim>) {
+pub(crate) fn put_anim(a: Box<Anim>) {
     let _ = ANIM.try_with(|c| c.set(Some(a)));
 }
 
 /// Exact critically damped spring step toward `target` (never overshoots,
 /// stable for any `dt`).
-fn follow(pos: &mut f32, vel: &mut f32, target: f32, omega: f32, dt: f32) {
+pub(crate) fn follow(pos: &mut f32, vel: &mut f32, target: f32, omega: f32, dt: f32) {
     if !pos.is_finite() || !vel.is_finite() {
         *pos = target;
         *vel = 0.0;
@@ -254,7 +254,7 @@ fn follow(pos: &mut f32, vel: &mut f32, target: f32, omega: f32, dt: f32) {
 /// Time to step a follow this frame. A motion that starts from rest moves
 /// at most [`START_STEP_S`], whatever the gap since the last (maybe ambient)
 /// frame; one already under way keeps the real gap.
-fn step_dt(dt: f32, vel: f32, pos: f32, target: f32) -> f32 {
+pub(crate) fn step_dt(dt: f32, vel: f32, pos: f32, target: f32) -> f32 {
     if vel == 0.0 && pos != target {
         dt.min(START_STEP_S)
     } else {
@@ -271,7 +271,7 @@ fn lyric_size(e: f32) -> (f32, f32) {
 }
 
 /// Snap to the target once close and slow enough; returns `true` when settled.
-fn settle(pos: &mut f32, vel: &mut f32, target: f32, eps: f32, vel_eps: f32) -> bool {
+pub(crate) fn settle(pos: &mut f32, vel: &mut f32, target: f32, eps: f32, vel_eps: f32) -> bool {
     if (*pos - target).abs() < eps && vel.abs() < vel_eps {
         *pos = target;
         *vel = 0.0;
@@ -286,7 +286,7 @@ fn smoothstep(x: f32) -> f32 {
     x * x * (3.0 - 2.0 * x)
 }
 
-fn snap(v: f32, scale: f32) -> f32 {
+pub(crate) fn snap(v: f32, scale: f32) -> f32 {
     (v * scale).round() / scale
 }
 
@@ -473,7 +473,7 @@ fn draw_session(ui: &mut Ui, st: &mut AppState, area: Rect, a: &mut Anim, fr: &F
 
 /// Queue a media command; seeks also move the local timeline right away so
 /// the bar and lyrics don't wait for the player to report back.
-fn push_media(st: &mut AppState, c: MediaCmd) {
+pub(crate) fn push_media(st: &mut AppState, c: MediaCmd) {
     let c = match c {
         MediaCmd::Seek(t) => {
             let now = st.now;
@@ -569,24 +569,24 @@ fn play_button(ui: &mut Ui, c: Point, playing: bool, enabled: bool) -> bool {
 
 // ---------------------------------------------------------------- lyrics
 
-struct LyricsCtx<'a> {
-    now: f64,
+pub(crate) struct LyricsCtx<'a> {
+    pub(crate) now: f64,
     /// Playback position (seconds).
-    pos: f64,
+    pub(crate) pos: f64,
     /// Playing with a known length: frames are coming anyway.
-    live: bool,
-    can_seek: bool,
-    scale: f32,
-    track_key: &'a str,
+    pub(crate) live: bool,
+    pub(crate) can_seek: bool,
+    pub(crate) scale: f32,
+    pub(crate) track_key: &'a str,
     /// Show the pronunciation pieces (`LyricsState::ruby`) under lines.
-    pronounce: bool,
+    pub(crate) pronounce: bool,
 }
 
 #[derive(Default)]
-struct LyricsOut {
-    animating: bool,
-    synced: bool,
-    open_credit: bool,
+pub(crate) struct LyricsOut {
+    pub(crate) animating: bool,
+    pub(crate) synced: bool,
+    pub(crate) open_credit: bool,
 }
 
 enum View<'a> {
@@ -613,7 +613,7 @@ fn lyrics_view<'a>(lyr: &'a LyricsState, track_key: &str) -> View<'a> {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn draw_lyrics(
+pub(crate) fn draw_lyrics(
     ui: &mut Ui,
     lyr: &LyricsState,
     pui: &mut PageUiState,
