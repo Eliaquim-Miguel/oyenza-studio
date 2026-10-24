@@ -238,7 +238,7 @@ fn account_text(ui: &mut Ui, r: Rect, right: f32, title: &str, line: &str) {
 
 /// Choices side by side in a track `h` tall, the chosen one lifted (the
 /// Focus page's picker, a size smaller). Returns the choice clicked, if any.
-fn picker(ui: &mut Ui, id: &str, x: f32, y: f32, h: f32, names: &[&str], sel: usize) -> Option<usize> {
+pub(crate) fn picker(ui: &mut Ui, id: &str, x: f32, y: f32, h: f32, names: &[&str], sel: usize) -> Option<usize> {
     let st = picker_text();
     let inner_h = h - 2.0 * SEG_INSET;
     let mut cx = x + SEG_INSET;
@@ -284,14 +284,14 @@ fn choice_width(ui: &mut Ui, name: &str) -> f32 {
 }
 
 /// A whole picker: its choices and the track's inset.
-fn picker_width(ui: &mut Ui, names: &[&str]) -> f32 {
+pub(crate) fn picker_width(ui: &mut Ui, names: &[&str]) -> f32 {
     2.0 * SEG_INSET + names.iter().map(|n| choice_width(ui, n)).sum::<f32>()
 }
 
 /// A label with a switch at the row's right end; the whole row toggles.
 /// `None` = not known yet: drawn off and dimmed, and it doesn't click.
 /// Returns true when clicked.
-fn switch_row(ui: &mut Ui, id: u64, r: Rect, label: &str, on: Option<bool>, accent: Color) -> bool {
+pub(crate) fn switch_row(ui: &mut Ui, id: u64, r: Rect, label: &str, on: Option<bool>, accent: Color) -> bool {
     let hit = Rect::new(r.x - ROW_BLEED, r.y, r.w + 2.0 * ROW_BLEED, r.h);
     let resp = if on.is_some() { ui.button(id, hit) } else { Default::default() };
     if resp.hovered || resp.pressed {

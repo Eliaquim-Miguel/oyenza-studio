@@ -30,6 +30,7 @@ features = [
     "Devices_Bluetooth_GenericAttributeProfile",
     "Media_Core",
     "Media_Playback",
+    "Devices_Geolocation",
     "Storage_FileProperties",
     "System",
     "Win32_Storage_EnhancedStorage",

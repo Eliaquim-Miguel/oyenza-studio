@@ -99,6 +99,67 @@ impl PlaceList {
     pub fn find(&self, id: &str) -> Option<&Place> {
         self.places.iter().find(|p| p.id == id)
     }
+
+    /// The listed place nearest to a point, and how far it is (km).
+    pub fn nearest(&self, lat: f64, lng: f64) -> Option<(&Place, f64)> {
+        self.places.iter().map(|p| (p, distance_km(lat, lng, p.lat, p.lng))).min_by(|a, b| a.1.total_cmp(&b.1))
+    }
+
+    /// Places whose name holds what was typed, best first: a word of the name
+    /// starting with it, then anywhere in the name. Case and the dots of
+    /// "Kab." don't matter. At most `limit`.
+    pub fn search(&self, query: &str, limit: usize) -> Vec<&Place> {
+        let q = fold(query);
+        if q.is_empty() {
+            return Vec::new();
+        }
+        let mut hits: Vec<(u8, String, &Place)> = self
+            .places
+            .iter()
+            .filter_map(|p| {
+                let name = fold(&p.label);
+                let rank = if name.split(' ').any(|w| w.starts_with(&q)) || name.contains(&format!(" {q}")) {
+                    0
+                } else if name.contains(&q) {
+                    1
+                } else {
+                    return None;
+                };
+                // Sorted by the name without "Kab." / "Kota", so Bandung's kab and kota sit together.
+                let bare = name.strip_prefix("kab ").or_else(|| name.strip_prefix("kota ")).unwrap_or(&name).to_string();
+                Some((rank, bare, p))
+            })
+            .collect();
+        hits.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)).then_with(|| a.2.label.cmp(&b.2.label)));
+        hits.into_iter().take(limit).map(|h| h.2).collect()
+    }
+}
+
+/// Lowercase, without dots and doubled spaces: "Kab.  Bandung" -> "kab bandung".
+fn fold(s: &str) -> String {
+    s.to_lowercase().replace('.', " ").split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Great-circle distance in km (haversine).
+pub fn distance_km(lat1: f64, lng1: f64, lat2: f64, lng2: f64) -> f64 {
+    let r = |d: f64| d.to_radians();
+    let a = (r(lat2 - lat1) / 2.0).sin().powi(2) + r(lat1).cos() * r(lat2).cos() * (r(lng2 - lng1) / 2.0).sin().powi(2);
+    2.0 * 6371.0088 * a.sqrt().min(1.0).asin()
+}
+
+/// Farther than this from every listed place, a location picks none: the
+/// times there would be minutes off.
+pub const NEAREST_MAX_KM: f64 = 250.0;
+
+/// The place a PC's time zone suggests until one is found or picked.
+pub fn suggested_place_id(utc_offset_min: i32) -> Option<&'static str> {
+    match utc_offset_min {
+        420 => Some("jakarta"),
+        480 => Some("makassar"),
+        540 => Some("jayapura"),
+        180 => Some("makkah"),
+        _ => None,
+    }
 }
 
 /// How a place's times are worked out.
@@ -398,6 +459,36 @@ pub fn prayers_between(site: &Site, from: i64, to: i64) -> Vec<PrayerMoment> {
 /// Whole minutes from `now` until `at`, counting a started minute as one.
 pub fn minutes_until(now: i64, at: i64) -> i64 {
     (at - now + 59).div_euclid(60)
+}
+
+/// The countdown before the next prayer: that prayer and the minutes left,
+/// while it is `before_min` minutes away or less (0 = no countdown).
+pub fn countdown(site: &Site, utc: i64, before_min: u32) -> Option<(PrayerMoment, i64)> {
+    if before_min == 0 {
+        return None;
+    }
+    let next = next_prayer(site, utc)?;
+    let left = minutes_until(utc, next.at);
+    (left <= before_min as i64).then_some((next, left))
+}
+
+/// What to do about a prayer time that passed at `at`, seen at `now`: on
+/// time (within 2 minutes) it rings; after a sleep or a restart (within 30
+/// minutes) it shows without a sound; later than that it is left alone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Due {
+    Ring,
+    Quiet,
+    Skip,
+}
+
+pub fn due(at: i64, now: i64) -> Due {
+    match now - at {
+        late if late < 0 => Due::Skip,
+        late if late <= 120 => Due::Ring,
+        late if late <= 30 * 60 => Due::Quiet,
+        _ => Due::Skip,
+    }
 }
 
 /// Bearing to the Kaaba from a place, degrees clockwise from true north.

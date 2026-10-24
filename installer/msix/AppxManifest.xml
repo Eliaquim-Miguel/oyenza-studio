@@ -58,5 +58,7 @@
     <rescap:Capability Name="runFullTrust" />
     <!-- Headphone battery levels over Bluetooth LE. -->
     <DeviceCapability Name="bluetooth" />
+    <!-- Prayer times (an add-on, off by default) asks Windows where the PC is, to pick the nearest place. -->
+    <DeviceCapability Name="location" />
   </Capabilities>
 </Package>

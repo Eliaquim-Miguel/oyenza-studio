@@ -278,3 +278,62 @@ fn clock_helpers_use_the_place_zone() {
     assert_eq!(minutes_until(0, 0), 0);
     assert_eq!(minutes_until(0, 61), 2);
 }
+
+#[test]
+fn nearest_place_to_a_point() {
+    let list = places();
+    // Gedung Sate, in the city of Bandung.
+    let (p, km) = list.nearest(-6.9025, 107.6188).unwrap();
+    assert_eq!(p.id, "bandung");
+    assert!(km < 5.0, "{km}");
+    // Masjidil Haram.
+    let (p, km) = list.nearest(21.4225, 39.8262).unwrap();
+    assert_eq!((p.id.as_str(), km < 1.0), ("makkah", true));
+    // Mid-Pacific: nothing within reach.
+    assert!(list.nearest(0.0, -160.0).unwrap().1 > NEAREST_MAX_KM);
+    assert!((distance_km(-6.2, 106.8, -6.9, 107.6) - 117.0).abs() < 3.0);
+}
+
+#[test]
+fn search_puts_names_that_start_with_the_text_first() {
+    let list = places();
+    let labels = |q: &str| list.search(q, 8).into_iter().map(|p| p.label.as_str()).collect::<Vec<_>>();
+    assert_eq!(labels("band"), ["Kota Banda Aceh", "Kota Bandar Lampung", "Kab. Bandung", "Kota Bandung", "Kab. Bandung Barat"]);
+    assert_eq!(labels("BANDUNG barat"), ["Kab. Bandung Barat"]);
+    assert_eq!(labels("kab. bandung")[0], "Kab. Bandung");
+    assert_eq!(labels("makkah"), ["Makkah"]);
+    assert!(labels("  ").is_empty());
+    assert_eq!(list.search("a", 6).len(), 6);
+}
+
+#[test]
+fn time_zones_suggest_a_listed_place() {
+    let list = places();
+    for off in [420, 480, 540, 180] {
+        let id = suggested_place_id(off).unwrap();
+        assert!(list.find(id).is_some(), "{id}");
+    }
+    assert_eq!(suggested_place_id(60), None);
+}
+
+#[test]
+fn countdown_runs_in_the_minutes_before_a_prayer() {
+    let s = jakarta();
+    let (m, left) = countdown(&s, at(&s, "2026-10-24", "14:43"), 10).unwrap();
+    assert_eq!((m.prayer, left), (Prayer::Ashar, 8));
+    assert_eq!(countdown(&s, at(&s, "2026-10-24", "14:43") - 30, 10).unwrap().1, 9);
+    assert!(countdown(&s, at(&s, "2026-10-24", "14:40"), 10).is_none());
+    assert!(countdown(&s, at(&s, "2026-10-24", "14:43"), 0).is_none());
+    // At the minute itself the countdown has moved on to Maghrib (not yet in reach).
+    assert!(countdown(&s, at(&s, "2026-10-24", "14:51"), 10).is_none());
+}
+
+#[test]
+fn a_passed_time_rings_only_when_on_time() {
+    assert_eq!(due(1000, 1000), Due::Ring);
+    assert_eq!(due(1000, 1120), Due::Ring);
+    assert_eq!(due(1000, 1121), Due::Quiet);
+    assert_eq!(due(1000, 1000 + 1800), Due::Quiet);
+    assert_eq!(due(1000, 1000 + 1801), Due::Skip);
+    assert_eq!(due(1000, 999), Due::Skip);
+}

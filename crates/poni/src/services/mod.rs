@@ -2,6 +2,7 @@
 //! [`EventSink`]; a failing service is logged and skipped, never fatal.
 
 pub mod addons;
+pub mod adzan;
 pub mod applemusic;
 pub mod audio;
 pub mod backdrop;
@@ -10,6 +11,7 @@ pub mod clipboard;
 pub mod fullscreen;
 pub mod http;
 pub mod imaging;
+pub mod location;
 pub mod lyrics;
 pub mod media;
 pub mod oyenza;

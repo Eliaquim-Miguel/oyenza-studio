@@ -104,6 +104,13 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect);  // draw + handle input
   `settings.addons` through `Command::SaveSettings`; `App::settings_changed` tells
   `services::addons`, which downloads the files (on) or deletes them (off) and
   reports through `AppEvent::Addon` into `st.addons`.
+* Prayer (`pages/prayer.rs`) is a tab only while Prayer times is on (`AppState::prayer_on`):
+  the next prayer, today's times, qibla, the sound and the countdown switch, and
+  a place picker. The app (`App::prayer_*`) reads the add-on's `places.json`, asks
+  `services::location` where the PC is (nearest place, the point dropped), and
+  in `tick` turns prayer times that just passed into a notice plus the tone or
+  the adzan (`services::adzan`, WinRT MediaPlayer without media controls).
+  `activities` shows the minutes before each prayer (`Activity::Prayer`).
 * Timed page changes (an Undo pill lapsing) report their deadline through
   `pages::next_wake` so the app wakes exactly then instead of polling.
   `st.accent` = Windows accent (lightened); `st.media_accent()` = album-art colour.

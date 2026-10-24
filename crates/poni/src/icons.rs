@@ -70,6 +70,8 @@ pub enum Icon {
     Addons,
     /// A crescent moon: Prayer times.
     Moon,
+    /// Stop (the adzan): a rounded square.
+    Stop,
 }
 
 pub struct Part {
@@ -249,6 +251,7 @@ pub fn parts(icon: Icon) -> &'static [Part] {
         ],
         // A circle (r 8) less a second one (r 7) up and to the right: both arcs meet where the circles cross.
         Moon => p![s("M19.77 13.9A8 8 0 1 1 10.1 4.23A7 7 0 0 0 19.77 13.9Z")],
+        Stop => p![f("M8.2 6.5h7.6a1.7 1.7 0 0 1 1.7 1.7v7.6a1.7 1.7 0 0 1-1.7 1.7H8.2a1.7 1.7 0 0 1-1.7-1.7V8.2a1.7 1.7 0 0 1 1.7-1.7z")],
     }
 }
 
@@ -263,7 +266,7 @@ mod tests {
         Icon::Battery, Icon::Bolt, Icon::Bluetooth, Icon::Headphones, Icon::Volume, Icon::VolumeLow, Icon::VolumeMute,
         Icon::Pin, Icon::PinFill, Icon::Folder, Icon::File, Icon::Trash, Icon::Undo, Icon::Reset,
         Icon::Sliders, Icon::Open, Icon::Phone, Icon::Eye, Icon::MoneyIn, Icon::Card, Icon::Wallet, Icon::Unlink, Icon::Gear,
-        Icon::Gauge, Icon::Network, Icon::App, Icon::Addons, Icon::Moon,
+        Icon::Gauge, Icon::Network, Icon::App, Icon::Addons, Icon::Moon, Icon::Stop,
     ];
 
     #[test]

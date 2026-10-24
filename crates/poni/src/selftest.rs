@@ -30,8 +30,8 @@ use crate::pages::{self, PageKind};
 use crate::paths;
 use crate::png;
 use crate::state::{
-    AppState, Hud, HudKind, InlineAction, LyricsState, LyricsStatus, MediaSession, Notice, NoticeAction, OyenzaLink, OyenzaState, PhoneAsk,
-    PairedPhone, PhoneDrop, PhoneTransfer, PhoneView, PowerState, SysStats, VolumeState,
+    AppState, Hud, HudKind, InlineAction, Locate, LyricsState, LyricsStatus, MediaSession, Notice, NoticeAction, OyenzaLink, OyenzaState, PhoneAsk,
+    PairedPhone, PhoneDrop, PhoneTransfer, PhoneView, PowerState, PrayerState, SysStats, VolumeState,
 };
 use crate::ui::wid;
 use poni_core::addons::{Status as AddonStatus, PRAYER_TIMES};
@@ -40,6 +40,7 @@ use poni_core::health::{HealthDay, HealthSnapshot, HealthSource};
 use poni_core::lrc::parse_lrc;
 use poni_core::oyenza::{Arrival, Bill, Saved, WalletRef};
 use poni_core::phonedrop::QrMatrix;
+use poni_core::prayer::PlaceList;
 use poni_core::pomodoro::{Phase as PomoPhase, RunState};
 use poni_core::settings::{IdleStyle, Theme};
 use poni_core::shelf::ShelfItem;
@@ -71,7 +72,7 @@ const CLICK_TIMEOUT: f64 = 1.5;
 /// Stop visiting scenes after this many seconds. 36 scenes take about 22 s
 /// on CI's slowest run (Oyen theme, Japanese lyrics); the CI and Store test
 /// steps wait 120 s for the whole run, the Wine runner 180 s.
-const SCENE_DEADLINE: f64 = 40.0;
+const SCENE_DEADLINE: f64 = 50.0;
 /// Give up waiting for PNG writers at this point.
 const WRITE_DEADLINE: f64 = 43.5;
 /// One frame (layout + Direct2D render + present + readback) must fit in a 60 Hz frame.
@@ -406,6 +407,61 @@ fn fake_oyenza(st: &AppState, scene: Scene, now: f64) -> OyenzaState {
     }
 }
 
+/// Prayer times for its scenes: on, in Kota Jakarta, its clock 8 minutes
+/// before today's Ashar (the real list arrives with the add-on's download;
+/// these few places are copied from it).
+fn seed_prayer(st: &mut AppState, scene: Scene, until: f64) {
+    let on = matches!(scene, Scene::Page(PageKind::Prayer) | Scene::PrayerPicker | Scene::PrayerCountdown | Scene::PrayerNotice);
+    if !on {
+        st.prayer = PrayerState::default();
+        return;
+    }
+    st.addons.insert(PRAYER_TIMES.id, AddonStatus::Ready);
+    if st.prayer.places.is_none() {
+        let list = PlaceList::parse(SAMPLE_PLACES).expect("sample places");
+        st.prayer.places = Some(std::sync::Arc::new(list));
+    }
+    let list = st.prayer.places.clone().expect("places");
+    st.prayer.place = list.find("jakarta").cloned();
+    st.prayer.suggested = false;
+    st.prayer.locate = Locate::Found { km: 2.0 };
+    st.prayer.located_at = Some(st.unix);
+    st.prayer.picking = scene == Scene::PrayerPicker;
+    if st.prayer.picking {
+        st.prayer.query = "band".into();
+    } else {
+        st.prayer.query.clear();
+    }
+    let site = st.prayer.site().expect("Jakarta's site");
+    let ashar = poni_core::prayer::day_times(&site, site.local_day(st.unix)).expect("today's times").ashar;
+    st.prayer.clock_shift = ashar - 8 * 60 - st.unix;
+    st.prayer.handled_until = Some(st.prayer_now());
+    st.prayer.adzan = scene == Scene::PrayerNotice;
+    if scene == Scene::PrayerNotice {
+        let place = st.prayer.place.as_ref().map_or(String::new(), |p| p.label.clone());
+        st.notice = Some(Notice {
+            icon: Icon::Moon,
+            color: st.accent,
+            title: crate::pages::prayer::moment_title(poni_core::prayer::Prayer::Ashar),
+            subtitle: format!("{} \u{b7} {place}", site.hhmm(ashar)),
+            until,
+            action: Some(NoticeAction::OpenPage(PageKind::Prayer)),
+            inline: Some(InlineAction::StopAdzan),
+            reveal: None,
+        });
+    }
+}
+
+const SAMPLE_PLACES: &str = r#"{"places":[
+    {"id":"jakarta","label":"Kota Jakarta","kind":"kota","prov":"DKI Jakarta","lat":-6.1833,"lng":106.8333,"tz":"Asia/Jakarta"},
+    {"id":"banda-aceh","label":"Kota Banda Aceh","kind":"kota","prov":"Aceh","lat":5.55,"lng":95.3167,"tz":"Asia/Jakarta"},
+    {"id":"bandar-lampung","label":"Kota Bandar Lampung","kind":"kota","prov":"Lampung","lat":-5.4167,"lng":105.2667,"tz":"Asia/Jakarta"},
+    {"id":"kab-bandung","label":"Kab. Bandung","kind":"kab","prov":"Jawa Barat","lat":-7.0167,"lng":107.5333,"tz":"Asia/Jakarta","h0":-2},
+    {"id":"bandung","label":"Kota Bandung","kind":"kota","prov":"Jawa Barat","lat":-6.9,"lng":107.6167,"tz":"Asia/Jakarta","h0":-2},
+    {"id":"kab-bandung-barat","label":"Kab. Bandung Barat","kind":"kab","prov":"Jawa Barat","lat":-6.85,"lng":107.5167,"tz":"Asia/Jakarta","h0":-2},
+    {"id":"makkah","label":"Makkah","kind":"abroad","prov":"Arab Saudi","lat":21.4225,"lng":39.8261,"tz":"Asia/Riyadh","method":"ummalqura"}
+]}"#;
+
 fn fake_power(plugged: bool) -> PowerState {
     PowerState { has_battery: true, percent: 76, charging: plugged, on_ac: plugged, saver: false }
 }
@@ -484,9 +540,15 @@ enum Scene {
     AddonsOffline,
     /// Add-ons: a file came back wrong.
     AddonsFailed,
+    /// Prayer times: the place picker, "band" typed.
+    PrayerPicker,
+    /// Prayer times: the collapsed countdown, 8 minutes before Ashar.
+    PrayerCountdown,
+    /// Prayer times: Ashar's time came, the adzan playing.
+    PrayerNotice,
 }
 
-const SCENES: [Scene; 49] = [
+const SCENES: [Scene; 53] = [
     Scene::IdleClock,
     Scene::IdleEyes,
     Scene::Media,
@@ -540,6 +602,11 @@ const SCENES: [Scene; 49] = [
     Scene::AddonsOn,
     Scene::AddonsOffline,
     Scene::AddonsFailed,
+    // Prayer times on, its clock 8 minutes before today's Ashar in Jakarta.
+    Scene::Page(PageKind::Prayer),
+    Scene::PrayerPicker,
+    Scene::PrayerCountdown,
+    Scene::PrayerNotice,
 ];
 
 impl Scene {
@@ -586,6 +653,9 @@ impl Scene {
             Scene::AddonsOn => "page-addons-on".into(),
             Scene::AddonsOffline => "page-addons-offline".into(),
             Scene::AddonsFailed => "page-addons-failed".into(),
+            Scene::PrayerPicker => "page-prayer-picker".into(),
+            Scene::PrayerCountdown => "prayer-countdown".into(),
+            Scene::PrayerNotice => "prayer-notice".into(),
         }
     }
 
@@ -601,6 +671,7 @@ impl Scene {
             Scene::SystemMemory | Scene::SystemDrives | Scene::SystemNetwork | Scene::SystemBattery | Scene::SystemWaiting => Some(PageKind::System),
             Scene::ShelfPairing | Scene::ShelfPaired | Scene::ShelfPairedPhones => Some(PageKind::Shelf),
             Scene::AddonsDownloading | Scene::AddonsOn | Scene::AddonsOffline | Scene::AddonsFailed => Some(PageKind::Addons),
+            Scene::PrayerPicker => Some(PageKind::Prayer),
             _ => None,
         }
     }
@@ -1276,6 +1347,7 @@ impl SelfTest {
             _ => AddonStatus::Off,
         };
         st.addons.insert(PRAYER_TIMES.id, addon);
+        seed_prayer(st, scene, until);
         st.system = fake_system(scene);
         st.ui.system_module = match scene {
             Scene::SystemMemory => Module::Memory,

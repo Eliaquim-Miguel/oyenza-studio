@@ -21,8 +21,12 @@ Changing a file means a new tag (`addon-sholat-2`), new numbers in
   twilight angles there (Subuh 21°, Isya 19°). Makkah, Madinah and Jeddah
   use Umm al-Qura. Settings keep the chosen place by its `id`, so never
   rename one.
-- `adzan.m4a`: the adzan recorded at Masjidil Haram (197 s, AAC), by Seyfula
-  Islam, from Wikimedia Commons under CC BY 3.0, so the app shows its credit.
+- `adzan.m4a`: the Maghrib adzan at Masjidil Haram on 25 Feb 2012 (178 s,
+  AAC), by 3omar Faruq, from Wikimedia Commons under CC BY 3.0, so the app
+  shows its credit. Checked word by word: the whole adzan, ending with "la
+  ilaha illallah", and no Subuh line, so it plays for the other four prayers.
+  (The first recording, from 21 Jan 2013, stopped mid-way through the closing
+  takbir.)
 - `NOTICE.txt`: where each file comes from, its licence and what was changed.
 
 ## How the times are checked

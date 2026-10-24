@@ -141,6 +141,10 @@ pub enum AppEvent {
     Oyenza(OyenzaEvent),
     /// Where an add-on's files stand (`services::addons`).
     Addon { id: &'static str, status: poni_core::addons::Status },
+    /// Where Windows says the PC is (`services::location`), for prayer times.
+    Located(crate::services::location::Located),
+    /// The adzan finished playing, or couldn't play on.
+    AdzanEnded,
     /// Start with Windows is on (true) or off, read for the Settings page.
     Autostart(bool),
     /// Free-form log line from a service thread.
