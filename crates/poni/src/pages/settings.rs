@@ -161,6 +161,7 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
 
     // Switches, two columns of three; one row is the full-screen choice.
     let accent = st.accent;
+    let card = super::clipboard::pill_card(st, area);
     for (c, column) in COLUMNS.iter().enumerate() {
         for (r, &kind) in column.iter().enumerate() {
             let row = Rect::new(cols[c], area.y + SWITCHES_Y + r as f32 * ROW_H, col_w, ROW_H);
@@ -168,7 +169,7 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
                 Row::Switch(sw, label) => {
                     let on = switch_on(st, sw);
                     let id = wid_n("settings.switch", (c * 3 + r) as u64);
-                    if switch_row(ui, id, row, label, on, accent) {
+                    if switch_row_on(ui, id, row, label, on, accent, card) {
                         flip(st, sw, on);
                     }
                 }
@@ -353,10 +354,16 @@ pub(crate) fn picker_width(ui: &mut Ui, names: &[&str]) -> f32 {
 /// `None` = not known yet: drawn off and dimmed, and it doesn't click.
 /// Returns true when clicked.
 pub(crate) fn switch_row(ui: &mut Ui, id: u64, r: Rect, label: &str, on: Option<bool>, accent: Color) -> bool {
+    switch_row_on(ui, id, r, label, on, accent, None)
+}
+
+/// [`switch_row`] on the open card (`card` from `clipboard::pill_card`): in
+/// Pill, a bottom row's hover wash follows the card's rounder corners.
+fn switch_row_on(ui: &mut Ui, id: u64, r: Rect, label: &str, on: Option<bool>, accent: Color, card: Option<(Rect, f32)>) -> bool {
     let hit = Rect::new(r.x - ROW_BLEED, r.y, r.w + 2.0 * ROW_BLEED, r.h);
     let resp = if on.is_some() { ui.button(id, hit) } else { Default::default() };
     if resp.hovered || resp.pressed {
-        ui.c.fill_rrect(hit.inset(0.0, 1.0), 8.0, Color::white(if resp.pressed { 0.10 } else { 0.06 }));
+        super::clipboard::fill_box(ui, card, hit.inset(0.0, 1.0), 8.0, Color::white(if resp.pressed { 0.10 } else { 0.06 }));
     }
     let sw = Rect::new(r.right() - SWITCH_W, r.center().y - SWITCH_H / 2.0, SWITCH_W, SWITCH_H);
     ui.c.text(label, Rect::new(r.x, r.y, (sw.x - 10.0 - r.x).max(0.0), r.h), &TextStyle::body());
