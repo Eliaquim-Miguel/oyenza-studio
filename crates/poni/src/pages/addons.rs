@@ -42,9 +42,11 @@ fn icon(a: &Addon) -> Icon {
 pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
     let intro = "Each one downloads only when you switch it on. Switching it off deletes its files.";
     ui.c.text(intro, Rect::new(area.x, area.y, area.w, INTRO_H), &TextStyle::footnote().color(palette::TEXT_DIM));
+    // The last row's hover wash meets the Pill card's rounded corners.
+    let card = super::clipboard::pill_card(st, area);
     for (i, a) in addons::ALL.iter().enumerate() {
         let row = Rect::new(area.x, area.y + ROWS_Y + i as f32 * ROW_H, area.w, ROW_H);
-        if addon_row(ui, st, row, i, a) {
+        if addon_row(ui, st, row, i, a, card) {
             let on = st.settings.addon_on(a.id);
             st.settings.set_addon(a.id, !on);
             st.cmd(Command::SaveSettings);
@@ -52,14 +54,14 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
     }
 }
 
-/// Returns true when the row was clicked.
-fn addon_row(ui: &mut Ui, st: &AppState, r: Rect, i: usize, a: &Addon) -> bool {
+/// Returns true when the row was clicked. `card`: the Pill card (`clipboard::pill_card`).
+fn addon_row(ui: &mut Ui, st: &AppState, r: Rect, i: usize, a: &Addon, card: Option<(Rect, f32)>) -> bool {
     let status = st.addon(a.id);
     let accent = st.accent;
     let hit = Rect::new(r.x - ROW_BLEED, r.y + 2.0, r.w + 2.0 * ROW_BLEED, r.h - 4.0);
     let resp = ui.button(wid_n("addons.row", i as u64), hit);
     if resp.hovered || resp.pressed {
-        ui.c.fill_rrect(hit, 10.0, Color::white(if resp.pressed { 0.10 } else { 0.06 }));
+        super::clipboard::fill_box(ui, card, hit, 10.0, Color::white(if resp.pressed { 0.10 } else { 0.06 }));
     }
     let cy = r.center().y;
     ui.c.fill_circle(Point::new(r.x + BADGE / 2.0, cy), BADGE / 2.0, accent.with_alpha(0.18));
