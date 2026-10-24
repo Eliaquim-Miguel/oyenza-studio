@@ -688,6 +688,9 @@ pub struct Gfx {
     /// Offscreen layers for [`Canvas::layered`], reused frame to frame.
     layers: Vec<ID2D1BitmapRenderTarget>,
     layers_used: usize,
+    /// Gradient brushes for [`Canvas::rrect_shadow`], by stops and colour
+    /// (made on `main`, so they start over with it).
+    shadows: HashMap<u64, (ID2D1RadialGradientBrush, ID2D1LinearGradientBrush)>,
     frame_no: u64,
     /// Pixels the software present copies this frame.
     dirty: RECT,
@@ -837,6 +840,7 @@ impl Gfx {
                 mask_stack: Vec::new(),
                 layers: Vec::new(),
                 layers_used: 0,
+                shadows: HashMap::new(),
                 frame_no: 0,
                 dirty: RECT::default(),
                 soft_full: true,
@@ -950,6 +954,7 @@ impl Gfx {
         self.main = main;
         self.bitmaps.clear();
         self.layers.clear();
+        self.shadows.clear();
         Ok(())
     }
 
@@ -1455,6 +1460,36 @@ impl Gfx {
         self.icon_geoms.insert(icon, out.clone());
         out
     }
+
+    /// The gradient brushes [`Canvas::rrect_shadow`] fills with for `stops`
+    /// in `c` (its opacity is set per fill), made on first use.
+    fn shadow_brushes(&mut self, stops: &[(f32, f32)], c: Color) -> Option<(ID2D1RadialGradientBrush, ID2D1LinearGradientBrush)> {
+        // FNV-1a over the stops and the colour.
+        let key = stops
+            .iter()
+            .flat_map(|&(p, a)| [p, a])
+            .chain([c.r, c.g, c.b])
+            .fold(0xcbf2_9ce4_8422_2325u64, |h, v| (h ^ v.to_bits() as u64).wrapping_mul(0x0100_0000_01b3));
+        if let Some(b) = self.shadows.get(&key) {
+            return Some(b.clone());
+        }
+        let grad: Vec<D2D1_GRADIENT_STOP> = stops.iter().map(|&(position, a)| D2D1_GRADIENT_STOP { position, color: d2d_color(c.with_alpha(a)) }).collect();
+        let made = unsafe {
+            self.main.CreateGradientStopCollection(&grad, D2D1_GAMMA_2_2, D2D1_EXTEND_MODE_CLAMP).and_then(|coll| {
+                let radial = D2D1_RADIAL_GRADIENT_BRUSH_PROPERTIES { center: pt(0.0, 0.0), gradientOriginOffset: pt(0.0, 0.0), radiusX: 1.0, radiusY: 1.0 };
+                let linear = D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES { startPoint: pt(0.0, 0.0), endPoint: pt(0.0, 1.0) };
+                Ok((self.main.CreateRadialGradientBrush(&radial, None, &coll)?, self.main.CreateLinearGradientBrush(&linear, None, &coll)?))
+            })
+        };
+        let b = made.ok()?;
+        // A morph walks through radii (whole half DIPs); a long session
+        // never keeps more than a few pages of them.
+        if self.shadows.len() >= 96 {
+            self.shadows.clear();
+        }
+        self.shadows.insert(key, b.clone());
+        Some(b)
+    }
 }
 
 // ---------------------------------------------------------------- Canvas
@@ -1619,6 +1654,44 @@ impl<'a> Canvas<'a> {
             let Ok(brush) = self.g.rt.CreateLinearGradientBrush(&props, None, &coll) else { return };
             brush.SetOpacity(self.alpha);
             self.g.rt.FillGeometry(&geo, &brush, None);
+        }
+    }
+
+    /// A soft shadow round the rounded rectangle `r` (corner `radius`): `c`
+    /// at the opacity `ramp` gives by distance from the edge (DIPs, negative
+    /// inside, in order), from its first stop inside the edge to its last
+    /// outside it, where it should reach 0. Deeper inside than the first
+    /// stop it may draw or not: cover that, as the floating island's body
+    /// covers its shadow. A few gradient fills (four corners, up to four
+    /// sides, see `pill::shape::shadow_plan`) that meet on whole pixels, so
+    /// draw it without a content transform. The gradients are kept between
+    /// frames.
+    pub fn rrect_shadow(&mut self, r: Rect, radius: f32, c: Color, ramp: &[(f32, f32)]) {
+        let Some(plan) = crate::pill::shape::shadow_plan(r, radius, ramp, self.scale()) else { return };
+        let c = self.g.look.paint(c);
+        let opacity = (c.a * self.alpha).clamp(0.0, 1.0);
+        if opacity <= 0.0 {
+            return;
+        }
+        let Some((radial, linear)) = self.g.shadow_brushes(&plan.stops, c) else { return };
+        unsafe {
+            radial.SetOpacity(opacity);
+            radial.SetRadiusX(plan.reach);
+            radial.SetRadiusY(plan.reach);
+            for (square, o) in plan.corners {
+                radial.SetCenter(pt(o.x, o.y));
+                self.g.rt.FillRectangle(&rectf(square), &radial);
+            }
+            linear.SetOpacity(opacity);
+            for (strip, a, b) in plan.sides.into_iter().flatten() {
+                linear.SetStartPoint(pt(a.x, a.y));
+                linear.SetEndPoint(pt(b.x, b.y));
+                self.g.rt.FillRectangle(&rectf(strip), &linear);
+            }
+            if let Some((m, a)) = plan.middle {
+                self.g.brush.SetColor(&d2d_color(c.with_alpha(a * opacity)));
+                self.g.rt.FillRectangle(&rectf(m), &self.g.brush);
+            }
         }
     }
 
