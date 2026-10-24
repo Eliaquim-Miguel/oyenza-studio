@@ -16,7 +16,7 @@ Nothing else is sent anywhere. Music, volume, Bluetooth battery levels, the date
 
 | What | Where |
 |---|---|
-| Settings, tasks, water log, focus count and the shelf's list of files (the files themselves stay where they are) | `%APPDATA%\Poni\` |
+| Settings, tasks, focus count and the shelf's list of files (the files themselves stay where they are), and any drinks logged by the Water page of older versions | `%APPDATA%\Poni\` |
 | Lyrics cache and a log file (the log names songs that were looked up, to help fix problems) | `%LOCALAPPDATA%\Poni\` |
 | Your Apple Music token, if you added one, sealed so only your Windows account on this PC can read it | `%LOCALAPPDATA%\Poni\` |
 | Clipboard history | Memory only, never written to disk. Text that password managers mark as private is skipped. |

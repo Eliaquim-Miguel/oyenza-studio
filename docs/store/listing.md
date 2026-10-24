@@ -31,12 +31,12 @@ A living notch for Windows. A small black island at the top of your screen shows
 
 Oyen Poni puts a small black island at the top of your screen. It shows what's happening (music, a focus timer, volume, headphones connecting), and when you point at it, it opens into a set of quick pages.
 
-While collapsed, the island shows album art and an equalizer while music plays, a focus-timer countdown, pop-ups for volume, charging and Bluetooth headsets with their battery level, and reminders with one-click actions, such as +250 ml on the water reminder.
+While collapsed, the island shows album art and an equalizer while music plays, a focus-timer countdown, and pop-ups for volume, charging and Bluetooth headsets with their battery level.
 
 Point at the island or click it to open it, then scroll over the header to switch pages:
 - Music: controls for whatever is playing (Spotify, browsers, any app in Windows' media controls), with time-synced lyrics from LRCLIB
 - Focus: a Pomodoro timer that keeps counting in the island
-- Water: a daily goal, one-tap logging, a week of history and gentle reminders
+- Health: today's steps against your goal and your week, from Apple Health or Health Connect on your phone through your Oyenza account (sign-in coming soon)
 - Shelf: drop files on the island to keep them handy, then open them or drag them back out
 - Tasks: a tiny to-do list
 - Clipboard: recent copied text, kept in memory only
@@ -54,7 +54,7 @@ First release in the Microsoft Store.
 - Time-synced lyrics for whatever is playing, from LRCLIB
 - Play, pause and skip for Spotify, browsers and any app in Windows' media controls
 - A Pomodoro focus timer that keeps counting in the island
-- Water goal, one-tap logging and gentle reminders
+- Your steps from your phone, through Oyenza (coming soon)
 - A file shelf: drop files on the island, drag them back out later
 - A tiny to-do list
 - Clipboard history kept in memory only
@@ -63,7 +63,7 @@ First release in the Microsoft Store.
 
 **Search terms** (up to 7)
 
-dynamic island, notch, lyrics, pomodoro, now playing, water reminder, clipboard
+dynamic island, notch, lyrics, pomodoro, now playing, steps, clipboard
 
 **Screenshots**
 
