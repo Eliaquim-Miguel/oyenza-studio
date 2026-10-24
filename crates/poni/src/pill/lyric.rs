@@ -288,7 +288,7 @@ struct Shown {
     /// The line it replaced (and its slot's width), rising away while this
     /// one comes in.
     leaving: Option<(String, f32)>,
-    /// When the change began (app clock).
+    /// When the change began (app clock; long ago for a line that just showed).
     since: f64,
 }
 
@@ -341,7 +341,7 @@ impl State {
             Some(s) if s.line == i && s.text == text => s,
             old => {
                 let leaving = old.filter(|s| on_screen && s.generation == generation).map(|s| (s.text, s.slot_w));
-                let since = if leaving.is_some() { now } else { now - FADE_S };
+                let since = if leaving.is_some() { now } else { f64::NEG_INFINITY };
                 Shown { line: i, text: text.to_string(), generation, slot_w: 0.0, leaving, since }
             }
         };
@@ -656,10 +656,10 @@ mod tests {
         // First draw: nothing was on screen before, so the line just shows.
         assert!(!s.seen(100.0, Some(103.0)));
         let first = s.show(100.0, false, 0, "First");
-        assert_eq!((first.leaving.clone(), first.since), (None, 100.0 - FADE_S));
+        assert_eq!((first.leaving.clone(), first.since), (None, f64::NEG_INFINITY));
         // The same line a frame later: nothing new.
         assert!(s.seen(100.016, Some(103.0)));
-        assert_eq!(s.show(100.016, true, 0, "First").since, 100.0 - FADE_S);
+        assert_eq!(s.show(100.016, true, 0, "First").since, f64::NEG_INFINITY);
         // No frames until the wake for the next line (no equalizer): still on screen.
         assert!(s.seen(103.02, Some(106.0)));
         s.shown.as_mut().unwrap().slot_w = 180.0;
@@ -669,7 +669,7 @@ mod tests {
         // Back after a while away (the page was open): the old line just goes.
         assert!(!s.seen(120.0, Some(121.0)));
         let back = s.show(120.0, false, 5, "Sixth");
-        assert_eq!((back.leaving.clone(), back.since), (None, 120.0 - FADE_S));
+        assert_eq!((back.leaving.clone(), back.since), (None, f64::NEG_INFINITY));
         // Other lyrics (another song): never fade a line of the last one out over them.
         assert!(s.seen(120.016, None));
         s.follow.generation += 1;
@@ -677,7 +677,7 @@ mod tests {
         // After the title (a break, drawn every frame): the line takes over at
         // once, the music pill fades the hand-off.
         s.shown = None;
-        assert_eq!(s.show(130.0, true, 1, "After the break").since, 130.0 - FADE_S);
+        assert_eq!(s.show(130.0, true, 1, "After the break").since, f64::NEG_INFINITY);
     }
 
     #[test]
