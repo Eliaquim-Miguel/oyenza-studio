@@ -393,6 +393,9 @@ pub struct App {
     phone_offer: Vec<String>,
     /// The Shelf paths last handed to the paired-phones service.
     pair_offer: Option<Vec<String>>,
+    /// Whether the island floated when the window was last laid out (its
+    /// room differs: see `sync_room`).
+    laid_floating: bool,
 }
 
 /// The island window: position and size in screen pixels.
@@ -543,6 +546,7 @@ impl App {
             phone: None,
             phone_offer: Vec::new(),
             pair_offer: None,
+            laid_floating: false,
         })
     }
 
@@ -637,6 +641,7 @@ impl App {
         let s = self.gfx.scale();
         let mon_w = self.monitor.rect.right - self.monitor.rect.left;
         let (w, h) = surface_size(&self.island, body_w, body_h, s, mon_w);
+        self.laid_floating = self.island.floating();
         let surface = Surface { x: self.monitor.rect.left + (mon_w - w) / 2, y: self.monitor.top(), w, h };
         if surface != self.surface {
             self.surface = surface;
@@ -649,19 +654,19 @@ impl App {
         }
     }
 
-    /// Float the island below the top edge in the Pill theme, hang it from
-    /// the edge otherwise. When that changes (a theme switch, or the
-    /// self-test picking its theme after start) the window is laid out again
-    /// for the new room: grown for the gap and the shadow's room, or given
-    /// back, so Classic, Oyen and Glass keep exactly the window they start
-    /// with. Called every frame; a layout only on a change.
-    fn sync_floating(&mut self) {
-        let gap = pill::on(self.st.settings.theme).then_some(pill::TOP_GAP);
-        if gap.is_some() != self.island.floating() {
-            self.island.set_floating(gap);
+    /// The island started or stopped floating since the window was laid out
+    /// (a theme switch into or out of Pill, the self-test picking its theme
+    /// after start, or the outline docking at the edge after rising back to
+    /// it): lay the window out again for the new room, grown for the gap and
+    /// the shadow or given back, so Classic, Oyen and Glass keep exactly the
+    /// window they start with and Pill gets its own. Called every frame
+    /// after the island steps; a layout only on that change.
+    fn sync_room(&mut self) {
+        let floats = self.island.floating();
+        if floats != self.laid_floating {
             self.layout_surface();
             let (w, h) = (self.surface.w, self.surface.h);
-            self.log_queue.push(format!("island {}; window {w}x{h}", if gap.is_some() { "floats below the top edge" } else { "hangs from the top edge" }));
+            self.log_queue.push(format!("island {}; window {w}x{h}", if floats { "floats below the top edge" } else { "hangs from the top edge" }));
         }
     }
 
@@ -2352,8 +2357,10 @@ impl App {
         self.set_stats(self.mode == Mode::Expanded(PageKind::Today));
         self.set_sysmon(self.mode == Mode::Expanded(PageKind::System));
         self.set_oyenza_watch(self.mode == Mode::Expanded(PageKind::Oyenza));
-        self.sync_floating();
+        // The Pill theme floats the island below the top edge.
+        self.island.set_floating(pill::on(self.st.settings.theme).then_some(pill::TOP_GAP));
         self.island.step(dt, now);
+        self.sync_room();
         self.ensure_room();
         self.note_motion(retarget, rendered_at, period, dt as f64);
 
@@ -3536,7 +3543,10 @@ fn surface_size(island: &Island, body_w: f32, body_h: f32, scale: f32, mon_w: i3
     if (mon_w - w) % 2 != 0 {
         w += 1;
     }
-    let h = ((body_h * OVERSHOOT + island.bottom_room() + island.top()) * scale).ceil() as i32;
+    // The gap the island rests at, not where an outline sliding into or out
+    // of it is now: the window never resizes during that motion.
+    let top = if island.floating() { pill::TOP_GAP } else { 0.0 };
+    let h = ((body_h * OVERSHOOT + island.bottom_room() + top) * scale).ceil() as i32;
     (w, h)
 }
 
