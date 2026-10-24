@@ -23,6 +23,7 @@ is missing from <after>, 1 otherwise, 2 for a usage problem.
 
 import argparse
 import json
+import signal
 import sys
 from pathlib import Path
 
@@ -126,4 +127,7 @@ def main():
 
 
 if __name__ == "__main__":
+    # Quiet when piped into head.
+    if hasattr(signal, "SIGPIPE"):
+        signal.signal(signal.SIGPIPE, signal.SIG_DFL)
     sys.exit(main())
