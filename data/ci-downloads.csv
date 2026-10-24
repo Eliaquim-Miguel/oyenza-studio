@@ -48,3 +48,7 @@ job_id,step,run_id,attempt,started_at,branch,workflow,release,file
 120848384815,Fetch the release to upgrade from,40085449003,1,2026-10-24T10:25:00Z,island-settings,ci.yml,v0.1.1,Poni-Setup-0.1.1.exe
 120848796618,Fetch the release to upgrade from,40085578688,1,2026-10-24T10:27:12Z,lyrics-romaji-close,ci.yml,v0.1.1,Poni-Setup-0.1.1.exe
 120849164422,Fetch the release to upgrade from,40085715393,1,2026-10-24T10:29:00Z,mac-port,ci.yml,v0.1.1,Poni-Setup-0.1.1.exe
+120851030195,Fetch the release to upgrade from,40086311470,1,2026-10-24T10:38:35Z,lyrics-romaji-close,ci.yml,v0.1.1,Poni-Setup-0.1.1.exe
+120851108462,Fetch the release to upgrade from,40086420045,1,2026-10-24T10:39:01Z,download-stats,ci.yml,v0.1.1,Poni-Setup-0.1.1.exe
+120851208367,Fetch the release to upgrade from,40086315594,1,2026-10-24T10:39:34Z,system-page,ci.yml,v0.1.1,Poni-Setup-0.1.1.exe
+120855124724,Fetch the release to upgrade from,40087777676,1,2026-10-24T11:00:27Z,system-page,ci.yml,v0.1.1,Poni-Setup-0.1.1.exe

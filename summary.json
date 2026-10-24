@@ -1,16 +1,16 @@
 {
   "repo": "lucacadalora/poni",
-  "checked_at": "2026-10-24T10:33:30Z",
+  "checked_at": "2026-10-24T11:01:44Z",
   "since": "2026-10-24",
   "downloads": 47,
-  "github_count": 96,
-  "ci_count": 49,
+  "github_count": 99,
+  "ci_count": 53,
   "last_7_days": 47,
   "latest": {
     "release": "v0.1.9",
     "downloads": 4
   },
-  "stars": 3,
+  "stars": 5,
   "forks": 1,
   "watchers": 0,
   "releases": [
@@ -114,8 +114,8 @@
       "release": "v0.1.1",
       "published": "2026-10-24T05:54:33Z",
       "downloads": 6,
-      "github_count": 55,
-      "ci_count": 49,
+      "github_count": 58,
+      "ci_count": 53,
       "files": {
         "Poni-0.1.1-portable.zip": 0,
         "Poni-Setup-0.1.1.exe": 6
