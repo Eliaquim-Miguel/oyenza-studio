@@ -50,7 +50,7 @@
   </Applications>
 
   <Capabilities>
-    <!-- Lyrics lookups (LRCLIB). -->
+    <!-- Lyrics lookups (LRCLIB, and Apple Music once the user adds a token). -->
     <Capability Name="internetClient" />
     <!-- A desktop app: runs outside the app sandbox, like the installer build. -->
     <rescap:Capability Name="runFullTrust" />
