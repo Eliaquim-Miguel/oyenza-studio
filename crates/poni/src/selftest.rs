@@ -2525,9 +2525,10 @@ fn window_check(hwnd: HWND, surface: (i32, i32, i32, i32), present: (i32, i32), 
 /// The Pill theme's own checks. The island floats, so the gap above the body
 /// shows the screen: nothing there but the invisible hit pixels (alpha 1)
 /// that take the mouse, and the body's top edge where its geometry says. Its
-/// shadow fades out inside the room the window keeps around the body: a
-/// shadow that reaches the window's edge is cut off there, a hard line on a
-/// light wallpaper.
+/// shadow fades out inside the room the window keeps beside and below the
+/// body: a shadow that reaches the window's side or bottom edge is cut off
+/// there, a hard line on a light wallpaper. (The top edge is the screen's,
+/// and the gap check reads it.)
 fn pill_checks(frame: &Frame, body: Rect, scale: f32, checks: &mut Vec<Check>) {
     // Rows wholly above the body.
     let gap = (body.y * scale).floor() as i32;
@@ -2545,7 +2546,7 @@ fn pill_checks(frame: &Frame, body: Rect, scale: f32, checks: &mut Vec<Check>) {
             first.map_or("-".to_string(), |y| y.to_string())
         ),
     ));
-    let [top, bottom, left, right] = frame.edge_alpha();
+    let [_, bottom, left, right] = frame.edge_alpha();
     // How far past the body anything but the hit pixels is drawn, against the room there.
     let (w, h) = (frame.w as f32 / scale, frame.h as f32 / scale);
     let reach = frame.drawn_bounds(2).map_or("nothing drawn".to_string(), |(x0, _, x1, y1)| {
@@ -2561,8 +2562,8 @@ fn pill_checks(frame: &Frame, body: Rect, scale: f32, checks: &mut Vec<Check>) {
     });
     checks.push(check(
         "pill-shadow-inside",
-        [top, bottom, left, right].iter().all(|&a| a <= 1),
-        format!("edge alpha top {top}, bottom {bottom}, left {left}, right {right} (want <= 1); {reach}"),
+        [left, right, bottom].iter().all(|&a| a <= 1),
+        format!("edge alpha left {left}, right {right}, bottom {bottom} (want <= 1); {reach}"),
     ));
 }
 
