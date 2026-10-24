@@ -807,6 +807,9 @@ impl App {
                         self.input.clicked = Some((h, MouseButton::Left));
                     }
                 }
+                if self.input.down {
+                    self.input.released = self.input.pressed_id.map(|id| (id, p));
+                }
                 self.dbl_press = false;
                 self.release_mouse();
                 if !self.hovering_inside(p) {
@@ -3140,6 +3143,11 @@ impl App {
     /// Self-test: the captured rectangle (surface pixels).
     pub fn selftest_capture_rect(&self) -> RECT {
         self.capture_rect
+    }
+
+    /// Self-test: frames are drawn by Microsoft's software rasterizer, not a GPU.
+    pub fn selftest_software_gpu(&self) -> bool {
+        self.gfx.software_gpu()
     }
 
     /// Render a frame right now (bypassing the clock) and return the pixels
