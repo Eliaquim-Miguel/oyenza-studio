@@ -338,3 +338,100 @@ fn glow(ui: &mut Ui, body: Rect, color: Color, level: f32) {
         ui.c.fill_rect(Rect::new(body.x + dx, y0, body.w - 2.0 * dx, row), color.mul_alpha(alpha));
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::MediaSession;
+    use poni_core::settings::Settings;
+    use poni_core::store::Store;
+    use poni_core::timeline::Timeline;
+
+    fn playing(title: &str) -> AppState {
+        let mut st = AppState::new(Settings::default(), Store::default());
+        st.media = Some(MediaSession {
+            app_id: "Player.exe".into(),
+            app_name: "Player".into(),
+            title: title.into(),
+            artist: "Artist".into(),
+            album: String::new(),
+            art: None,
+            art_color: None,
+            timeline: Timeline::new(10.0, 200.0, 0.0, true),
+            can_prev: true,
+            can_next: true,
+            can_play_pause: true,
+            can_seek: true,
+            track_key: MediaSession::make_track_key(title, "Artist", ""),
+        });
+        st
+    }
+
+    #[test]
+    fn the_pill_fits_its_text_in_steps_between_the_spec_widths() {
+        assert_eq!(fit(0.0), MIN_W, "short text: the narrowest pill");
+        assert_eq!(fit(200.0), 288.0, "text + 88, already a whole step");
+        assert_eq!(fit(153.0), 248.0, "241 rounds up to the next 8");
+        assert_eq!(fit(1_000.0), MAX_W, "long text: the widest pill, ellipsized");
+        let mut w = 0.0;
+        while w < 600.0 {
+            let f = fit(w);
+            assert!(f >= w + SIDES || f == MAX_W, "{w} wide text fits in {f}");
+            assert_eq!(f % W_STEP, 0.0, "{f} is a whole step");
+            w += 0.7;
+        }
+    }
+
+    #[test]
+    fn bars_stay_in_their_range() {
+        for i in 0..BARS {
+            for n in 0..2_000 {
+                let k = bounce(i, n as f64 / 60.0);
+                assert!((0.0..=1.0).contains(&k), "bar {i} at frame {n}: {k}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_width_holds_the_widest_line_until_the_track_changes() {
+        let st = playing("One");
+        assert_eq!(widest_line(&st, 180.0), 180.0);
+        assert_eq!(widest_line(&st, 240.0), 240.0, "a longer line grows the pill");
+        assert_eq!(widest_line(&st, 120.0), 240.0, "a shorter one doesn't shrink it");
+        let next = playing("Two");
+        assert_eq!(widest_line(&next, 120.0), 120.0, "a new track starts over");
+    }
+
+    #[test]
+    fn play_and_pause_ease_and_settle() {
+        // Each test runs on its own thread, so this starts "paused since ever".
+        assert_eq!(play_level(false, 5.0), 0.0, "a pill that first shows paused doesn't fade");
+        assert_eq!(play_level(true, 10.0), 0.0, "playing starts the ease");
+        let mid = play_level(true, 10.0 + PLAY_FADE / 2.0);
+        assert!(mid > 0.0 && mid < 1.0, "halfway: {mid}");
+        assert_eq!(play_level(true, 10.0 + PLAY_FADE), 1.0, "settled: no more frames asked for");
+        assert_eq!(play_level(false, 20.0), 1.0, "a pause eases out from playing");
+        assert_eq!(play_level(false, 20.0 + PLAY_FADE), 0.0);
+    }
+
+    #[test]
+    fn the_bars_rest_on_battery_saver() {
+        let mut st = playing("One");
+        assert_eq!(is_live(&st), Some(true));
+        st.power.saver = true;
+        assert_eq!(is_live(&st), Some(false));
+        st.power.saver = false;
+        st.media.as_mut().unwrap().timeline = Timeline::new(10.0, 200.0, 0.0, false);
+        assert_eq!(is_live(&st), Some(false), "paused: nothing moves");
+    }
+
+    #[test]
+    fn the_peek_ending_wakes_the_pill() {
+        let mut st = playing("One");
+        st.now = 100.0;
+        st.ui.peek_until = 102.5;
+        assert_eq!(next_wake(&st), Some(102.5));
+        st.now = 103.0;
+        assert_eq!(next_wake(&st), None, "a past peek asks for nothing");
+    }
+}
