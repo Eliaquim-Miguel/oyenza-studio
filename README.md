@@ -42,8 +42,15 @@ Native Rust, no web view, no runtime, around 1.6 MB, and **zero CPU while nothin
 | ![Shelf](docs/screenshots/13-page-shelf.png) | ![Tasks](docs/screenshots/15-page-tasks.png) |
 | ![Clipboard](docs/screenshots/16-page-clipboard.png) | ![Today](docs/screenshots/17-page-today.png) |
 
+### The Oyen theme
+
+The island stays black by default. Switch on the Oyen theme (right-click › **Theme › Oyen**) and Oyen, the Oyenza cat, moves in: he peeks over the island's edge while it rests, watches your pointer when it comes near, sits beside the clock and bobs along while music plays. He sleeps from midnight to five, and his orange becomes the accent colour. He is drawn from the Oyenza logo, not a picture, so he stays sharp at any scaling, and he only moves for a moment now and then, so the app still uses no CPU at rest.
+
+![Classic and the Oyen theme side by side: resting, with the clock, and playing music](docs/screenshots/oyen-theme.png)
+
 Right-click the island or the tray icon for options:
-- the idle look: clock, eyes, minimal, or hidden until you hover
+- the theme: Classic or Oyen
+- the idle look: clock, eyes (Oyen in his theme), minimal, or hidden until you hover
 - lyrics, water reminders, clipboard history and sounds
 - hide in full-screen apps
 - start with Windows, and quit
