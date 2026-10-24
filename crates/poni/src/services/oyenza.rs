@@ -1,9 +1,10 @@
 //! Oyenza (oyenza.app), optional: signing in with a code, then asking for
 //! money that arrived or went out by itself, the last 7 days of transactions
-//! while the Oyenza page is open, and bills due soon, and saving the spends
-//! typed in the island. Words, URLs and parsing live in `poni_core::oyenza`; this file
-//! does the HTTP on one worker thread and keeps the key sealed with DPAPI
-//! (`services::secret`) at `paths::oyenza_link_path()`.
+//! while the Oyenza page is open, bills due soon, and the steps the phone
+//! sent, and saving the spends typed in the island. Words, URLs and parsing
+//! live in `poni_core::oyenza`; this file does the HTTP on one worker thread
+//! and keeps the key sealed with DPAPI (`services::secret`) at
+//! `paths::oyenza_link_path()`.
 //!
 //! Nothing runs until the person signs in from the tray. Then:
 //! - money every minute while the PC is in use on mains power, every 3
@@ -12,6 +13,9 @@
 //! - the day list every 15 seconds while the Oyenza page is on screen, and
 //!   never otherwise; an answer with nothing new is a few bytes;
 //! - bills every half hour, and all three again when the Oyenza tab opens;
+//! - the steps every 15 minutes while the PC is in use, and when the Health
+//!   tab opens (at most once in 30 seconds); a server from before steps (404)
+//!   counts as none to show. They go to the island only, never to disk or the log;
 //! - failures back off to 1, 2, 4 … 15 minutes, honouring `Retry-After`;
 //! - a 401 means the key was disconnected in oyenza.app (or ran out): the key
 //!   is deleted and the island says so once.
@@ -23,6 +27,7 @@
 use crate::commands::OyenzaCmd;
 use crate::events::{AppEvent, EventSink, OyenzaEvent};
 use crate::services::http::{Client, FetchError, Method, MtaGuard, Response};
+use poni_core::health::HealthSnapshot;
 use poni_core::oyenza::{self, Claim, Link};
 use std::collections::VecDeque;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
@@ -141,6 +146,11 @@ struct Worker {
     next_activity: Instant,
     was_watching: bool,
     last_refresh: Option<Instant>,
+    next_health: Instant,
+    /// When the steps were last asked for: the Health tab opening asks again only after `REFRESH_GAP`.
+    health_asked: Option<Instant>,
+    /// What the steps check last answered, so the log says each change once (never the numbers).
+    health_said: Option<&'static str>,
     fails: u32,
     /// A key whose disconnect couldn't reach the server yet.
     revoke: Option<String>,
@@ -164,6 +174,9 @@ fn worker_main(shared: Arc<Shared>, sink: EventSink) {
         next_activity: now,
         was_watching: false,
         last_refresh: None,
+        next_health: now,
+        health_asked: None,
+        health_said: None,
         fails: 0,
         revoke: None,
         next_revoke: now,
@@ -245,6 +258,7 @@ impl Worker {
         if self.link.is_some() && a.in_use {
             consider(self.next_money);
             consider(self.next_bills);
+            consider(self.next_health);
             if a.watching {
                 consider(self.next_activity);
             }
@@ -276,6 +290,12 @@ impl Worker {
                 }
                 self.next_activity = now;
             }
+            OyenzaCmd::RefreshHealth => {
+                let now = Instant::now();
+                if self.link.is_some() && self.health_asked.is_none_or(|t| now - t >= REFRESH_GAP) {
+                    self.next_health = now;
+                }
+            }
         }
     }
 
@@ -296,6 +316,9 @@ impl Worker {
             }
             if self.link.is_some() && a.watching && Instant::now() >= self.next_activity {
                 self.poll_activity();
+            }
+            if self.link.is_some() && Instant::now() >= self.next_health {
+                self.poll_health();
             }
         }
         if self.revoke.is_some() && a.in_use && Instant::now() >= self.next_revoke {
@@ -360,6 +383,7 @@ impl Worker {
                 self.next_money = now;
                 self.next_bills = now;
                 self.next_activity = now;
+                self.next_health = now;
             }
             Some(Claim::Waiting) => self.ask_again(now, false),
             Some(Claim::SlowDown) => self.ask_again(now, true),
@@ -423,6 +447,8 @@ impl Worker {
         self.cursor = None;
         self.activity_cursor = None;
         self.activity_today.clear();
+        self.health_asked = None;
+        self.health_said = None;
         self.fails = 0;
         if let Err(e) = crate::services::secret::delete(&crate::paths::oyenza_link_path()) {
             crate::pwarn!("oyenza: cannot remove the saved sign-in ({e})");
@@ -519,6 +545,35 @@ impl Worker {
             Ok(r) => self.next_bills = self.failed("bills check", format!("HTTP {}", r.status), r.retry_after_s),
             Err(e) => self.next_bills = self.failed("bills check", e.to_string(), None),
         }
+    }
+
+    /// The steps the phone sent, for the Health page (None: none to show).
+    fn poll_health(&mut self) {
+        let Some(key) = self.link.as_ref().map(|l| l.key.clone()) else { return };
+        self.health_asked = Some(Instant::now());
+        match self.call(Method::Get, &oyenza::health_url(), Some(&key), None, TIMEOUT) {
+            Ok(r) if r.status == 200 => match oyenza::parse_health(&r.body) {
+                Some(Some(h)) => self.got_health(Some(h), "steps from the phone came in"),
+                Some(None) => self.got_health(None, "no steps to show (off in Oyenza, or none sent yet)"),
+                None => self.next_health = self.failed("steps check", "unreadable answer".into(), None),
+            },
+            // A server from before steps came to the PC: none to show, and nothing wrong.
+            Ok(r) if r.status == 404 => self.got_health(None, "this server doesn't send steps yet"),
+            Ok(r) if r.status == 401 => self.signed_out_by_server(),
+            Ok(r) => self.next_health = self.failed("steps check", format!("HTTP {}", r.status), r.retry_after_s),
+            Err(e) => self.next_health = self.failed("steps check", e.to_string(), None),
+        }
+    }
+
+    /// An answer (`said` goes to the log when it changes): the island gets it, and the next look is in 15 minutes.
+    fn got_health(&mut self, health: Option<HealthSnapshot>, said: &'static str) {
+        self.fails = 0;
+        self.next_health = Instant::now() + Duration::from_secs(oyenza::HEALTH_EVERY_S);
+        if self.health_said != Some(said) {
+            self.health_said = Some(said);
+            crate::pinfo!("oyenza: {said}");
+        }
+        self.send(OyenzaEvent::Health(health));
     }
 
     // ------------------------------------------------------------ writing

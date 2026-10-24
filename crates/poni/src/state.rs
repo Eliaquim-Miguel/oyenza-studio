@@ -482,6 +482,17 @@ impl AppState {
         self.unix + self.prayer.clock_shift
     }
 
+    /// New steps from the phone (`None`: none to show), kept in memory only,
+    /// never in data.json. Returns today's steps when they just passed the
+    /// goal; the first numbers after start or sign-in only set the baseline
+    /// (`poni_core::health::goal_notice`).
+    pub fn take_health(&mut self, next: Option<HealthSnapshot>) -> Option<u32> {
+        let today = self.local.day_key();
+        let reached = next.as_ref().filter(|n| poni_core::health::goal_notice(self.health.as_ref(), n, &today)).map(|n| n.steps_on(&today));
+        self.health = next;
+        reached
+    }
+
     pub fn cmd(&mut self, c: Command) {
         self.cmds.push(c);
     }
@@ -562,5 +573,27 @@ mod tests {
         pd.visitor = Some("iPhone".into());
         pd.ask = Some(PhoneAsk { id: 1, from: "iPhone".into(), files: vec![], total: 0 });
         assert!(st.phone_holds_island(), "a phone waits for an answer");
+    }
+
+    #[test]
+    fn the_goal_notice_is_only_for_steps_seen_passing_it() {
+        use poni_core::health::{HealthDay, HealthSource};
+        let mut st = AppState::new(Settings::default(), Store::default());
+        st.local = LocalDateTime { year: 2026, month: 10, day: 24, hour: 15, minute: 20, second: 0 };
+        let snap = |steps: u32| HealthSnapshot {
+            goal: 8000,
+            source: HealthSource::AppleHealth,
+            updated_at: 0,
+            days: vec![HealthDay { date: "2026-10-24".into(), steps, distance_m: None, active_kcal: None }],
+        };
+        // Over the goal in the first numbers after start: a baseline, no notice (a restart never repeats it).
+        assert_eq!(st.take_health(Some(snap(9000))), None);
+        assert_eq!(st.health.as_ref().map(|h| h.steps_on("2026-10-24")), Some(9000));
+        // Off in Oyenza: nothing kept; the numbers after it are a baseline again.
+        assert_eq!(st.take_health(None), None);
+        assert!(st.health.is_none());
+        assert_eq!(st.take_health(Some(snap(7900))), None);
+        assert_eq!(st.take_health(Some(snap(8010))), Some(8010));
+        assert_eq!(st.take_health(Some(snap(8500))), None);
     }
 }

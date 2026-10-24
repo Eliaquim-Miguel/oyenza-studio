@@ -58,6 +58,8 @@ pub enum OyenzaCmd {
     Undo(String),
     /// The Oyenza tab opened: today's money and the bills, now.
     Refresh,
+    /// The Health tab opened: the steps from the phone, now (unless just asked for).
+    RefreshHealth,
 }
 
 #[derive(Clone, Debug, PartialEq)]

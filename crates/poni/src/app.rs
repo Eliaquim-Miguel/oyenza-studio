@@ -1251,6 +1251,11 @@ impl App {
                 self.st.oyenza.updated_unix = Some(self.st.unix);
                 self.remind_bills(&day);
             }
+            OyenzaEvent::Health(next) => {
+                if let Some(steps) = self.st.take_health(next) {
+                    self.st.notice = Some(steps_goal_notice(steps, now + 6.0));
+                }
+            }
             OyenzaEvent::NoteSaved(saved) => {
                 let o = &mut self.st.oyenza;
                 o.saving = false;
@@ -1274,6 +1279,7 @@ impl App {
             OyenzaEvent::Disconnected { by_server } => {
                 self.end_sign_in();
                 self.st.oyenza = crate::state::OyenzaState::default();
+                self.st.health = None;
                 let (title, subtitle) =
                     if by_server { ("Oyenza disconnected", "Sign in again in Settings") } else { ("Disconnected from Oyenza", "Sign in again any time in Settings") };
                 self.st.notify(Icon::Unlink, palette::TEXT_DIM, title, subtitle, 6.0, None);
@@ -1750,6 +1756,8 @@ impl App {
             self.cancel_hover();
             if self.st.page == PageKind::Oyenza {
                 self.oyenza(OyenzaCmd::Refresh);
+            } else if self.st.page == PageKind::Health {
+                self.oyenza(OyenzaCmd::RefreshHealth);
             }
         }
         self.request_frame();
@@ -2735,6 +2743,8 @@ impl App {
             }
             if p == PageKind::Oyenza {
                 self.oyenza(OyenzaCmd::Refresh);
+            } else if p == PageKind::Health {
+                self.oyenza(OyenzaCmd::RefreshHealth);
             }
         }
     }
