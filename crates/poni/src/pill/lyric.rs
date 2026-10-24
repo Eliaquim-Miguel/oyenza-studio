@@ -48,12 +48,13 @@ const GAP_MIN_S: f64 = 3.0;
 /// A paused song keeps its line this long, so a short pause doesn't swap the
 /// line for the title and back; then the title says what is paused.
 const PAUSE_HOLD_S: f64 = 3.0;
-/// A line change: the new line rises into place while the old one rises
-/// away, fading out over the first [`LEAVE_SHARE`] of it, so the two never
-/// read as one. Lines move up as on the Music page.
+/// A line change: the old line rises away and fades out by [`LEAVE_UNTIL`]
+/// of the way, the new one rises into place from [`COME_FROM`], so the two
+/// barely overlap and never read as one. Lines move up as on the Music page.
 const FADE_S: f64 = 0.2;
 const RISE: f32 = 4.0;
-const LEAVE_SHARE: f32 = 0.6;
+const LEAVE_UNTIL: f32 = 0.5;
+const COME_FROM: f32 = 0.25;
 /// A report this far before the line on screen is a seek back, not a
 /// jumpy player.
 const BACK_S: f64 = LyricClock::JUMP_S;
@@ -85,7 +86,9 @@ pub fn current(st: &AppState) -> Option<(String, f64)> {
 /// `false` = no line to show now (draw the title instead).
 ///
 /// `area` is the line's slot at the pill's settled size: a line laid out in
-/// a narrower slot ends in an ellipsis.
+/// a narrower slot ends in an ellipsis. While the pill still grows or
+/// shrinks to a new line, clip to the slot it has now, so the line opens
+/// out with the pill instead of running over what sits beside it.
 pub fn draw(ui: &mut Ui, st: &AppState, area: Rect) -> bool {
     with_state(|s| s.draw(ui, st, area)).unwrap_or(false)
 }
@@ -277,8 +280,12 @@ struct Shown {
     text: String,
     /// The lyrics it is from ([`Follow::generation`]).
     generation: u32,
-    /// The line it replaced, rising away while this one comes in.
-    leaving: Option<String>,
+    /// The width of the slot it was last drawn in: a line that leaves keeps
+    /// its layout while the pill takes the next line's size.
+    slot_w: f32,
+    /// The line it replaced (and its slot's width), rising away while this
+    /// one comes in.
+    leaving: Option<(String, f32)>,
     /// When the change began (app clock).
     since: f64,
 }
@@ -305,9 +312,10 @@ fn with_state<R>(f: impl FnOnce(&mut State) -> R) -> Option<R> {
 fn fade(k: f32) -> ((f32, f32), (f32, f32)) {
     let k = k.clamp(0.0, 1.0);
     // Ease-out: quick to start, gentle to land.
-    let e = 1.0 - (1.0 - k).powi(3);
-    let g = (k / LEAVE_SHARE).min(1.0);
-    ((e, RISE * (1.0 - e)), ((1.0 - g) * (1.0 - g), -RISE * e))
+    let ease = |x: f32| 1.0 - (1.0 - x).powi(3);
+    let come = ease(((k - COME_FROM) / (1.0 - COME_FROM)).clamp(0.0, 1.0));
+    let gone = (k / LEAVE_UNTIL).min(1.0);
+    ((come, RISE * (1.0 - come)), ((1.0 - gone) * (1.0 - gone), -RISE * ease(gone)))
 }
 
 impl State {
@@ -329,8 +337,8 @@ impl State {
         let shown = match self.shown.take() {
             Some(s) if s.line == i && s.text == text => s,
             old => {
-                let leaving = old.filter(|s| on_screen && s.generation == generation).map(|s| s.text);
-                Shown { line: i, text: text.to_string(), generation, leaving, since: now }
+                let leaving = old.filter(|s| on_screen && s.generation == generation).map(|s| (s.text, s.slot_w));
+                Shown { line: i, text: text.to_string(), generation, slot_w: 0.0, leaving, since: now }
             }
         };
         self.shown.insert(shown)
@@ -349,6 +357,7 @@ impl State {
             return true;
         }
         let area = area.inset(-SLACK, 0.0);
+        shown.slot_w = area.w;
         // Paused (for the moment the line holds), dimmed like the art and a paused timer.
         let color = if pick.paused { palette::TEXT_DIM } else { palette::TEXT };
         let style = style().center().color(color);
@@ -362,8 +371,9 @@ impl State {
         ui.request_anim();
         let snap = ui.c.set_text_snap(false);
         let ((come_a, come_dy), (gone_a, gone_dy)) = fade(k);
-        if let Some(old) = shown.leaving.as_deref().filter(|_| gone_a > 0.0) {
-            ui.c.with_alpha(gone_a, |c| c.text(old, area.offset(0.0, gone_dy), &style));
+        if let Some((old, w)) = shown.leaving.as_ref().filter(|_| gone_a > 0.0) {
+            let r = Rect::from_center(area.center(), *w, area.h).offset(0.0, gone_dy);
+            ui.c.with_alpha(gone_a, |c| c.text(old, r, &style));
         }
         ui.c.with_alpha(come_a, |c| c.text(&shown.text, area.offset(0.0, come_dy), &style));
         ui.c.set_text_snap(snap);
@@ -642,14 +652,16 @@ mod tests {
         // First draw: nothing was on screen before.
         assert!(!s.seen(100.0, Some(103.0)));
         let first = s.show(100.0, false, 0, "First");
-        assert_eq!((first.leaving.as_deref(), first.since), (None, 100.0));
+        assert_eq!((first.leaving.clone(), first.since), (None, 100.0));
         // The same line a frame later: nothing new.
         assert!(s.seen(100.016, Some(103.0)));
         assert_eq!(s.show(100.016, true, 0, "First").since, 100.0);
         // No frames until the wake for the next line (no equalizer): still on screen.
         assert!(s.seen(103.02, Some(106.0)));
+        s.shown.as_mut().unwrap().slot_w = 180.0;
         let next = s.show(103.02, true, 1, "Second");
-        assert_eq!((next.leaving.as_deref(), next.since), (Some("First"), 103.02));
+        // It leaves in the slot it had.
+        assert_eq!((next.leaving.clone(), next.since), (Some(("First".to_string(), 180.0)), 103.02));
         // Back after a while away (the page was open): the old line just goes.
         assert!(!s.seen(120.0, Some(121.0)));
         assert_eq!(s.show(120.0, false, 5, "Sixth").leaving, None);
@@ -665,8 +677,11 @@ mod tests {
         assert_eq!((a0, dy0, g0, gy0), (0.0, RISE, 1.0, 0.0));
         let ((a1, dy1), (g1, gy1)) = fade(1.0);
         assert_eq!((a1, dy1, g1, gy1), (1.0, 0.0, 0.0, -RISE));
-        // The old line is gone before the new one lands.
-        assert_eq!(fade(LEAVE_SHARE).1 .0, 0.0);
+        // The old line is gone halfway; the new one starts a quarter of the way in.
+        assert_eq!(fade(LEAVE_UNTIL).1 .0, 0.0);
+        assert_eq!(fade(COME_FROM).0 .0, 0.0);
+        let ((a, _), (g, _)) = fade(0.4);
+        assert!(a < 0.6 && g < 0.1, "they barely overlap: {a} in, {g} out");
         let mut prev = fade(0.0);
         for i in 1..=100 {
             let f = fade(i as f32 / 100.0);
