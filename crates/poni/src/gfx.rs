@@ -15,9 +15,10 @@ use poni_core::geom::{Color, Point, Rect};
 use poni_core::svgpath::Seg;
 use std::collections::HashMap;
 use std::ffi::c_void;
+use std::mem::ManuallyDrop;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use windows::core::{w, Result, PCWSTR};
+use windows::core::{w, Interface, Result, PCWSTR};
 use windows::Foundation::Numerics::Matrix3x2;
 use windows::Win32::Foundation::{BOOL, COLORREF, HWND, POINT, RECT, SIZE};
 use windows::Win32::Graphics::Direct2D::Common::*;
@@ -75,7 +76,8 @@ impl ImageData {
                 let max = r.max(g).max(b);
                 let min = r.min(g).min(b);
                 let sat = if max > 0.0 { (max - min) / max } else { 0.0 };
-                let score = sat * (1.0 - (max - 0.75).abs());
+                // Prefer vivid AND bright pixels (the old score picked dark seas).
+                let score = sat * max * max;
                 if score > best_score {
                     best_score = score;
                     best = Some(Color::rgba(r.min(1.0), g.min(1.0), b.min(1.0), 1.0));
@@ -84,7 +86,7 @@ impl ImageData {
             i += step;
         }
         match best {
-            Some(c) if best_score > 0.25 => c.for_island_accent(),
+            Some(c) if best_score > 0.2 => c.for_island_accent(),
             _ if n > 0.0 => Color::rgba(sr / n, sg / n, sb / n, 1.0).for_island_accent(),
             _ => Color::hex(0x0A84FF),
         }
@@ -119,6 +121,17 @@ pub enum Align {
     Right,
 }
 
+/// The type scale. Use these instead of literal sizes; nothing below CAPTION.
+pub mod ts {
+    pub const CAPTION: f32 = 11.0;
+    pub const FOOTNOTE: f32 = 12.0;
+    pub const BODY: f32 = 13.0;
+    pub const HEADLINE: f32 = 15.0;
+    pub const VALUE: f32 = 18.0;
+    pub const DISPLAY: f32 = 30.0;
+    pub const HERO: f32 = 50.0;
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TextStyle {
     pub size: f32,
@@ -131,11 +144,39 @@ pub struct TextStyle {
     pub wrap: bool,
     /// Vertically centre inside the rect (default) or top-align.
     pub vcenter: bool,
+    /// Uniform line height as a multiple of the size (0 = font default).
+    pub line: f32,
 }
 
 impl TextStyle {
     pub fn new(size: f32) -> Self {
-        Self { size, weight: Weight::Regular, color: poni_core::geom::palette::TEXT, align: Align::Left, tabular: false, wrap: false, vcenter: true }
+        Self { size, weight: Weight::Regular, color: poni_core::geom::palette::TEXT, align: Align::Left, tabular: false, wrap: false, vcenter: true, line: 0.0 }
+    }
+    pub fn caption() -> Self {
+        Self::new(ts::CAPTION)
+    }
+    pub fn footnote() -> Self {
+        Self::new(ts::FOOTNOTE)
+    }
+    pub fn body() -> Self {
+        Self::new(ts::BODY)
+    }
+    pub fn headline() -> Self {
+        Self::new(ts::HEADLINE).weight(Weight::Semibold)
+    }
+    pub fn value() -> Self {
+        Self::new(ts::VALUE).weight(Weight::Semibold)
+    }
+    pub fn display() -> Self {
+        Self::new(ts::DISPLAY).weight(Weight::Semibold)
+    }
+    pub fn hero() -> Self {
+        Self::new(ts::HERO)
+    }
+    /// Uniform line spacing (e.g. 1.2) so wrapped lines read as one unit.
+    pub fn line_spacing(mut self, mult: f32) -> Self {
+        self.line = mult;
+        self
     }
     pub fn weight(mut self, w: Weight) -> Self {
         self.weight = w;
@@ -209,6 +250,8 @@ pub struct Gfx {
     icon_geoms: HashMap<Icon, Vec<(ID2D1PathGeometry, bool)>>,
     /// Bitmaps used during the current frame (others are evicted at `end`).
     used_bitmaps: Vec<u64>,
+    /// Whether each pushed shape mask really pushed a layer (to balance pops).
+    mask_stack: Vec<bool>,
 }
 
 impl Drop for Gfx {
@@ -292,6 +335,7 @@ impl Gfx {
                 bitmaps: HashMap::new(),
                 icon_geoms: HashMap::new(),
                 used_bitmaps: Vec::new(),
+                mask_stack: Vec::new(),
             };
             g.ensure_capacity(512, 128)?;
             Ok(g)
@@ -364,6 +408,12 @@ impl Gfx {
     /// Finish the frame. Evicts bitmaps that weren't used this frame once the
     /// cache grows large.
     pub fn end(&mut self) -> Result<()> {
+        // Balance any shape masks a caller forgot to pop.
+        while let Some(pushed) = self.mask_stack.pop() {
+            if pushed {
+                unsafe { self.rt.PopLayer() };
+            }
+        }
         unsafe { self.rt.EndDraw(None, None)? };
         if self.bitmaps.len() > 48 {
             let used = std::mem::take(&mut self.used_bitmaps);
@@ -444,6 +494,9 @@ impl Gfx {
                 Align::Right => DWRITE_TEXT_ALIGNMENT_TRAILING,
             })?;
             layout.SetParagraphAlignment(if st.vcenter { DWRITE_PARAGRAPH_ALIGNMENT_CENTER } else { DWRITE_PARAGRAPH_ALIGNMENT_NEAR })?;
+            if st.line > 0.0 {
+                layout.SetLineSpacing(DWRITE_LINE_SPACING_METHOD_UNIFORM, st.line * st.size, 0.8 * st.line * st.size)?;
+            }
             if st.tabular && !text.is_empty() {
                 let typo = self.dwrite.CreateTypography()?;
                 typo.AddFontFeature(DWRITE_FONT_FEATURE { nameTag: DWRITE_FONT_FEATURE_TAG_TABULAR_FIGURES, parameter: 1 })?;
@@ -681,23 +734,53 @@ impl<'a> Canvas<'a> {
     /// "shoulders" flaring into the top edge and rounded bottom corners.
     /// `body` is the main rectangle; shoulders extend `shoulder` DIPs outside it.
     pub fn notch(&mut self, body: Rect, radius: f32, shoulder: f32, fill: Color, border: Option<Color>) {
-        let s = shoulder.max(0.0);
-        let r = radius.min(body.h).min(body.w / 2.0).max(0.0);
-        let (x0, x1, y1) = (body.x, body.right(), body.bottom());
-        let mut segs = vec![Seg::MoveTo(x0 - s, 0.0)];
-        if s > 0.0 {
-            segs.push(Seg::ArcTo(s, s, 0.0, false, true, x0, s.min(body.h)));
+        self.path(&notch_segments(body, radius, shoulder), Some(fill), None);
+        if let Some(b) = border {
+            // Stroke only the sides and bottom: stroking the closing top segment
+            // or the shoulders leaves a grey seam against the screen edge.
+            let s = shoulder.max(0.0);
+            let r = radius.min(body.h).min(body.w / 2.0).max(0.0);
+            let (x0, x1, y1) = (body.x, body.right(), body.bottom());
+            let top = s.min(body.h);
+            let segs = [
+                Seg::MoveTo(x0, top),
+                Seg::LineTo(x0, (y1 - r).max(top)),
+                Seg::ArcTo(r, r, 0.0, false, false, x0 + r, y1),
+                Seg::LineTo(x1 - r, y1),
+                Seg::ArcTo(r, r, 0.0, false, false, x1, (y1 - r).max(top)),
+                Seg::LineTo(x1, top),
+            ];
+            self.path(&segs, None, Some((b, 1.0)));
         }
-        segs.push(Seg::LineTo(x0, (y1 - r).max(0.0)));
-        segs.push(Seg::ArcTo(r, r, 0.0, false, false, x0 + r, y1));
-        segs.push(Seg::LineTo(x1 - r, y1));
-        segs.push(Seg::ArcTo(r, r, 0.0, false, false, x1, (y1 - r).max(0.0)));
-        segs.push(Seg::LineTo(x1, s.min(body.h)));
-        if s > 0.0 {
-            segs.push(Seg::ArcTo(s, s, 0.0, false, true, x1 + s, 0.0));
+    }
+
+    /// Mask subsequent drawing to the island silhouette (anti-aliased) until
+    /// [`Canvas::pop_shape_mask`]. Push it before any content scale transform.
+    pub fn push_shape_mask(&mut self, body: Rect, radius: f32, shoulder: f32) {
+        let pushed = match self.g.path_geometry(&notch_segments(body, radius, shoulder), true).and_then(|g| g.cast::<ID2D1Geometry>()) {
+            Ok(geom) => unsafe {
+                let params = D2D1_LAYER_PARAMETERS {
+                    contentBounds: D2D_RECT_F { left: -1.0e7, top: -1.0e7, right: 1.0e7, bottom: 1.0e7 },
+                    geometricMask: ManuallyDrop::new(Some(geom)),
+                    maskAntialiasMode: D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
+                    maskTransform: Matrix3x2::identity(),
+                    opacity: 1.0,
+                    opacityBrush: ManuallyDrop::new(None),
+                    layerOptions: D2D1_LAYER_OPTIONS_NONE,
+                };
+                self.g.rt.PushLayer(&params, None::<&ID2D1Layer>);
+                drop(ManuallyDrop::into_inner(params.geometricMask));
+                true
+            },
+            Err(_) => false,
+        };
+        self.g.mask_stack.push(pushed);
+    }
+
+    pub fn pop_shape_mask(&mut self) {
+        if let Some(true) = self.g.mask_stack.pop() {
+            unsafe { self.g.rt.PopLayer() };
         }
-        segs.push(Seg::Close);
-        self.path(&segs, Some(fill), border.map(|b| (b, 1.0)));
     }
 
     /// Draw text in `r`. Single-line text is ellipsized; see [`TextStyle`].
@@ -801,4 +884,44 @@ impl<'a> Canvas<'a> {
     pub fn reset_transform(&mut self) {
         unsafe { self.g.rt.SetTransform(&Matrix3x2::identity()) };
     }
+
+    /// The current transform (pair with [`Canvas::restore_transform`]
+    /// instead of `reset_transform`, which would also drop outer transforms).
+    pub fn save_transform(&self) -> Matrix3x2 {
+        let mut m = Matrix3x2::identity();
+        unsafe { self.g.rt.GetTransform(&mut m) };
+        m
+    }
+
+    pub fn restore_transform(&mut self, m: Matrix3x2) {
+        unsafe { self.g.rt.SetTransform(&m) };
+    }
+
+    /// Scale subsequent drawing by `s` about point `p` (on top of the current transform).
+    pub fn scale_about(&mut self, p: Point, s: f32) {
+        let prev = self.save_transform();
+        let m = Matrix3x2 { M11: s, M12: 0.0, M21: 0.0, M22: s, M31: p.x * (1.0 - s), M32: p.y * (1.0 - s) };
+        unsafe { self.g.rt.SetTransform(&(m * prev)) };
+    }
+}
+
+/// The island outline as path segments (flat top, concave shoulders, rounded bottom).
+pub fn notch_segments(body: Rect, radius: f32, shoulder: f32) -> Vec<Seg> {
+    let s = shoulder.max(0.0);
+    let r = radius.min(body.h).min(body.w / 2.0).max(0.0);
+    let (x0, x1, y1) = (body.x, body.right(), body.bottom());
+    let mut segs = vec![Seg::MoveTo(x0 - s, 0.0)];
+    if s > 0.0 {
+        segs.push(Seg::ArcTo(s, s, 0.0, false, true, x0, s.min(body.h)));
+    }
+    segs.push(Seg::LineTo(x0, (y1 - r).max(0.0)));
+    segs.push(Seg::ArcTo(r, r, 0.0, false, false, x0 + r, y1));
+    segs.push(Seg::LineTo(x1 - r, y1));
+    segs.push(Seg::ArcTo(r, r, 0.0, false, false, x1, (y1 - r).max(0.0)));
+    segs.push(Seg::LineTo(x1, s.min(body.h)));
+    if s > 0.0 {
+        segs.push(Seg::ArcTo(s, s, 0.0, false, true, x1 + s, 0.0));
+    }
+    segs.push(Seg::Close);
+    segs
 }

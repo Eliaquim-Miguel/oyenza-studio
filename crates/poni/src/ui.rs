@@ -111,6 +111,28 @@ pub struct TextInputResp {
     pub changed: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum InputLook {
+    Box,
+    Row { accent: Color, icon: Option<Icon> },
+}
+
+/// The button system: two heights and three looks.
+pub const PILL_SMALL: f32 = 28.0;
+pub const PILL_REGULAR: f32 = 34.0;
+/// Gap between neighbouring capsules.
+pub const PILL_GAP: f32 = 8.0;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PillStyle {
+    /// Secondary utility (Clear, Undo, …): neutral fill, dim label that brightens on hover.
+    Utility,
+    /// A page action: neutral fill, full-white label.
+    Neutral,
+    /// The page's one primary action: accent at 0.20 fill, accent label.
+    Primary(Color),
+}
+
 pub struct Ui<'a, 'g> {
     pub c: &'a mut Canvas<'g>,
     pub input: &'a mut Input,
@@ -237,6 +259,48 @@ impl<'a, 'g> Ui<'a, 'g> {
         resp
     }
 
+    /// Width a [`Ui::pill`] needs for `label` (and an optional icon).
+    pub fn pill_width(&mut self, label: &str, icon: bool, small: bool) -> f32 {
+        let (size, isz, pad) = if small { (crate::gfx::ts::FOOTNOTE, 13.0, 12.0) } else { (crate::gfx::ts::BODY, 14.0, 16.0) };
+        let tw = if label.is_empty() { 0.0 } else { self.c.measure(label, &TextStyle::new(size).weight(Weight::Semibold), 400.0).0 };
+        let iw = if icon { isz + if label.is_empty() { 0.0 } else { 6.0 } } else { 0.0 };
+        (2.0 * pad + iw + tw).ceil()
+    }
+
+    /// A capsule button from the button system. Height decides the size:
+    /// `PILL_SMALL` (28) = 12 pt label / 13 icon, `PILL_REGULAR` (34) = 13 / 14.
+    pub fn pill(&mut self, id: WidgetId, r: Rect, label: &str, icon: Option<Icon>, style: PillStyle) -> Resp {
+        let resp = self.button(id, r);
+        let small = r.h <= 30.0;
+        let (fill, text) = match style {
+            PillStyle::Utility => {
+                let f = if resp.pressed { Color::white(0.22) } else if resp.hovered { Color::white(0.15) } else { palette::SURFACE };
+                (f, if resp.hovered || resp.pressed { palette::TEXT } else { palette::TEXT_DIM })
+            }
+            PillStyle::Neutral => {
+                let f = if resp.pressed { Color::white(0.22) } else if resp.hovered { Color::white(0.15) } else { palette::SURFACE };
+                (f, palette::TEXT)
+            }
+            PillStyle::Primary(c) => {
+                let a = if resp.pressed { 0.36 } else if resp.hovered { 0.28 } else { 0.20 };
+                (c.with_alpha(a), c)
+            }
+        };
+        self.c.fill_rrect(r, r.h / 2.0, fill);
+        let (size, isz) = if small { (crate::gfx::ts::FOOTNOTE, 13.0) } else { (crate::gfx::ts::BODY, 14.0) };
+        let st = TextStyle::new(size).weight(Weight::Semibold).color(text);
+        let tw = if label.is_empty() { 0.0 } else { self.c.measure(label, &st, r.w).0 };
+        let iw = if icon.is_some() { isz + if label.is_empty() { 0.0 } else { 6.0 } } else { 0.0 };
+        let x = r.x + (r.w - iw - tw) / 2.0;
+        if let Some(i) = icon {
+            self.c.icon(i, Rect::new(x, r.center().y - isz / 2.0, isz, isz), text);
+        }
+        if !label.is_empty() {
+            self.c.text(label, Rect::new(x + iw, r.y, tw + 2.0, r.h), &st);
+        }
+        resp
+    }
+
     /// Mouse-wheel notches over `r` (consumed so only one widget scrolls).
     pub fn wheel_in(&mut self, r: Rect) -> f32 {
         if self.hovered(r) && self.input.wheel != 0.0 {
@@ -250,6 +314,17 @@ impl<'a, 'g> Ui<'a, 'g> {
 
     /// Single-line text field. Click to focus, Enter submits, Esc cancels.
     pub fn text_input(&mut self, id: WidgetId, r: Rect, buf: &mut String, placeholder: &str, max_chars: usize) -> TextInputResp {
+        self.text_input_styled(id, r, buf, placeholder, max_chars, InputLook::Box)
+    }
+
+    /// A list-row style field: no box until hovered/focused, a leading icon in
+    /// the same column as list checkboxes (centred at x+18, text at x+36), and
+    /// an accent focus ring.
+    pub fn text_input_row(&mut self, id: WidgetId, r: Rect, buf: &mut String, placeholder: &str, max_chars: usize, accent: Color, icon: Option<Icon>) -> TextInputResp {
+        self.text_input_styled(id, r, buf, placeholder, max_chars, InputLook::Row { accent, icon })
+    }
+
+    fn text_input_styled(&mut self, id: WidgetId, r: Rect, buf: &mut String, placeholder: &str, max_chars: usize, look: InputLook) -> TextInputResp {
         let resp = self.interact(id, r, CursorKind::Text);
         let mut out = TextInputResp::default();
         if resp.clicked && self.input.focused != Some(id) {
@@ -303,13 +378,30 @@ impl<'a, 'g> Ui<'a, 'g> {
             }
         }
         // Draw.
-        let bg = if focused { Color::white(0.13) } else if resp.hovered { Color::white(0.1) } else { palette::SURFACE };
-        self.c.fill_rrect(r, 9.0, bg);
-        if focused {
-            self.c.stroke_rrect(r, 9.0, Color::white(0.28), 1.0);
-        }
-        let inner = r.inset(10.0, 0.0);
-        let st = TextStyle::new(13.0);
+        let inner = match look {
+            InputLook::Box => {
+                let bg = if focused { Color::white(0.13) } else if resp.hovered { Color::white(0.1) } else { palette::SURFACE };
+                self.c.fill_rrect(r, 9.0, bg);
+                if focused {
+                    self.c.stroke_rrect(r, 9.0, Color::white(0.28), 1.0);
+                }
+                r.inset(10.0, 0.0)
+            }
+            InputLook::Row { accent, icon } => {
+                if focused || resp.hovered {
+                    self.c.fill_rrect(r, 9.0, if focused { Color::white(0.10) } else { palette::SURFACE });
+                }
+                if focused {
+                    self.c.stroke_rrect(r, 9.0, accent, 1.5);
+                }
+                if let Some(i) = icon {
+                    let col = if buf.is_empty() { palette::TEXT_FAINT } else { accent };
+                    self.c.icon(i, Rect::from_center(Point::new(r.x + 18.0, r.center().y), 16.0, 16.0), col);
+                }
+                Rect::new(r.x + 36.0, r.y, (r.w - 46.0).max(0.0), r.h)
+            }
+        };
+        let st = TextStyle::new(crate::gfx::ts::BODY);
         if buf.is_empty() {
             self.c.text(placeholder, inner, &st.color(palette::TEXT_FAINT));
         } else {

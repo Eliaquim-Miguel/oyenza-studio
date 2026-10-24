@@ -27,6 +27,12 @@ impl Spring {
         Self::new(value, k, 2.0 * k.sqrt())
     }
 
+    /// Change stiffness/damping in flight, keeping value and velocity.
+    pub fn retune(&mut self, stiffness: f32, damping: f32) {
+        self.stiffness = stiffness;
+        self.damping = damping;
+    }
+
     pub fn set_target(&mut self, target: f32) {
         self.target = target;
     }

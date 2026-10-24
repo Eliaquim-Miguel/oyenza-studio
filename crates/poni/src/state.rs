@@ -122,6 +122,15 @@ pub enum NoticeAction {
     StartFocus,
 }
 
+/// A one-click action shown as a small pill inside a notice (doesn't expand).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InlineAction {
+    /// Log one cup of water.
+    LogWater,
+    /// Start the idle Pomodoro phase.
+    StartFocus,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Notice {
     pub icon: Icon,
@@ -130,6 +139,7 @@ pub struct Notice {
     pub subtitle: String,
     pub until: f64,
     pub action: Option<NoticeAction>,
+    pub inline: Option<InlineAction>,
 }
 
 /// Transient per-page UI state (scroll offsets, text being typed, …).
@@ -148,6 +158,10 @@ pub struct PageUiState {
     pub water_bump: f64,
     /// Volume HUD bar position, gliding toward the real level.
     pub hud_level: f32,
+    /// Collapsed media pill shows the track title until this mono time.
+    pub peek_until: f64,
+    /// Header tab under the pointer and since when (for hover labels).
+    pub tab_hover: Option<(usize, f64)>,
 }
 
 pub struct AppState {
@@ -173,6 +187,8 @@ pub struct AppState {
     pub water_last_reminded: Option<i64>,
     /// The page currently shown when expanded.
     pub page: PageKind,
+    /// When playback went from playing to paused (the pill lingers 30 s).
+    pub media_paused_at: Option<f64>,
     pub pinned: bool,
     /// Files are being dragged over the island right now.
     pub drag_hover: bool,
@@ -208,6 +224,7 @@ impl AppState {
             accent: palette::BLUE,
             water_last_reminded: None,
             page,
+            media_paused_at: None,
             pinned: false,
             drag_hover: false,
             cmds: Vec::new(),
@@ -237,7 +254,14 @@ impl AppState {
 
     /// Show a notice pill for `secs` seconds.
     pub fn notify(&mut self, icon: Icon, color: Color, title: impl Into<String>, subtitle: impl Into<String>, secs: f64, action: Option<NoticeAction>) {
-        self.notice = Some(Notice { icon, color, title: title.into(), subtitle: subtitle.into(), until: self.now + secs, action });
+        self.notice = Some(Notice { icon, color, title: title.into(), subtitle: subtitle.into(), until: self.now + secs, action, inline: None });
+    }
+
+    /// Give the current notice a one-click inline action pill.
+    pub fn set_notice_inline(&mut self, a: InlineAction) {
+        if let Some(n) = self.notice.as_mut() {
+            n.inline = Some(a);
+        }
     }
 
     pub fn show_hud(&mut self, kind: HudKind, secs: f64) {

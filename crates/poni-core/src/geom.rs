@@ -155,8 +155,9 @@ impl Color {
     /// tame very light ones so white text on top keeps contrast.
     pub fn for_island_accent(self) -> Color {
         let l = self.luminance();
-        if l < 0.25 {
-            Color::lerp(self, Color::white(1.0), (0.25 - l) * 1.6).with_alpha(self.a)
+        if l < 0.30 {
+            // Luminance is linear in r,g,b, so this lands exactly on 0.30.
+            Color::lerp(self, Color::white(1.0), (0.30 - l) / (1.0 - l)).with_alpha(self.a)
         } else if l > 0.85 {
             Color::lerp(self, Color::black(1.0), 0.15).with_alpha(self.a)
         } else {
@@ -173,7 +174,10 @@ pub mod palette {
     pub const BORDER: Color = Color::white(0.07);
     pub const TEXT: Color = Color::white(0.96);
     pub const TEXT_DIM: Color = Color::white(0.62);
-    pub const TEXT_FAINT: Color = Color::white(0.38);
+    /// Tertiary text: 0.50 keeps ~5:1 contrast on black (0.38 was below AA).
+    pub const TEXT_FAINT: Color = Color::white(0.50);
+    /// Inert / disabled controls.
+    pub const DISABLED: Color = Color::white(0.30);
     pub const SURFACE: Color = Color::white(0.08);
     pub const SURFACE_HOVER: Color = Color::white(0.15);
     pub const SURFACE_PRESSED: Color = Color::white(0.22);

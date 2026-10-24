@@ -25,9 +25,19 @@ pub enum MonitorChoice {
     Cursor,
 }
 
+/// Bumped when defaults change in a way existing files should pick up.
+pub const SETTINGS_VERSION: u32 = 2;
+
+fn version_zero() -> u32 {
+    0
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
+    /// Missing in files written before versioning (treated as 0).
+    #[serde(default = "version_zero")]
+    pub settings_version: u32,
     pub idle_style: IdleStyle,
     pub use_24h: bool,
     /// Delay before hover expands the island.
@@ -56,9 +66,10 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            settings_version: SETTINGS_VERSION,
             idle_style: IdleStyle::Clock,
             use_24h: true,
-            hover_delay_ms: 140,
+            hover_delay_ms: 220,
             collapse_delay_ms: 380,
             expanded_width: 620.0,
             hide_in_fullscreen: true,
@@ -81,6 +92,14 @@ impl Default for Settings {
 impl Settings {
     /// Clamp values a user may have hand-edited into nonsense.
     pub fn sanitized(mut self) -> Self {
+        // v2: hover opens after a 220 ms dwell (140 ms caught pointers on
+        // their way to browser tabs). Only the untouched old default moves.
+        if self.settings_version < 2 {
+            if self.hover_delay_ms == 140 {
+                self.hover_delay_ms = 220;
+            }
+            self.settings_version = SETTINGS_VERSION;
+        }
         self.hover_delay_ms = self.hover_delay_ms.min(2000);
         self.collapse_delay_ms = self.collapse_delay_ms.clamp(50, 5000);
         if !self.expanded_width.is_finite() {
@@ -120,6 +139,19 @@ mod tests {
         let s = Settings { expanded_width: 5000.0, hover_delay_ms: 99999, ..Default::default() }.sanitized();
         assert_eq!(s.expanded_width, 900.0);
         assert_eq!(s.hover_delay_ms, 2000);
+    }
+
+    #[test]
+    fn migrates_old_hover_default_once() {
+        let s: Settings = serde_json::from_str(r#"{"hover_delay_ms":140}"#).unwrap();
+        assert_eq!(s.settings_version, 0);
+        let s = s.sanitized();
+        assert_eq!((s.hover_delay_ms, s.settings_version), (220, SETTINGS_VERSION));
+        // A user's own choice is kept, and a current file isn't touched.
+        let s: Settings = serde_json::from_str(r#"{"hover_delay_ms":90}"#).unwrap();
+        assert_eq!(s.sanitized().hover_delay_ms, 90);
+        let s: Settings = serde_json::from_str(r#"{"settings_version":2,"hover_delay_ms":140}"#).unwrap();
+        assert_eq!(s.sanitized().hover_delay_ms, 140);
     }
 
     #[test]

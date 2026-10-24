@@ -530,6 +530,7 @@ impl SelfTest {
                     subtitle: format!("{:.1} of {:.1} L today", total as f32 / 1000.0, goal as f32 / 1000.0),
                     until,
                     action: Some(NoticeAction::OpenPage(PageKind::Water)),
+                    inline: Some(crate::state::InlineAction::LogWater),
                 })
             }
             _ => None,
