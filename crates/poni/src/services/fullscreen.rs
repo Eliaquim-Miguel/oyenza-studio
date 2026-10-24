@@ -286,8 +286,13 @@ unsafe extern "system" fn on_win_event(
             return;
         }
     }
-    if let Some(on) = reevaluate(&w, None) {
-        w.sink.send(AppEvent::Fullscreen(on));
+    match reevaluate(&w, None) {
+        Some(on) => w.sink.send(AppEvent::Fullscreen(on)),
+        // Still full-screen, but the new foreground window (a game often makes
+        // itself topmost) may now sit above the island: report it again so the
+        // app can raise the island.
+        None if event == EVENT_SYSTEM_FOREGROUND && w.fullscreen.get() => w.sink.send(AppEvent::Fullscreen(true)),
+        None => {}
     }
 }
 

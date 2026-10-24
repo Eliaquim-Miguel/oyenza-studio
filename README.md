@@ -65,7 +65,7 @@ The gear at the top right of the open island opens **Settings**: your Oyenza acc
 - the theme: Classic or Oyen
 - the idle look: clock, eyes (Oyen in his theme), minimal, or hidden until you hover
 - lyrics (and the pronunciation line under Japanese, Korean and Chinese lyrics), clipboard history and sounds
-- hide in full-screen apps
+- in full-screen apps: hide, or stay on top of borderless games and videos (a game in exclusive full-screen mode still covers it)
 - start with Windows, and quit
 
 ## Install
