@@ -2174,7 +2174,12 @@ impl App {
             _ => false,
         };
         if liftable && self.hovering && !self.expanded {
-            Geom::new(g.w + HOVER_LIFT.0, g.h + HOVER_LIFT.1, g.r + HOVER_LIFT.2)
+            if pill::on(self.st.settings.theme) {
+                // Floating, it swells evenly about its middle and stays a capsule.
+                pill::motion::hover_lift(g)
+            } else {
+                Geom::new(g.w + HOVER_LIFT.0, g.h + HOVER_LIFT.1, g.r + HOVER_LIFT.2)
+            }
         } else {
             g
         }
@@ -2400,8 +2405,9 @@ impl App {
                     }
                 }
 
-                // Content scales about the top centre, where the island hangs.
-                let pivot = Point::new(body.center().x, body.y);
+                // Content scales about the top centre, where the island hangs
+                // (floating, about the middle of the pill end of the morph).
+                let pivot = if floating { pill::motion::pivot(body, self.island.target()) } else { Point::new(body.center().x, body.y) };
                 if morphing {
                     canvas.clip(body);
                     if floating {
@@ -2421,7 +2427,8 @@ impl App {
                     } else {
                         let old_body = Rect::new(body.center().x - g.w / 2.0, body.y, g.w, g.h);
                         let alpha = from * outgoing_left(now - t0);
-                        let xf = scale_about(pivot, (geom.w / g.w.max(1.0)).clamp(GHOST_MIN_SCALE, 1.0));
+                        let shrink = if floating { pill::motion::ghost_scale(geom, g, GHOST_MIN_SCALE) } else { (geom.w / g.w.max(1.0)).clamp(GHOST_MIN_SCALE, 1.0) };
+                        let xf = scale_about(pivot, shrink);
                         let st = &mut self.st;
                         canvas.layered(old_body, alpha, xf, |c| {
                             let mut ghost_input = Input::default();
@@ -2439,7 +2446,8 @@ impl App {
                 // as one layer, so its text doesn't re-hint every frame.
                 let out = if content_alpha < 1.0 {
                     let grow = scale_about(pivot, CONTENT_SCALE_FROM + (1.0 - CONTENT_SCALE_FROM) * content_alpha);
-                    let xf = grow * Matrix3x2::translation(0.0, -CONTENT_DROP * (1.0 - content_alpha));
+                    let drop_by = if floating { pill::motion::CONTENT_DROP } else { CONTENT_DROP };
+                    let xf = grow * Matrix3x2::translation(0.0, -drop_by * (1.0 - content_alpha));
                     let (input, st) = (&mut self.input, &mut self.st);
                     canvas.layered(union_rect(lay, body), content_alpha, xf, |c| draw_content(c, input, &mut hits, st, mode, lay, body, transition, now))
                 } else {
