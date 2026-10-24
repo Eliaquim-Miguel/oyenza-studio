@@ -1,0 +1,29 @@
+# Oyen Poni privacy
+
+Oyen Poni is made by Jatevo Labs. It has no accounts, no ads, no analytics and no tracking. It never sends us anything.
+
+## What leaves your PC
+
+**Lyrics lookups.** When a song plays and **Synced lyrics** is on, Oyen Poni asks [LRCLIB](https://lrclib.net), a free public lyrics library, for that song's lyrics. The request carries the song's title, artist, album and length, plus a User-Agent that names Poni and links to this project. LRCLIB is run by other people and has its own terms. Answers are cached on your PC, so a song isn't looked up again every time it plays.
+
+To stop lookups, right-click the island or the tray icon and turn off **Synced lyrics**.
+
+Nothing else is sent anywhere. Music, volume, Bluetooth battery levels, the date and calendar, and the system stats are all read from Windows on your PC.
+
+## What stays on your PC
+
+| What | Where |
+|---|---|
+| Settings, tasks, water log, focus count and the shelf's list of files (the files themselves stay where they are) | `%APPDATA%\Poni\` |
+| Lyrics cache and a log file (the log names songs that were looked up, to help fix problems) | `%LOCALAPPDATA%\Poni\` |
+| Clipboard history | Memory only, never written to disk. Text that password managers mark as private is skipped. |
+
+Uninstalling removes the app, its cache and its log. If you installed from the Microsoft Store, Windows also removes the files the app created. Data from an earlier copy installed from GitHub stays in `%APPDATA%\Poni\` until you delete it.
+
+## Microsoft Store
+
+If you install from the Microsoft Store, Microsoft handles the download and updates under the [Microsoft Privacy Statement](https://privacy.microsoft.com/privacystatement), and gives publishers summary reports such as install counts and crash reports.
+
+## Questions
+
+Open an issue at [github.com/lucacadalora/poni/issues](https://github.com/lucacadalora/poni/issues).
