@@ -1,14 +1,14 @@
 {
   "repo": "lucacadalora/poni",
-  "checked_at": "2026-10-24T10:18:48Z",
+  "checked_at": "2026-10-24T10:33:30Z",
   "since": "2026-10-24",
-  "downloads": 42,
-  "github_count": 84,
-  "ci_count": 42,
-  "last_7_days": 42,
+  "downloads": 47,
+  "github_count": 96,
+  "ci_count": 49,
+  "last_7_days": 47,
   "latest": {
     "release": "v0.1.9",
-    "downloads": 0
+    "downloads": 4
   },
   "stars": 3,
   "forks": 1,
@@ -17,13 +17,13 @@
     {
       "release": "v0.1.9",
       "published": "2026-10-24T10:12:33Z",
-      "downloads": 0,
-      "github_count": 0,
+      "downloads": 4,
+      "github_count": 4,
       "ci_count": 0,
       "files": {
-        "Oyen-Poni-0.1.9-portable.zip": 0,
-        "Oyen-Poni-Setup-0.1.9.exe": 0,
-        "Oyen-Poni-Setup.exe": 0
+        "Oyen-Poni-0.1.9-portable.zip": 1,
+        "Oyen-Poni-Setup-0.1.9.exe": 1,
+        "Oyen-Poni-Setup.exe": 2
       }
     },
     {
@@ -113,12 +113,12 @@
     {
       "release": "v0.1.1",
       "published": "2026-10-24T05:54:33Z",
-      "downloads": 5,
-      "github_count": 47,
-      "ci_count": 42,
+      "downloads": 6,
+      "github_count": 55,
+      "ci_count": 49,
       "files": {
         "Poni-0.1.1-portable.zip": 0,
-        "Poni-Setup-0.1.1.exe": 5
+        "Poni-Setup-0.1.1.exe": 6
       }
     },
     {
@@ -136,7 +136,7 @@
   "days": [
     {
       "date": "2026-10-24",
-      "downloads": 42
+      "downloads": 47
     }
   ]
 }
