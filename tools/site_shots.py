@@ -57,6 +57,7 @@ KEEP = {
     "page-media", "page-focus", "page-health", "page-shelf", "page-tasks", "page-clipboard", "page-today",
     "page-shelf-phone-ask", "oyenza-money", "page-oyenza", "page-oyenza-signin", "page-settings", "page-system",
     "page-settings-stay-on-top", "page-shelf-pairing", "page-addons", "page-prayer", "prayer-countdown",
+    "game-stats", "page-system-games",
 }
 # Glass pictures keep the page under the island: the glass is made of it.
 # By run: the open island in light and dark mode, and the resting island

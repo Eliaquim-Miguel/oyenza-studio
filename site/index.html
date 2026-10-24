@@ -291,7 +291,7 @@ footer a { color: var(--muted); }
           </a>
           <a class="btn btn-line" href="https://github.com/lucacadalora/poni">Source on GitHub</a>
         </div>
-        <p class="small">Free and open source (MIT) · Windows <span data-release="size">6.2&nbsp;MB</span>, Mac <span data-release="mac-size">10.5&nbsp;MB</span> · No account needed · <a data-release="notes" href="https://github.com/lucacadalora/poni/releases/latest">What's new in <span data-release="version">0.1.17</span></a></p>
+        <p class="small">Free and open source (MIT) · Windows <span data-release="size">6.3&nbsp;MB</span>, Mac <span data-release="mac-size">10.6&nbsp;MB</span> · No account needed · <a data-release="notes" href="https://github.com/lucacadalora/poni/releases/latest">What's new in <span data-release="version">0.1.18</span></a></p>
         <div class="look-switch" role="group" aria-label="Island look">
           <button type="button" data-look="classic" aria-pressed="true"><span class="dot"></span>Classic</button>
           <button type="button" data-look="oyen" aria-pressed="false"><span class="dot dot-oyen"></span>Oyen theme</button>
@@ -513,6 +513,21 @@ footer a { color: var(--muted); }
           <p>When another window covers the island, such as a browser left on top after full screen or an app set to stay on top, the island goes back on top.</p>
           <p>In full-screen games and videos you choose: hide the island, or keep it on top. Right-click the island or open Settings, then <b>In full-screen apps</b> › <b>Hide</b> or <b>Stay on top</b>. Hide is the default. A game in exclusive full-screen mode still covers every window.</p>
         </div>
+      </div>
+      <div class="music flip" id="games">
+        <div>
+          <p class="eyebrow">New in 0.1.18</p>
+          <h3>Show over games: FPS, GPU and CPU</h3>
+          <p>While a game fills the screen in borderless full-screen, the island becomes a small readout: frames per second, the graphics card's load and temperature, and the CPU's load, once a second. Hover it and it opens as usual. Switch it on in <b>System</b> › <b>Games</b>, or right-click the island › <b>In full-screen apps</b> › <b>Show FPS, GPU and CPU over games</b>.</p>
+          <p>Frames are counted the way Intel's PresentMon and Xbox Game Bar count them, from Windows' own log of each frame a game shows. Nothing is loaded into the game, so anti-cheat has nothing to see. DirectX 9 to 12, Vulkan and OpenGL. The first time, Windows asks once for an admin OK, as Game Bar's FPS counter does, and FPS shows from your next sign-in. Nothing runs while no game is in front.</p>
+        </div>
+        <div class="sky"><div class="island">
+          <img class="look-classic" src="assets/shots/classic/game-stats.webp" style="width:291px" alt="The island over a game: 144 fps, GPU 97% at 71°, CPU 38%" width="291" height="33" loading="lazy">
+          <img class="look-oyen" src="assets/shots/oyen/game-stats.webp" style="width:291px" alt="The readout over a game in the Oyen theme: 144 fps, GPU 97% at 71°, CPU 38%" width="291" height="33" loading="lazy">
+        </div><div class="island" style="margin-top:22px">
+          <img class="look-classic" src="assets/shots/classic/page-system-games.webp" alt="System › Games: the Show over games switch, the frame rate's last minute, frame times and the game in front" width="660" height="335" loading="lazy">
+          <img class="look-oyen" src="assets/shots/oyen/page-system-games.webp" alt="System › Games in the Oyen theme" width="660" height="335" loading="lazy">
+        </div></div>
       </div>
     </div>
   </section>
