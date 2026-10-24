@@ -59,6 +59,8 @@ const MIN_BLOCK_W: f32 = 296.0;
 // Text rows, placed by where their capitals start (what ref1 and the spec
 // measure): the player's name, the title, the artist.
 const SOURCE_CAP: f32 = 8.0;
+/// Extra space between the player name's capitals.
+const TRACKING: f32 = 0.5;
 const TITLE_CAP: f32 = 24.0;
 const ARTIST_CAP: f32 = 49.0;
 // The empty card's two rows, centred on the tile.
@@ -202,7 +204,7 @@ fn draw_session(ui: &mut Ui, st: &mut AppState, area: Rect, a: &mut Anim, fr: &F
     let tw = (block.right() - eq_width() - GAP_EQ - tx).max(0.0);
     let source = source_label(&m.app_name, playing);
     let source_st = TextStyle::caption().weight(Weight::Semibold).color(palette::TEXT_FAINT);
-    ui.c.text(&source, row(tx, tw, y0 + SOURCE_CAP, source_st.size), &source_st);
+    tracked(ui, &source, row(tx, tw, y0 + SOURCE_CAP, source_st.size), &source_st);
     let title = match m.title.trim() {
         "" => "Unknown title",
         t => t,
@@ -307,6 +309,33 @@ fn source_label(app_name: &str, playing: bool) -> String {
         (false, false) => format!("{app} \u{b7} PAUSED"),
         (true, false) => "PAUSED".to_string(),
         (true, true) => String::new(),
+    }
+}
+
+/// Small capitals with a little air between the letters ([`TRACKING`], as
+/// on ref1's label), one letter at a time since the text styles carry no
+/// letter spacing. Only Latin letters are set apart (other scripts join,
+/// shape or run right to left); those, and a name too long for the column,
+/// are drawn as ordinary text, ellipsized.
+fn tracked(ui: &mut Ui, s: &str, r: Rect, st: &TextStyle) {
+    if s.is_empty() || !s.chars().all(|c| (' '..='\u{24f}').contains(&c)) {
+        ui.c.text(s, r, st);
+        return;
+    }
+    let mut letters = Vec::with_capacity(s.len());
+    let mut x = 0.0f32;
+    for (i, c) in s.char_indices() {
+        let letter = &s[i..i + c.len_utf8()];
+        let w = ui.c.measure(letter, st, 1000.0).0;
+        letters.push((letter, x, w));
+        x += w + TRACKING;
+    }
+    if x - TRACKING > r.w {
+        ui.c.text(s, r, st);
+        return;
+    }
+    for (letter, dx, w) in letters {
+        ui.c.text(letter, Rect::new(r.x + dx, r.y, w + 2.0, r.h), st);
     }
 }
 
