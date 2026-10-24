@@ -5,9 +5,24 @@ use poni_core::spring::Spring;
 
 /// Concave flare where the island meets the top screen edge.
 pub const SHOULDER: f32 = 9.0;
-/// Near-invisible margin around the island that still catches the mouse
-/// (alpha 1/255), so the hover target is a bit larger than what you see.
+/// Room around the island in the canvas. While expanded it is filled at
+/// alpha 1/255 so it still catches the mouse (a forgiving edge for the big
+/// panel); collapsed it stays fully transparent and clicks pass through.
 pub const HIT_MARGIN: f32 = 10.0;
+
+/// Spring tunings (stiffness, damping). Growing goes wide first, then drops:
+/// height trails width a little. Shrinking is nearly critically damped so the
+/// small pill doesn't squash below its size. Corners never wobble.
+const GROW_W: (f32, f32) = (420.0, 30.0); // zeta 0.73
+const GROW_H: (f32, f32) = (300.0, 26.0); // zeta 0.75
+const SHRINK_W: (f32, f32) = (330.0, 33.0); // zeta 0.91
+const SHRINK_H: (f32, f32) = (420.0, 38.0); // zeta 0.93
+const RADIUS: (f32, f32) = (420.0, 41.0); // critical
+/// Content opacity: critically damped, tau about 38 ms.
+const CONTENT: (f32, f32) = (700.0, 52.9);
+/// Delay before new content starts fading in (seconds).
+const FADE_DELAY_GROW: f64 = 0.03;
+const FADE_DELAY_SHRINK: f64 = 0.05;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Geom {
@@ -36,10 +51,10 @@ pub struct Island {
 impl Island {
     pub fn new(g: Geom) -> Self {
         Self {
-            w: Spring::bouncy(g.w),
-            h: Spring::bouncy(g.h),
-            r: Spring::bouncy(g.r),
-            content: Spring::smooth(1.0),
+            w: Spring::new(g.w, GROW_W.0, GROW_W.1),
+            h: Spring::new(g.h, GROW_H.0, GROW_H.1),
+            r: Spring::new(g.r, RADIUS.0, RADIUS.1),
+            content: Spring::new(1.0, CONTENT.0, CONTENT.1),
             fade_in_at: None,
             target: g,
         }
@@ -50,17 +65,23 @@ impl Island {
     }
 
     /// Animate towards `g`. When `new_content` is true the content cross-fades:
-    /// old content disappears at once and the new content fades in shortly
-    /// after the outline starts moving.
+    /// the new content starts from transparent and fades in shortly after the
+    /// outline starts moving (the app fades the old content out meanwhile).
+    /// Springs keep their value and velocity; only their tuning changes with
+    /// the direction of the morph.
     pub fn set_target(&mut self, g: Geom, now: f64, new_content: bool) {
+        let growing = g.w * g.h > self.w.value * self.h.value;
+        let (tw, th) = if growing { (GROW_W, GROW_H) } else { (SHRINK_W, SHRINK_H) };
+        self.w.retune(tw.0, tw.1);
+        self.h.retune(th.0, th.1);
+        self.r.retune(RADIUS.0, RADIUS.1);
         self.target = g;
         self.w.set_target(g.w);
         self.h.set_target(g.h);
         self.r.set_target(g.r);
         if new_content {
             self.content.snap(0.0);
-            let growing = g.w * g.h > self.w.value * self.h.value;
-            self.fade_in_at = Some(now + if growing { 0.09 } else { 0.05 });
+            self.fade_in_at = Some(now + if growing { FADE_DELAY_GROW } else { FADE_DELAY_SHRINK });
         }
     }
 

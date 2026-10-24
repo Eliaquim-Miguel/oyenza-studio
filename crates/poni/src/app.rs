@@ -6,13 +6,14 @@ use crate::clock;
 use crate::commands::{Command, MediaCmd};
 use crate::events::{AppEvent, EventSink, SendHwnd, WM_APP_APPBAR, WM_APP_EVENT, WM_APP_FRAME, WM_APP_TRAY};
 use crate::gfx::Gfx;
-use crate::island::{Geom, Island, SHOULDER};
+use crate::icons::Icon;
+use crate::island::{Geom, Island, HIT_MARGIN, SHOULDER};
 use crate::pages::{self, PageKind};
 use crate::paths;
 use crate::services::{self, Services};
-use crate::state::{AppState, HudKind, LyricsState, LyricsStatus, NoticeAction};
+use crate::state::{AppState, HudKind, InlineAction, LyricsState, LyricsStatus, NoticeAction};
 use crate::tray::{self, Tray};
-use crate::ui::{CursorKind, Hit, Input, KeyInput, MouseButton, Ui};
+use crate::ui::{wid, CursorKind, Hit, Input, KeyInput, MouseButton, Ui};
 use crate::window::{self, FrameClock, MonitorInfo};
 use crate::{dragdrop, selftest, shell};
 use poni_core::geom::{palette, Color, Point, Rect};
@@ -108,13 +109,19 @@ fn run(selftest_dir: Option<String>) -> Result<i32> {
     let helper = window::create_helper_window()?;
     pinfo!("windows created");
 
-    let (settings, s_out): (Settings, _) = load_json(&paths::settings_path());
+    let (raw_settings, s_out): (Settings, _) = load_json(&paths::settings_path());
     if let Some(m) = s_out.message() {
         pwarn!("settings: {m}");
     }
-    let settings = settings.sanitized();
-    if s_out == LoadOutcome::Missing {
-        let _ = save_json_atomic(&paths::settings_path(), &settings);
+    let settings = raw_settings.clone().sanitized();
+    // Write new files, and write migrated / clamped values back so a
+    // migration (e.g. the v2 hover delay) happens once and sticks.
+    if s_out == LoadOutcome::Missing || (settings != raw_settings && s_out.writable()) {
+        if let Err(e) = save_json_atomic(&paths::settings_path(), &settings) {
+            pwarn!("saving settings failed: {e}");
+        } else if s_out != LoadOutcome::Missing {
+            pinfo!("settings: wrote back migrated / out-of-range values (v{})", settings.settings_version);
+        }
     }
     let (store, d_out): (Store, _) = load_json(&paths::store_path());
     if let Some(m) = d_out.message() {
@@ -290,12 +297,27 @@ pub struct App {
     outgoing: Option<(Mode, f64, Geom)>,
     /// A page switch in progress: (from page, start time, slide direction).
     page_anim: Option<(PageKind, f64, f32)>,
+    /// Where the hover (dwell) timer was last armed; None when it isn't.
+    hover_arm: Option<Point>,
 }
 
 /// How long outgoing content takes to fade (seconds).
-const OUTGOING_FADE: f64 = 0.09;
+const OUTGOING_FADE: f64 = 0.14;
 /// Page switch cross-fade duration (seconds).
-const PAGE_SWITCH: f64 = 0.22;
+const PAGE_SWITCH: f64 = 0.26;
+/// Pointer travel (DIPs) that restarts the hover dwell: the island opens
+/// only once the pointer rests on it, not when it brushes past.
+const DWELL_SLOP: f32 = 4.0;
+/// Collapsed pill growth (w, h, radius) while the pointer is on it.
+const HOVER_LIFT: (f32, f32, f32) = (12.0, 4.0, 2.0);
+/// How long the inline notice pill shows its check mark (seconds).
+const INLINE_DONE_S: f64 = 0.6;
+/// Incoming content starts at this scale and this many DIPs up, and
+/// settles down from the bezel as it fades in.
+const CONTENT_SCALE_FROM: f32 = 0.94;
+const CONTENT_DROP: f32 = 6.0;
+/// Smallest scale the outgoing content shrinks to as the outline narrows.
+const GHOST_MIN_SCALE: f32 = 0.6;
 
 impl App {
     #[allow(clippy::too_many_arguments)]
@@ -365,10 +387,12 @@ impl App {
             tray_retries: 0,
             outgoing: None,
             page_anim: None,
+            hover_arm: None,
         })
     }
 
     fn start(&mut self) {
+        self.reserve_frame_capacity();
         let fake = self.selftest.is_some();
         self.st.power = services::power::query();
         services::power::register(self.helper);
@@ -421,6 +445,27 @@ impl App {
 
     pub fn request_frame(&mut self) {
         self.clock.set_active(true);
+    }
+
+    /// Switch the renderer to `dpi` and size its buffer for that scale.
+    fn set_dpi(&mut self, dpi: u32) {
+        self.gfx.set_dpi(dpi as f32);
+        self.reserve_frame_capacity();
+    }
+
+    /// Size the frame buffer once for the largest frame (the tallest expanded
+    /// page plus spring overshoot), so a morph never reallocates it in 64 px
+    /// steps mid-animation. Call at start and whenever the scale or the
+    /// expanded width changes.
+    fn reserve_frame_capacity(&mut self) {
+        let tallest = PageKind::ALL.iter().map(|p| pages::content_height(*p, &self.st)).fold(0.0f32, f32::max);
+        // The grow springs overshoot by about 3 %; leave 5 %.
+        const OVERSHOOT: f32 = 1.05;
+        let w = (self.st.settings.expanded_width * OVERSHOOT + 2.0 * (SHOULDER + HIT_MARGIN)) * self.gfx.scale();
+        let h = ((pages::HEADER_H + tallest + pages::PAD) * OVERSHOOT + HIT_MARGIN) * self.gfx.scale();
+        if let Err(e) = self.gfx.ensure_capacity(w.ceil() as i32, h.ceil() as i32) {
+            pwarn!("frame buffer reserve failed: {e}");
+        }
     }
 
     /// Add the tray icon; Explorer can be busy at logon, so retry a few times.
@@ -501,9 +546,15 @@ impl App {
                         let mut tme = TRACKMOUSEEVENT { cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32, dwFlags: TME_LEAVE, hwndTrack: self.hwnd, dwHoverTime: 0 };
                         let _ = TrackMouseEvent(&mut tme);
                         let _ = KillTimer(self.hwnd, TIMER_COLLAPSE);
-                        if !self.expanded {
-                            SetTimer(self.hwnd, TIMER_HOVER, self.st.settings.hover_delay_ms.max(1), None);
-                        }
+                    }
+                    if !self.expanded {
+                        self.arm_hover(p);
+                    }
+                } else if let Some(p0) = self.hover_arm.filter(|_| !self.expanded) {
+                    // Dwell: moving on restarts the wait, so brushing past on
+                    // the way to a tab or title bar doesn't open the island.
+                    if (p.x - p0.x).hypot(p.y - p0.y) > DWELL_SLOP {
+                        self.arm_hover(p);
                     }
                 }
                 self.request_frame();
@@ -512,9 +563,7 @@ impl App {
             WM_MOUSELEAVE => {
                 self.hovering = false;
                 self.input.mouse = None;
-                unsafe {
-                    let _ = KillTimer(self.hwnd, TIMER_HOVER);
-                }
+                self.cancel_hover();
                 self.maybe_schedule_collapse();
                 self.request_frame();
                 Some(LRESULT(0))
@@ -528,21 +577,30 @@ impl App {
                 self.input.pressed_id = self.hit_at(p).map(|h| h.id);
                 unsafe { SetCapture(self.hwnd) };
                 if !self.expanded {
-                    // Tapping a notice jumps to its page.
-                    if let Some(n) = self.st.notice.take() {
-                        match n.action {
-                            Some(NoticeAction::OpenPage(p)) => self.st.page = p,
-                            Some(NoticeAction::StartFocus) => {
-                                self.st.page = PageKind::Focus;
-                                if !self.st.pomodoro.is_active() {
-                                    self.st.pomodoro.start(self.st.now);
+                    let inline = self.st.notice.as_ref().and_then(|n| n.inline).filter(|_| self.input.pressed_id == Some(wid("notice.act")));
+                    if let Some(a) = inline {
+                        // The notice's inline pill acts in place without
+                        // expanding. The press is consumed here, so the
+                        // release can't click the pill a second time.
+                        self.input.pressed_id = None;
+                        self.run_inline_action(a);
+                    } else {
+                        // Clicking a notice jumps to its page.
+                        if let Some(n) = self.st.notice.take() {
+                            match n.action {
+                                Some(NoticeAction::OpenPage(p)) => self.st.page = p,
+                                Some(NoticeAction::StartFocus) => {
+                                    self.st.page = PageKind::Focus;
+                                    if !self.st.pomodoro.is_active() {
+                                        self.st.pomodoro.start(self.st.now);
+                                    }
                                 }
+                                None => {}
                             }
-                            None => {}
                         }
+                        self.st.hud = None;
+                        self.expand();
                     }
-                    self.st.hud = None;
-                    self.expand();
                 } else if self.text_focus && self.input.pressed_id != self.input.focused {
                     self.blur_text();
                 }
@@ -780,7 +838,14 @@ impl App {
                 unsafe {
                     let _ = KillTimer(self.hwnd, TIMER_HOVER);
                 }
-                if self.hovering && !self.expanded {
+                if !self.hovering || self.expanded {
+                    self.hover_arm = None;
+                } else if self.st.notice.as_ref().is_some_and(|n| n.inline.is_some()) {
+                    // A notice with an inline pill stays put under a resting
+                    // pointer so the pill can be clicked (a click on the rest
+                    // of the notice still opens its page). The dwell stays
+                    // armed: the next movement restarts it.
+                } else {
                     self.expand();
                 }
             }
@@ -894,7 +959,10 @@ impl App {
                         self.settings_writable = true;
                         if monitor_changed {
                             self.monitor = window::pick_monitor(self.st.settings.monitor);
-                            self.gfx.set_dpi(self.monitor.dpi as f32);
+                            self.set_dpi(self.monitor.dpi);
+                        } else {
+                            // The expanded width may have changed.
+                            self.reserve_frame_capacity();
                         }
                         self.refresh_monitor();
                     }
@@ -921,6 +989,7 @@ impl App {
     pub fn on_event(&mut self, ev: AppEvent) {
         let now = clock::mono();
         self.st.now = now;
+        let media_before = matches!(ev, AppEvent::Media(_) | AppEvent::MediaTimeline { .. }).then(|| self.media_snapshot());
         match ev {
             AppEvent::Media(session) => {
                 let prev_key = self.st.media.as_ref().map(|m| m.track_key.clone());
@@ -1014,8 +1083,8 @@ impl App {
                     }
                     if hide {
                         self.collapse();
+                        self.cancel_hover();
                         unsafe {
-                            let _ = KillTimer(self.hwnd, TIMER_HOVER);
                             let _ = KillTimer(self.hwnd, TIMER_COLLAPSE);
                         }
                         self.hovering = false;
@@ -1059,7 +1128,39 @@ impl App {
             }
             AppEvent::Log(s) => pinfo!("{s}"),
         }
+        if let Some(before) = media_before {
+            self.after_media_change(before, now);
+        }
         self.request_frame();
+    }
+
+    /// (player, track, playing) of the current media session.
+    fn media_snapshot(&self) -> Option<(String, String, bool)> {
+        self.st.media.as_ref().map(|m| (m.app_id.clone(), m.track_key.clone(), m.is_playing()))
+    }
+
+    /// Track the pause grace period and the title peek after a media update.
+    fn after_media_change(&mut self, before: Option<(String, String, bool)>, now: f64) {
+        let Some(m) = self.st.media.as_ref() else {
+            self.st.media_paused_at = None;
+            return;
+        };
+        let playing = m.is_playing();
+        let same_player = before.as_ref().is_some_and(|b| b.0 == m.app_id);
+        let new_track = before.as_ref().is_none_or(|b| b.1 != m.track_key);
+        if playing {
+            self.st.media_paused_at = None;
+        } else if !same_player {
+            // A different (or first) session that isn't playing: no grace.
+            self.st.media_paused_at = None;
+        } else if before.as_ref().is_some_and(|b| b.2) {
+            // Playing -> paused: the pill lingers for a while.
+            self.st.media_paused_at = Some(now);
+        }
+        // A new track starting while collapsed: show its title for a moment.
+        if playing && new_track && !self.expanded {
+            self.st.ui.peek_until = now + 3.0;
+        }
     }
 
     // ------------------------------------------------------------ island state
@@ -1067,11 +1168,24 @@ impl App {
     fn expand(&mut self) {
         if !self.expanded {
             self.expanded = true;
-            unsafe {
-                let _ = KillTimer(self.hwnd, TIMER_HOVER);
-            }
+            self.cancel_hover();
         }
         self.request_frame();
+    }
+
+    /// (Re)start the hover dwell from `p`.
+    fn arm_hover(&mut self, p: Point) {
+        self.hover_arm = Some(p);
+        unsafe {
+            SetTimer(self.hwnd, TIMER_HOVER, self.st.settings.hover_delay_ms.max(1), None);
+        }
+    }
+
+    fn cancel_hover(&mut self) {
+        self.hover_arm = None;
+        unsafe {
+            let _ = KillTimer(self.hwnd, TIMER_HOVER);
+        }
     }
 
     fn collapse(&mut self) {
@@ -1164,7 +1278,7 @@ impl App {
         if m != self.monitor {
             pinfo!("monitor: {:?} dpi {}", m.rect, m.dpi);
             self.monitor = m;
-            self.gfx.set_dpi(m.dpi as f32);
+            self.set_dpi(m.dpi);
             self.last_present = (i32::MIN, i32::MIN);
         }
         self.request_frame();
@@ -1181,7 +1295,12 @@ impl App {
         self.hits.iter().rev().find(|h| h.rect.contains(p)).copied()
     }
 
+    /// Whether `p` is over a part of the window that takes the mouse: the
+    /// whole canvas while expanded (hit margin), only the island collapsed.
     fn hovering_inside(&self, p: Point) -> bool {
+        if !self.expanded {
+            return self.island.body_rect().contains(p);
+        }
         let (w, h) = self.island.canvas_size();
         p.x >= 0.0 && p.y >= 0.0 && p.x < w && p.y < h
     }
@@ -1191,6 +1310,22 @@ impl App {
             return Mode::Expanded(self.st.page);
         }
         activities::collapsed_mode(&self.st)
+    }
+
+    /// Island geometry for `m`. The resting pill lifts a little under the
+    /// pointer: instant feedback while the hover dwell runs.
+    fn geom_for(&self, m: &Mode) -> Geom {
+        let g = activities::geom(m, &self.st);
+        let liftable = match m {
+            Mode::Idle => self.st.settings.idle_style != IdleStyle::Hidden,
+            Mode::Activity(_) => true,
+            _ => false,
+        };
+        if liftable && self.hovering && !self.expanded {
+            Geom::new(g.w + HOVER_LIFT.0, g.h + HOVER_LIFT.1, g.r + HOVER_LIFT.2)
+        } else {
+            g
+        }
     }
 
     // ------------------------------------------------------------ frame
@@ -1246,11 +1381,11 @@ impl App {
                     self.page_anim = Some((a, now, dir));
                 }
             }
-            self.island.set_target(activities::geom(&target, &self.st), now, new_content);
+            self.island.set_target(self.geom_for(&target), now, new_content);
             self.mode = target;
         } else {
-            // Size can change within a mode (e.g. a page's height); follow it.
-            let g = activities::geom(&self.mode, &self.st);
+            // Size can change within a mode (a page's height, the hover lift); follow it.
+            let g = self.geom_for(&self.mode);
             if g != self.island.target() {
                 self.island.set_target(g, now, false);
             }
@@ -1269,25 +1404,42 @@ impl App {
         hits.clear();
 
         let hidden_idle = self.mode == Mode::Idle && self.st.settings.idle_style == IdleStyle::Hidden;
+        // Content is masked to the island silhouette only while the outline
+        // or the content moves. At rest every layout fits inside the body,
+        // and skipping the mask layer keeps 30 fps ambient frames cheap.
+        let morphing = !self.island.settled() || self.outgoing.is_some();
         let mut wheel_left = 0.0;
         let (repaint, anim, focus, ui_live) = match self.gfx.begin(wpx, hpx) {
             Ok(mut canvas) => {
-                // Near-invisible hit margin around the island.
-                canvas.fill_rect(Rect::new(0.0, 0.0, cw, ch), Color::black(1.0 / 255.0));
+                if self.expanded {
+                    // Near-invisible hit margin: a forgiving edge for the open
+                    // panel. Collapsed, only the visible shape takes the mouse.
+                    canvas.fill_rect(Rect::new(0.0, 0.0, cw, ch), Color::black(1.0 / 255.0));
+                }
                 let island_color = if hidden_idle { Color::black(1.0 / 255.0) } else { palette::ISLAND };
                 let border = if hidden_idle { None } else { Some(palette::BORDER) };
                 canvas.notch(body, geom.r, SHOULDER, island_color, border);
 
-                // Outgoing content: drawn at its own (old) size, centred, clipped
-                // to the morphing outline, fading out. Ghost input: no clicks.
+                // Content scales about the top centre, where the island hangs.
+                let base = canvas.save_transform();
+                let pivot = Point::new(body.center().x, body.y);
+                if morphing {
+                    canvas.clip(body);
+                    canvas.push_shape_mask(body, geom.r, SHOULDER);
+                }
+
+                // Outgoing content: laid out at its own (old) size, centred,
+                // shrinking with the outline instead of being sliced, and
+                // fading out on a smoothstep (it holds, then leaves). Ghost
+                // input: no clicks.
                 if let Some((m, t0, g)) = self.outgoing {
                     let t = ((now - t0) / OUTGOING_FADE) as f32;
                     if t >= 1.0 {
                         self.outgoing = None;
                     } else {
                         let old_body = Rect::new(body.center().x - g.w / 2.0, body.y, g.w, g.h);
-                        canvas.clip(body);
-                        canvas.set_alpha(1.0 - pages::ease_out_cubic(t));
+                        canvas.set_alpha(1.0 - t * t * (3.0 - 2.0 * t));
+                        canvas.scale_about(pivot, (geom.w / g.w.max(1.0)).clamp(GHOST_MIN_SCALE, 1.0));
                         {
                             let mut ghost_input = Input::default();
                             let mut ghost_hits = Vec::new();
@@ -1297,11 +1449,16 @@ impl App {
                                 _ => activities::draw(&mut ghost, &mut self.st, &m, old_body),
                             }
                         }
-                        canvas.unclip();
+                        canvas.restore_transform(base);
                     }
                 }
 
+                // Incoming content settles down from the bezel as it fades in.
                 canvas.set_alpha(content_alpha);
+                if content_alpha < 1.0 {
+                    canvas.translate(0.0, -CONTENT_DROP * (1.0 - content_alpha));
+                    canvas.scale_about(pivot, CONTENT_SCALE_FROM + (1.0 - CONTENT_SCALE_FROM) * content_alpha);
+                }
                 let transition = self.page_anim.and_then(|(from, t0, dir)| {
                     let t = ((now - t0) / PAGE_SWITCH) as f32;
                     (t < 1.0).then_some(pages::PageTransition { from, t, dir })
@@ -1311,11 +1468,23 @@ impl App {
                 }
                 let mut ui = Ui::new(&mut canvas, &mut self.input, &mut hits, now);
                 match self.mode {
-                    Mode::Expanded(page) => pages::draw_expanded(&mut ui, &mut self.st, body, page, transition),
+                    Mode::Expanded(page) => {
+                        // Pages lay out at their final size, centred on the
+                        // morphing outline, so the header and the page body
+                        // don't slide with the edges; the outline reveals them.
+                        let tgt = self.island.target();
+                        let lay = Rect::new(body.center().x - tgt.w / 2.0, body.y, tgt.w, tgt.h);
+                        pages::draw_expanded(&mut ui, &mut self.st, lay, page, transition)
+                    }
                     _ => activities::draw(&mut ui, &mut self.st, &self.mode, body),
                 }
                 let out = (ui.repaint_requested(), ui.anim_requested(), ui.focus_request(), ui.live_requested());
                 wheel_left = self.input.wheel;
+                canvas.restore_transform(base);
+                if morphing {
+                    canvas.pop_shape_mask();
+                    canvas.unclip();
+                }
                 drop(canvas);
                 if let Err(e) = self.gfx.end() {
                     pwarn!("EndDraw failed: {e}");
@@ -1329,10 +1498,13 @@ impl App {
         };
         self.hits = hits;
 
-        // Unconsumed wheel over the expanded island switches pages: one page per
-        // whole notch, with a short cooldown so touchpads don't race through.
+        // Unconsumed wheel over the header switches pages: one page per whole
+        // notch, with a short cooldown so touchpads don't race through. Over
+        // page content a wheel the page didn't use does nothing (a short list
+        // must not jump pages where a long one would scroll).
         if let Mode::Expanded(p) = self.mode {
-            if wheel_left != 0.0 {
+            let over_header = self.input.mouse.is_some_and(|m| m.y < body.y + pages::HEADER_H);
+            if wheel_left != 0.0 && over_header {
                 if now - self.wheel_t > 0.25 || wheel_left.signum() != self.wheel_acc.signum() {
                     self.wheel_acc = 0.0;
                 }
@@ -1430,19 +1602,49 @@ impl App {
             st.water_last_reminded = Some(st.unix);
             let total = st.store.water.total(&st.local.day_key());
             let goal = st.settings.water.goal_ml;
-            st.notify(
-                crate::icons::Icon::DropFill,
-                palette::CYAN,
-                "Time for some water",
-                format!("{:.1} of {:.1} L today", total as f32 / 1000.0, goal as f32 / 1000.0),
-                6.0,
-                Some(NoticeAction::OpenPage(PageKind::Water)),
-            );
+            st.notify(Icon::DropFill, palette::CYAN, "Time for some water", water_subtitle(total, goal), 6.0, Some(NoticeAction::OpenPage(PageKind::Water)));
+            st.set_notice_inline(InlineAction::LogWater);
             st.chime();
         }
         // Keep the log small.
         let today = st.local;
         st.store.water.prune(&today, 120);
+    }
+
+    /// Run a notice's inline action in place (the island stays collapsed),
+    /// then show a check mark in the pill briefly before the notice leaves.
+    fn run_inline_action(&mut self, a: InlineAction) {
+        self.refresh_time();
+        let st = &mut self.st;
+        // Already done: the check mark is showing.
+        if st.notice.as_ref().is_none_or(|n| n.icon == Icon::Check) {
+            return;
+        }
+        match a {
+            InlineAction::LogWater => {
+                // Same as the Water page's cup button.
+                let day = st.day_key();
+                let (cup, goal) = (st.settings.water.cup_ml, st.settings.water.goal_ml);
+                let before = st.store.water.total(&day);
+                st.store.water.add(&day, st.unix, cup);
+                st.ui.water_bump = st.now;
+                st.save();
+                let total = before.saturating_add(cup);
+                if before < goal && total >= goal {
+                    st.chime();
+                }
+                if let Some(n) = st.notice.as_mut() {
+                    n.subtitle = water_subtitle(total, goal);
+                }
+            }
+            InlineAction::StartFocus => st.pomodoro.start(st.now),
+        }
+        let until = st.now + INLINE_DONE_S;
+        if let Some(n) = st.notice.as_mut() {
+            n.icon = Icon::Check;
+            n.until = until;
+        }
+        pinfo!("notice: inline action {a:?} done");
     }
 
     fn run_commands(&mut self, deferred: &mut Vec<Deferred>) {
@@ -1461,6 +1663,9 @@ impl App {
                             ms.timeline.position_s = pos;
                             ms.timeline.sampled_at = now;
                             ms.timeline.playing = !ms.timeline.playing;
+                            // The player's confirmation will match this, so
+                            // start (or end) the pause grace period here.
+                            self.st.media_paused_at = (!ms.timeline.playing).then_some(now);
                         }
                     }
                 }
@@ -1530,7 +1735,7 @@ impl App {
     pub fn selftest_set_dpi(&mut self, dpi: u32) {
         let dpi = dpi.clamp(96, 480);
         self.monitor.dpi = dpi;
-        self.gfx.set_dpi(dpi as f32);
+        self.set_dpi(dpi);
         self.request_frame();
     }
 
@@ -1542,8 +1747,9 @@ impl App {
         }
     }
 
+    /// At rest: outline settled, mode current, no page switch or outgoing fade.
     pub fn selftest_settled(&self) -> bool {
-        self.island.settled() && self.target_mode() == self.mode
+        self.island.settled() && self.target_mode() == self.mode && self.page_anim.is_none() && self.outgoing.is_none()
     }
 
     /// Render a frame right now (bypassing the clock) and return its pixels.
@@ -1576,5 +1782,20 @@ impl App {
 
     pub fn hwnd(&self) -> HWND {
         self.hwnd
+    }
+}
+
+/// "1.25 of 2.0 L today": litres to the centilitre, like the Water page.
+pub(crate) fn water_subtitle(total_ml: u32, goal_ml: u32) -> String {
+    format!("{} of {} L today", fmt_litres(total_ml), fmt_litres(goal_ml))
+}
+
+/// Centilitres rounded, so 1250 -> "1.25", 2000 -> "2.0", 330 -> "0.33".
+fn fmt_litres(ml: u32) -> String {
+    let cl = ml.saturating_add(5) / 10;
+    if cl.is_multiple_of(10) {
+        format!("{}.{}", cl / 100, (cl / 10) % 10)
+    } else {
+        format!("{}.{:02}", cl / 100, cl % 100)
     }
 }
