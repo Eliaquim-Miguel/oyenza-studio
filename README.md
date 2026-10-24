@@ -61,11 +61,17 @@ The island stays black by default. Switch on the Oyen theme (the gear › **Them
 
 ![Classic and the Oyen theme side by side: resting, with the clock, and playing music](docs/screenshots/oyen-theme.png)
 
+### The Glass theme
+
+Glass turns the island into liquid glass, after Apple's Liquid Glass. Its rim bends and magnifies what's under it, the middle is frosted, a light runs along the edge, and the shadow under it deepens over busy pages. The collapsed island turns light or dark with what's behind it, and the open island follows Windows' light or dark mode. Its tint goes only as deep as the text needs to stay readable (4.5:1).
+
+To bend what's under it, Glass copies the part of the screen behind its window (the island and the space it opens into) whenever something there changes, and not while the island is hidden or the PC is locked. The copy stays in your PC's memory and on its graphics card, and each new copy replaces the last; it's never saved or sent. While Glass is on, Windows leaves Oyen Poni out of screenshots, screen recordings and screen sharing. Where Poni can't copy the screen (the software renderer, Windows 10 before version 2004, Remote Desktop, some laptops whose display runs on the other GPU, HDR displays for now), Glass draws smoked glass instead: the same shape, light and shadow over a solid tint, and it stays in screenshots.
+
 The gear at the top right of the open island opens **Settings**: your Oyenza account first, then the theme, the idle look and the switches below. Right-click the island or the tray icon for every option:
-- the theme: Classic or Oyen
+- the theme: Classic, Oyen or Glass
 - the idle look: clock, eyes (Oyen in his theme), minimal, or hidden until you hover
 - lyrics (and the pronunciation line under Japanese, Korean and Chinese lyrics), clipboard history and sounds
-- hide in full-screen apps
+- in full-screen apps: hide, or stay on top of borderless games and videos (a game in exclusive full-screen mode still covers it)
 - start with Windows, and quit
 
 ## Install
@@ -181,7 +187,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for how the pieces fit: threads, the rend
 
 ### Website
 
-The website is `site/index.html`, published with GitHub Pages by `.github/workflows/pages.yml` whenever `site/` or `docs/brand/` changes on main. Preview it with `tools/build_site.sh && python3 -m http.server -d _site 8000`. Its island screenshots come from the self-test at 200 % in both themes (`tools/site_shots.py`).
+The website is `site/index.html`, published with GitHub Pages by `.github/workflows/pages.yml` whenever `site/` or `docs/brand/` changes on main. Every release updates it too ([AGENTS.md](AGENTS.md#every-release-updates-the-website) has the checklist). A page that names a version not released yet waits until that release is published, and a release whose page wasn't updated opens an issue. Preview it with `tools/build_site.sh && python3 -m http.server -d _site 8000`. Its island screenshots come from the self-test at 200 % in both themes (`tools/site_shots.py`).
 
 ### Download stats
 
@@ -196,9 +202,10 @@ Early, but in daily use on Windows 11. Most rough edges are in places a test mac
 - Synced lyrics come from [LRCLIB](https://lrclib.net), a free and open lyrics database. Oyen Poni fetches them only while a song plays and caches them on your PC.
 - With your token, lyrics can also come from [Apple Music](https://music.apple.com) (see [Apple Music lyrics](#apple-music-lyrics)).
 - Phone drop follows the design of [Windfall](https://github.com/UvejsGj/Windfall)'s phone page (MIT). QR codes come from [qrcodegen](https://github.com/nayuki/QR-Code-generator) (MIT).
+- Romaji under Japanese lyrics comes from Windows' own reading analyzer or, on PCs without Windows' Japanese data, from [mecab-ipadic](https://taku910.github.io/mecab/) read with [vibrato](https://github.com/daac-tools/vibrato) (MIT/Apache-2.0).
 - Paired phones follow the idea of [PairDrop](https://github.com/schlagmichdoch/PairDrop)'s paired devices (no code taken). The WebRTC link is [str0m](https://github.com/algesten/str0m) (MIT or Apache-2.0).
 - Built with [windows-rs](https://github.com/microsoft/windows-rs) and [serde](https://serde.rs).
 
 ## License
 
-The code is [MIT](LICENSE). The Oyen Poni name, its logo and the Oyen character (the files in `docs/brand`, `installer/art` and the app icon) are not covered by the MIT license, so please don't reuse them in other projects. The Japanese reading dictionary (`crates/poni-core/data/ja-readings.dic.zst`) is derived from mecab-ipadic and keeps its own license, in [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt).
+The code is [MIT](LICENSE). The Oyen Poni name, its logo and the Oyen character (the files in `docs/brand`, `installer/art` and the app icon) are not covered by the MIT license, so please don't reuse them in other projects. The Japanese reading dictionary (`crates/poni-core/data/ja-readings.dic.zst`) is derived from mecab-ipadic and keeps its own license. [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt), which ships with every download, holds that license and those of the Unicode data and the Rust crates Oyen Poni is built from.

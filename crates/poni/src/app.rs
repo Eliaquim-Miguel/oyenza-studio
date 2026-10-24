@@ -52,6 +52,10 @@ const TIMER_STATS: usize = 5;
 const TIMER_MINUTE: usize = 6;
 pub const TIMER_SELFTEST: usize = 7;
 const TIMER_TRAY: usize = 8;
+const TIMER_RAISE: usize = 9;
+/// Raises that follow a new foreground window, and their spacing.
+const RAISE_REPEATS: u8 = 4;
+const RAISE_INTERVAL_MS: u32 = 500;
 
 const WM_CAPTURECHANGED_: u32 = 0x0215;
 const WM_WTSSESSION_CHANGE_: u32 = 0x02B1;
@@ -282,6 +286,10 @@ pub struct App {
     sink: EventSink,
     rx: Receiver<AppEvent>,
     services: Option<Services>,
+    /// The Glass theme's screen copy, light/dark choice and glass.
+    glass: crate::glass::Glass,
+    /// The glass was still changing on the last frame (turning light or dark).
+    glass_moving: bool,
     /// Animation time of the last frame (the vblank it was shown on).
     last_frame_t: f64,
     /// The window: a fixed-size surface the island is drawn centred in.
@@ -311,6 +319,12 @@ pub struct App {
     capture_next: bool,
     capture_rect: RECT,
     fullscreen_hidden: bool,
+    /// The last full-screen state reported, hidden or not.
+    fullscreen_on: bool,
+    /// Follow-up raises still due (TIMER_RAISE).
+    raises_left: u8,
+    /// Window classes already logged for covering the island (once each).
+    covered_by: HashSet<String>,
     shown: bool,
     stats_on: bool,
     /// The System page's sampler thread (started the first time the page opens).
@@ -454,6 +468,8 @@ impl App {
             sink,
             rx,
             services: None,
+            glass: crate::glass::Glass::new(services::apps_use_light_theme()),
+            glass_moving: false,
             last_frame_t: 0.0,
             surface: Surface::default(),
             cx: 0.0,
@@ -469,6 +485,9 @@ impl App {
             capture_next: false,
             capture_rect: RECT::default(),
             fullscreen_hidden: false,
+            fullscreen_on: false,
+            raises_left: 0,
+            covered_by: HashSet::new(),
             shown: false,
             stats_on: false,
             sysmon: None,
@@ -530,6 +549,7 @@ impl App {
 
     fn shutdown(&mut self) -> i32 {
         self.save_now();
+        self.glass.stop(self.hwnd, &mut self.gfx);
         if let Some(p) = self.phone.take() {
             p.stop();
         }
@@ -907,7 +927,12 @@ impl App {
             }
             WM_DISPLAYCHANGE | WM_DPICHANGED | WM_SETTINGCHANGE => {
                 self.refresh_monitor();
-                if msg == WM_SETTINGCHANGE && !oyen::on(self.st.settings.theme) {
+                if msg == WM_SETTINGCHANGE {
+                    self.glass.app_light = services::apps_use_light_theme();
+                }
+                if msg == WM_SETTINGCHANGE && self.st.settings.theme == Theme::Glass {
+                    self.st.accent = theme_accent(Theme::Glass);
+                } else if msg == WM_SETTINGCHANGE && !oyen::on(self.st.settings.theme) {
                     if let Some(a) = services::system_accent() {
                         self.st.accent = a;
                     }
@@ -932,6 +957,8 @@ impl App {
             if let Some(s) = self.services.as_ref() {
                 s.on_taskbar_created();
             }
+            // A restarted Explorer puts its taskbar at the top of the topmost band.
+            self.start_raises();
             return Some(LRESULT(0));
         }
         match msg {
@@ -1013,6 +1040,19 @@ impl App {
                     // armed: the next movement restarts it.
                 } else {
                     self.expand();
+                }
+            }
+            TIMER_RAISE => {
+                self.raises_left = self.raises_left.saturating_sub(1);
+                if self.shown && !self.fullscreen_hidden {
+                    self.raise_if_covered();
+                } else {
+                    self.raises_left = 0;
+                }
+                if self.raises_left == 0 {
+                    unsafe {
+                        let _ = KillTimer(self.hwnd, TIMER_RAISE);
+                    }
                 }
             }
             TIMER_COLLAPSE => {
@@ -1302,6 +1342,11 @@ impl App {
         if before.theme != now.theme {
             self.st.accent = theme_accent(now.theme);
         }
+        if before.hide_in_fullscreen != now.hide_in_fullscreen {
+            // Apply at once: show the island over the full-screen app, or hide it.
+            self.on_event(AppEvent::Fullscreen(self.fullscreen_on));
+        }
+        let now = &self.st.settings;
         if before.clipboard_history && !now.clipboard_history {
             // Privacy: turning history off forgets everything, pinned items included.
             self.st.clip = poni_core::cliphist::ClipHistory::default();
@@ -1335,7 +1380,7 @@ impl App {
             ToggleClipboard => s.clipboard_history = !s.clipboard_history,
             ToggleLyrics => s.lyrics = !s.lyrics,
             TogglePronunciation => s.lyrics_pronunciation = !s.lyrics_pronunciation,
-            ToggleHideFullscreen => s.hide_in_fullscreen = !s.hide_in_fullscreen,
+            SetHideFullscreen(hide) => s.hide_in_fullscreen = hide,
             ToggleSounds => s.sounds = !s.sounds,
             TogglePinned => self.st.pinned = !self.st.pinned,
             ToggleAutostart => {
@@ -1405,6 +1450,11 @@ impl App {
         self.st.now = now;
         let media_before = matches!(ev, AppEvent::Media(_) | AppEvent::MediaTimeline { .. }).then(|| self.media_snapshot());
         match ev {
+            AppEvent::Backdrop => {
+                if self.glass.on_backdrop(self.hwnd, &mut self.gfx) {
+                    self.request_frame();
+                }
+            }
             AppEvent::Media(session) => {
                 let prev_key = self.st.media.as_ref().map(|m| m.track_key.clone());
                 match session {
@@ -1510,7 +1560,15 @@ impl App {
                         self.show_held_notice(now);
                     }
                 }
+                self.fullscreen_on = on;
+                if !hide {
+                    // A borderless game or a browser in F11 may have taken the
+                    // top of the topmost band, and an island shown again after
+                    // a full-screen app is not raised by showing it.
+                    self.start_raises();
+                }
             }
+            AppEvent::Foreground => self.start_raises(),
             AppEvent::ShelfAdd(paths) => {
                 let n = self.st.store.shelf.add_paths(&paths, self.st.unix);
                 for p in &paths {
@@ -1726,6 +1784,47 @@ impl App {
         }
     }
 
+    /// Puts the island back on top after another window came forward. Apps
+    /// often make themselves topmost just after they take the focus, with no
+    /// event of their own, so a few more checks follow over the next two
+    /// seconds. (Exclusive full-screen still covers every window.)
+    fn start_raises(&mut self) {
+        if !self.shown || self.fullscreen_hidden {
+            return;
+        }
+        self.raise_if_covered();
+        self.raises_left = RAISE_REPEATS;
+        unsafe {
+            SetTimer(self.hwnd, TIMER_RAISE, RAISE_INTERVAL_MS, None);
+        }
+    }
+
+    /// Raises the island when a window sits above it or it lost its topmost
+    /// style, and logs each culprit once.
+    fn raise_if_covered(&mut self) {
+        let topmost = unsafe { GetWindowLongPtrW(self.hwnd, GWL_EXSTYLE) } & WS_EX_TOPMOST.0 as isize != 0;
+        let above = services::fullscreen::window_above(self.hwnd);
+        if topmost && above.is_none() {
+            return;
+        }
+        let key = if topmost { above.clone().unwrap_or_default() } else { String::new() };
+        if self.covered_by.insert(key) {
+            match (&above, topmost) {
+                (_, false) => pinfo!("island lost its topmost style; raised again"),
+                (Some(class), true) => pinfo!("island covered by a {class} window; raised again"),
+                (None, true) => {}
+            }
+        }
+        self.raise_topmost();
+    }
+
+    /// Top of the topmost band, without taking the focus.
+    fn raise_topmost(&self) {
+        unsafe {
+            let _ = SetWindowPos(self.hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        }
+    }
+
     fn set_noactivate(&self, on: bool) {
         unsafe {
             let ex = GetWindowLongPtrW(self.hwnd, GWL_EXSTYLE);
@@ -1872,6 +1971,9 @@ impl App {
     fn frame(&mut self, deferred: &mut Vec<Deferred>, tick: Option<FrameTick>) {
         if self.fullscreen_hidden {
             // Nothing is drawn, but timers, chimes and commands keep working.
+            // Glass stops copying the screen: nobody sees the island.
+            let off = RECT::default();
+            self.glass.sync(false, self.hwnd, &self.sink, self.monitor.handle, off, &mut self.gfx);
             self.refresh_time();
             self.tick();
             self.run_commands(deferred);
@@ -1998,7 +2100,31 @@ impl App {
         let mut wheel_left = 0.0;
         let draw_from = clock::mono();
         let mut drawn_at = draw_from;
-        self.gfx.set_look(poni_core::look::of(self.st.settings.theme));
+        // Glass: copy the screen under the window while the GPU draws (the
+        // self-test brings its own backdrop), then draw this frame's glass
+        // before the frame starts. The look follows the glass, light or dark.
+        let glass_theme = self.st.settings.theme == Theme::Glass;
+        let window_px = RECT { left: self.surface.x, top: self.surface.y, right: self.surface.x + sw, bottom: self.surface.y + sh };
+        // Only while someone can see it: not while hidden, locked or the display is off.
+        let copy_on = glass_theme
+            && self.selftest.is_none()
+            && !hidden_idle
+            && !self.locked
+            && !self.display_off
+            && matches!(self.gfx.renderer(), crate::gfx::Renderer::Gpu { .. });
+        self.glass.sync(copy_on, self.hwnd, &self.sink, self.monitor.handle, window_px, &mut self.gfx);
+        let mut glass_moving = false;
+        let glass = if glass_theme && !hidden_idle {
+            let small = !matches!(mode, Mode::Expanded(_));
+            let (light, p, moving) = self.glass.frame(body, geom.r, SHOULDER, small, now, dt, scale, &mut self.gfx);
+            glass_moving = moving;
+            self.gfx.set_look(poni_core::look::glass(light));
+            self.gfx.prepare_glass(&p, canvas_px);
+            Some(p)
+        } else {
+            self.gfx.set_look(poni_core::look::of(self.st.settings.theme));
+            None
+        };
         let (repaint, anim, focus, ui_live) = match self.gfx.begin(dirty) {
             Ok(mut canvas) => {
                 if self.expanded && !canvas.on_gpu() {
@@ -2007,9 +2133,13 @@ impl App {
                     // (The GPU renderer keeps this in its hit mask instead.)
                     canvas.fill_rect(canvas_r, Color::black(1.0 / 255.0));
                 }
-                let island_color = if hidden_idle { Color::black(1.0 / 255.0) } else { palette::ISLAND };
-                let border = if hidden_idle { None } else { Some(canvas.look().border) };
-                canvas.notch(body, geom.r, SHOULDER, island_color, border);
+                if let Some(p) = glass.as_ref() {
+                    canvas.glass(p, canvas_r);
+                } else {
+                    let island_color = if hidden_idle { Color::black(1.0 / 255.0) } else { palette::ISLAND };
+                    let border = if hidden_idle { None } else { Some(canvas.look().border) };
+                    canvas.notch(body, geom.r, SHOULDER, island_color, border);
+                }
 
                 // Content scales about the top centre, where the island hangs.
                 let pivot = Point::new(body.center().x, body.y);
@@ -2136,7 +2266,15 @@ impl App {
         let ambient_ok = !self.locked && !self.display_off;
         let eq_live = ambient_ok && activities::is_live(&self.mode, &self.st);
         let drift_live = ambient_ok && ui_live;
-        let moving = !self.island.settled() || anim || repaint || renderer_changed || !self.st.cmds.is_empty() || self.outgoing.is_some() || self.page_anim.is_some();
+        self.glass_moving = glass_moving;
+        let moving = !self.island.settled()
+            || anim
+            || repaint
+            || renderer_changed
+            || glass_moving
+            || !self.st.cmds.is_empty()
+            || self.outgoing.is_some()
+            || self.page_anim.is_some();
         // The display mode's rate, not the measured period: a divisor that
         // flips between 1 and 2 would be the uneven cadence it exists to avoid.
         let hz = self.clock.nominal_hz();
@@ -2743,7 +2881,36 @@ impl App {
 
     /// At rest: outline settled, mode current, no page switch or outgoing fade.
     pub fn selftest_settled(&self) -> bool {
-        self.island.settled() && self.target_mode() == self.mode && self.page_anim.is_none() && self.outgoing.is_none()
+        self.island.settled() && self.target_mode() == self.mode && self.page_anim.is_none() && self.outgoing.is_none() && !self.glass_moving
+    }
+
+    /// Self-test, Glass theme: `px` (BGRA, the window's size) is what's under
+    /// the window, and Windows is in light (`app_light`) or dark mode.
+    pub fn selftest_glass_backdrop(&mut self, px: Vec<u8>, w: i32, h: i32, app_light: bool) {
+        self.glass.app_light = app_light;
+        self.glass.inject(px, w, h, &mut self.gfx);
+    }
+
+    /// Self-test: a new scene starts (the glass takes its side at once).
+    pub fn selftest_glass_reseed(&mut self) {
+        self.glass.reseed();
+    }
+
+    /// Self-test: the lens strength, and whether the glass shows the backdrop.
+    pub fn selftest_glass_switches(&mut self, lens: f32, use_copy: bool) {
+        self.glass.lens = lens;
+        self.glass.use_copy = use_copy;
+    }
+
+    /// Self-test: the last frame's glass came from the shader, the backdrop
+    /// is on the GPU, and the look content was painted in.
+    pub fn selftest_glass_state(&self) -> (bool, bool, &'static poni_core::look::Look) {
+        (self.gfx.glass_drew(), self.gfx.glass_has_copy(), self.gfx.look())
+    }
+
+    /// Self-test: the captured rectangle (surface pixels).
+    pub fn selftest_capture_rect(&self) -> RECT {
+        self.capture_rect
     }
 
     /// Render a frame right now (bypassing the clock) and return the pixels
@@ -2808,6 +2975,8 @@ impl App {
 fn theme_accent(theme: Theme) -> Color {
     if oyen::on(theme) {
         oyen::ORANGE
+    } else if theme == Theme::Glass {
+        services::system_accent_base().unwrap_or(palette::BLUE)
     } else {
         services::system_accent().unwrap_or(palette::BLUE)
     }

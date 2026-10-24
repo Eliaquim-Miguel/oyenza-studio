@@ -10,7 +10,7 @@ concurrency:
 
 env:
   # Keep in sync with Cargo.toml's workspace version, installer/poni.nsi and installer/poni.iss.
-  PONI_VERSION: "0.1.11"
+  PONI_VERSION: "0.1.12"
 
 jobs:
   core:
@@ -21,6 +21,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test -p poni-core
+      # THIRD-PARTY-NOTICES.txt ships with every build: it must list every
+      # crate poni.exe links (run the script after changing dependencies).
+      - name: Third-party notices up to date
+        run: |
+          cargo fetch --locked
+          python3 tools/make_notices.py --check
 
   windows:
     name: Build, self-test, smoke-run and package (Windows)
@@ -101,9 +107,80 @@ jobs:
             exit 1
           }
 
+      # The same song the way a PC without Windows' Japanese reading data
+      # reads it (most Windows 11 PCs outside Japan): with Oyen Poni's own
+      # dictionary. Every line must read here too.
+      - name: Self-test, Japanese lyrics with Oyen Poni's own dictionary
+        shell: pwsh
+        env:
+          PONI_SELFTEST_THEME: oyen
+          PONI_SELFTEST_LYRICS: ja
+          PONI_SELFTEST_ANALYZER: "off"
+        run: |
+          Add-Type -AssemblyName System.Windows.Forms
+          Add-Type -Namespace PoniCiOwn -Name User32 -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);'
+          $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          [PoniCiOwn.User32]::SetCursorPos([int]($b.Width / 2), [int]($b.Height / 2)) | Out-Null
+
+          New-Item -ItemType Directory -Force -Path selftest-ja-own | Out-Null
+          $p = Start-Process -FilePath target\release\poni.exe -ArgumentList "--selftest","selftest-ja-own" -PassThru
+          $null = $p.Handle
+          if (-not $p.WaitForExit(120000)) { Stop-Process -Id $p.Id -Force; $code = -1 } else { $code = $p.ExitCode }
+          "own-dictionary self-test exit code: $code"
+          if (Test-Path selftest-ja-own\report.json) {
+            $r = Get-Content selftest-ja-own\report.json -Raw | ConvertFrom-Json
+            "renderer: $($r.renderer); states passed: $($r.states_passed)/$($r.states_total); failed: $($r.failed_checks -join ', ')"
+          }
+          "---- pronunciation (poni.log)"
+          Select-String -Path selftest-ja-own\home\cache\poni.log -Pattern 'selftest: \[ja\]|reading' -ErrorAction SilentlyContinue | ForEach-Object { $_.Line }
+          if ($code -ne 0) {
+            Get-Content selftest-ja-own\home\cache\poni.log -Tail 80 -ErrorAction SilentlyContinue
+            exit 1
+          }
+
+      # The Glass theme over pages the self-test draws itself (no screen copy):
+      # a light page in light mode, a dark page in dark mode, and the dark page
+      # in light mode (small glass flips dark, the open island stays light).
+      # The glass shader runs here (WARP); Wine on a dev box draws smoked glass.
+      - name: Self-test, Glass theme
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Windows.Forms
+          Add-Type -Namespace PoniCiGlass -Name User32 -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);'
+          $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          [PoniCiGlass.User32]::SetCursorPos([int]($b.Width / 2), [int]($b.Height / 2)) | Out-Null
+
+          $env:PONI_SELFTEST_THEME = "glass"
+          $failed = 0
+          foreach ($run in "light", "dark", "flip") {
+            $env:PONI_SELFTEST_GLASS = $run
+            $dir = "selftest-glass-$run"
+            New-Item -ItemType Directory -Force -Path $dir | Out-Null
+            $p = Start-Process -FilePath target\release\poni.exe -ArgumentList "--selftest",$dir -PassThru
+            $null = $p.Handle
+            if (-not $p.WaitForExit(180000)) { Stop-Process -Id $p.Id -Force; $code = -1 } else { $code = $p.ExitCode }
+            "glass ($run) self-test exit code: $code"
+            if (Test-Path "$dir\report.json") {
+              $r = Get-Content "$dir\report.json" -Raw | ConvertFrom-Json
+              "renderer: $($r.renderer); states passed: $($r.states_passed)/$($r.states_total); failed: $($r.failed_checks -join ', ')"
+            }
+            Select-String -Path "$dir\home\cache\poni.log" -Pattern 'glass:' -ErrorAction SilentlyContinue | Select-Object -First 6 | ForEach-Object { $_.Line }
+            if ($code -ne 0) {
+              Get-Content "$dir\home\cache\poni.log" -Tail 60 -ErrorAction SilentlyContinue
+              $failed = 1
+            }
+          }
+          exit $failed
+
       - name: Smoke run (real desktop, hover, idle CPU/RAM)
         shell: pwsh
         run: ./tools/ci-smoke.ps1 -Exe target\release\poni.exe -Out smoke-out
+
+      # Glass on a real desktop: with its screen copy running, screenshots
+      # show what's under the island instead of the island.
+      - name: Smoke run, Glass theme (left out of screenshots)
+        shell: pwsh
+        run: ./tools/ci-smoke-glass.ps1 -Exe target\release\poni.exe -Out smoke-glass
 
       # The GPU renderer is the default (runners draw with WARP). The software
       # renderer is its fallback (no DirectComposition, device loss): test it too.
@@ -155,6 +232,11 @@ jobs:
           path: |
             selftest-out
             selftest-oyen-ja
+            selftest-ja-own
+            selftest-glass-light
+            selftest-glass-dark
+            selftest-glass-flip
+            smoke-glass
             smoke-out
             selftest-soft
             smoke-soft
@@ -191,7 +273,7 @@ jobs:
           sudo apt-get install -y -qq nsis zip > /dev/null
           makensis -V2 -DEXE="$PWD/dist/poni.exe" -DOUTDIR="$PWD/dist" installer/poni.nsi
           # Portable build inside its own folder, as tools/package.sh makes it.
-          ( cd dist && mkdir Poni && cp poni.exe Poni/ && zip -qr "Oyen-Poni-$PONI_VERSION-portable.zip" Poni && rm -rf Poni )
+          ( cd dist && mkdir Poni && cp poni.exe ../THIRD-PARTY-NOTICES.txt Poni/ && zip -qr "Oyen-Poni-$PONI_VERSION-portable.zip" Poni && rm -rf Poni )
           ls -la dist
       - uses: actions/upload-artifact@v4
         with:
@@ -255,3 +337,25 @@ jobs:
             dist/Oyen-Poni-Setup.exe
             dist/Oyen-Poni-${{ env.PONI_VERSION }}-portable.zip
           fail_on_unmatched_files: true
+
+  # Every release updates the website too (AGENTS.md). If the page on main names
+  # this version, start the Website workflow, which has held it until now;
+  # otherwise open a "Landing page not updated" issue.
+  site:
+    name: Website shows the release (tags v*)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      actions: write
+    steps:
+      # main, not the tag: the website is published from main.
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Put the page live, or open an issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: tools/ci-site-check.sh release "$GITHUB_REF_NAME"
