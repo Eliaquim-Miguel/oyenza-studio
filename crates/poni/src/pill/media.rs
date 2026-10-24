@@ -2,8 +2,9 @@
 //! line being sung in the middle ([`super::lyric`]) or, when there is
 //! none, the song ("Title · artist"), the equalizer in the album's colour
 //! on the right, and a glow of that colour along the bottom edge (ref3).
-//! The pill is as wide as its text (spec 6.5), so it grows and shrinks a
-//! little with the lyrics while the text stays centred.
+//! The pill is as wide as its text (spec 6.5): the song, or the widest
+//! line sung so far in the track, so it settles early in a song instead of
+//! resizing at every line. The text stays centred while it does.
 //!
 //! A new track's peek (`st.ui.peek_until`): text always shows here, so the
 //! peek picks which text. The title holds the middle for the peek even
@@ -22,6 +23,7 @@ use crate::state::AppState;
 use crate::ui::Ui;
 use poni_core::geom::{clamp01, lerp, palette, Color, Rect};
 use std::cell::Cell;
+use std::hash::{DefaultHasher, Hash, Hasher};
 
 /// Every collapsed pill is this tall, a capsule (spec 6.1).
 const H: f32 = 32.0;
@@ -51,9 +53,11 @@ const BAR_HIGH: f32 = 14.0;
 /// Where the bars hold (of their range) while music plays on battery
 /// saver: they stand still there rather than spend a frame a refresh.
 const BARS_STILL: [f32; BARS] = [0.45, 0.85, 0.3, 0.65];
-/// The glow: the bottom 15 DIPs, its alpha rising to 0.55 as t² (spec 6.5, 6.9).
+/// The glow: the bottom 15 DIPs, its alpha rising to 0.55 as t² (spec 6.5,
+/// 6.9), in at most 30 rows (a row a pixel up to 200 %).
 const GLOW_BAND: f32 = 15.0;
 const GLOW_ALPHA: f32 = 0.55;
+const GLOW_ROWS: usize = 30;
 /// Play and pause ease over this long: the glow, the bars, the dimming.
 const PLAY_FADE: f64 = 0.2;
 /// Paused, the art and the text are this opaque.
@@ -75,6 +79,8 @@ thread_local! {
     /// Whether the middle showed the sung line (else the song) on the last
     /// frame drawn, and since when, for the hand-off between the two.
     static SUNG: Cell<(bool, f64)> = const { Cell::new((false, f64::NEG_INFINITY)) };
+    /// The track (a hash of its key) and the widest of its lines so far.
+    static WIDEST: Cell<(u64, f32)> = const { Cell::new((0, 0.0)) };
 }
 
 pub fn geom(_st: &AppState) -> Option<Geom> {
@@ -202,10 +208,25 @@ fn draw_text(ui: &mut Ui, st: &AppState, area: Rect, alpha: f32, now: f64) -> f3
         draw_song(ui, st, area, alpha * (1.0 - k));
     }
     match super::lyric::current(st) {
-        Some((line, _)) => fit(ui.c.measure(&line, &line_style(), 10_000.0).0),
+        Some((line, _)) => fit(widest_line(st, ui.c.measure(&line, &line_style(), 10_000.0).0)),
         // The last line is still fading out: it keeps its width until it's gone.
         None => FIT_W.get(),
     }
+}
+
+/// The widest line sung so far in this track, with one `w` wide now. The
+/// pill grows to fit a longer line and holds there, so it settles within
+/// the first verse instead of morphing at every line (a resize at the top
+/// of the screen every few seconds catches the eye, and runs at the full
+/// refresh rate while it moves).
+fn widest_line(st: &AppState, w: f32) -> f32 {
+    let mut h = DefaultHasher::new();
+    st.media.as_ref().map(|m| m.track_key.as_str()).unwrap_or_default().hash(&mut h);
+    let track = h.finish();
+    let (was, widest) = WIDEST.get();
+    let widest = if was == track { widest.max(w) } else { w };
+    WIDEST.set((track, widest));
+    widest
 }
 
 /// "Title · artist" centred in `area`: the title semibold, the artist dim,
@@ -283,23 +304,37 @@ fn bounce(i: usize, t: f64) -> f32 {
     (0.5 + 0.3 * (a * t + p).sin() + 0.2 * (b * t + q).sin()).clamp(0.0, 1.0) as f32
 }
 
-/// The album's colour rising along the bottom edge (ref3), inside the
-/// outline. `fill_path_fade` takes two stops, so the spec's t² curve is two
-/// linear fades stacked: one over the band and one over its lower half.
-/// Halfway down the first gives a quarter of the peak alone, as t² does,
-/// and together they reach the peak at the edge.
+/// The album's colour rising along the bottom edge (ref3): its alpha grows
+/// as t² down the band to the peak at the edge (spec 6.9), one row of
+/// device pixels at a time, each row as wide as the capsule is there. Plain
+/// fills rather than a gradient brush: Wine's Direct2D takes a gradient's
+/// see-through stops as premultiplied and paints them nearly solid (the
+/// self-test showed a white band), and rows need no mask layer to keep
+/// inside the round ends.
 fn glow(ui: &mut Ui, body: Rect, color: Color, level: f32) {
     let a = GLOW_ALPHA * level;
-    if a <= 0.005 {
+    if a <= 0.004 {
         return;
     }
-    let outline = super::shape::segments(body, body.h / 2.0);
-    let (y0, y1) = (body.bottom() - GLOW_BAND, body.bottom());
-    let a1 = a / 2.0;
-    let a2 = a1 / (1.0 - a1);
-    // Only the band rasterizes.
-    ui.c.clip(Rect::new(body.x, y0, body.w, GLOW_BAND));
-    ui.c.fill_path_fade(&outline, color, y0, y1, 0.0, a1);
-    ui.c.fill_path_fade(&outline, color, (y0 + y1) / 2.0, y1, 0.0, a2);
-    ui.c.unclip();
+    let s = ui.c.scale().max(0.1);
+    // Rows of whole pixels from the bottom edge up (more than one pixel
+    // each above 200 %, so the band stays at GLOW_ROWS fills).
+    let px = ((GLOW_BAND * s / GLOW_ROWS as f32).ceil()).max(1.0);
+    let rows = ((GLOW_BAND * s / px).round() as usize).clamp(1, GLOW_ROWS);
+    let row = px / s;
+    let bottom = (body.bottom() * s).round() / s;
+    let (r, cy) = (body.h / 2.0, body.center().y);
+    for i in 0..rows {
+        let (y1, y0) = (bottom - i as f32 * row, bottom - (i + 1) as f32 * row);
+        // The capsule's width at the row's edge farther from the middle, so
+        // the row stays inside the round ends.
+        let dy = (y0 - cy).abs().max((y1 - cy).abs());
+        let t = 1.0 - (i as f32 + 0.5) / rows as f32;
+        let alpha = a * t * t;
+        if dy > r || alpha < 0.002 {
+            continue;
+        }
+        let dx = r - (r * r - dy * dy).max(0.0).sqrt();
+        ui.c.fill_rect(Rect::new(body.x + dx, y0, body.w - 2.0 * dx, row), color.mul_alpha(alpha));
+    }
 }
