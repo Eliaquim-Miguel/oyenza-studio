@@ -135,6 +135,10 @@ const SCROLL_STEP: f32 = 46.0;
 
 // Critically damped follow rates (rad/s): settle time is roughly 4/ω.
 const LYRIC_OMEGA: f32 = 12.0;
+/// A lyric scroll that starts on a slow ambient frame (the clock runs near
+/// 30 fps while the lyrics rest) first moves this much time, not the whole
+/// gap since the last frame, so it doesn't open with a jump.
+const START_STEP_S: f32 = 1.0 / 120.0;
 const SCROLL_OMEGA: f32 = 18.0;
 const ART_OMEGA: f32 = 14.0;
 
@@ -796,7 +800,14 @@ struct Row<'a> {
     r: usize,
     /// Distance from the scroll position, in rows that show.
     d: f32,
+    /// Type size: it glides with `d`, no steps.
     size: f32,
+    /// The quarter point the text is laid out at (layouts are cached per
+    /// size), drawn scaled by `k` = `size` / `size_q` (within 1 %).
+    size_q: f32,
+    k: f32,
+    /// Height of the layout box at `size_q` (`h` is its scaled height).
+    lay_h: f32,
     text: &'a str,
     /// The line's pieces with their readings, when it is shown pronounced.
     ruby: Option<&'a [Ruby]>,
@@ -886,7 +897,8 @@ fn draw_synced(
         pui.lyric_pos = target - JUMP_LAND_ROWS * diff.signum();
         a.lyric_vel = 0.0;
     }
-    follow(&mut pui.lyric_pos, &mut a.lyric_vel, target, LYRIC_OMEGA, fr.dt);
+    let dt = if a.lyric_vel == 0.0 && pui.lyric_pos != target { fr.dt.min(START_STEP_S) } else { fr.dt };
+    follow(&mut pui.lyric_pos, &mut a.lyric_vel, target, LYRIC_OMEGA, dt);
     // 0.006 rows ≈ 0.15 DIP: stop the frame clock once motion is invisible.
     let settled = settle(&mut pui.lyric_pos, &mut a.lyric_vel, target, 0.006, 0.03);
     let p = pui.lyric_pos.clamp(0.0, (n_rows - 1) as f32);
@@ -895,7 +907,9 @@ fn draw_synced(
 
     // Measure the rows around the scroll position. Size follows closeness to
     // the current row; the wrap width scales with it, so a line breaks at the
-    // same words whatever its size and heights change smoothly.
+    // same words whatever its size and heights change smoothly. The text is
+    // laid out at the nearest quarter point and drawn scaled by the rest, so
+    // a line grows and shrinks smoothly instead of a quarter point at a time.
     let text_of = |r: usize| if r < off { "" } else { lines[r - off].text.trim() };
     let (lo, hi) = row_window(k, n_rows, ROWS_ABOVE, ROWS_BELOW, |r| text_of(r).is_empty());
     let rs: Vec<usize> = (lo..=hi).collect();
@@ -905,16 +919,18 @@ fn draw_synced(
     for (i, &r) in rs.iter().enumerate() {
         let (d, open) = (dist[i], open[i]);
         let e = (1.0 - d).clamp(0.0, 1.0);
-        let size = ((LYRIC_MIN + (LYRIC_MAX - LYRIC_MIN) * e) * 4.0).round() / 4.0;
+        let size = LYRIC_MIN + (LYRIC_MAX - LYRIC_MIN) * e;
+        let size_q = (size * 4.0).round() / 4.0;
+        let k = size / size_q;
         let text = text_of(r);
         let ruby = if ctx.pronounce && !text.is_empty() { rubies.get(r - off).map(Vec::as_slice).filter(|p| !p.is_empty()) } else { None };
-        let wrap_w = vp.w * size / LYRIC_MAX;
-        let (w, h) = match ruby {
-            _ if text.is_empty() => (dots_width(size), size * LYRIC_LEADING * open),
-            Some(p) => measure_ruby(ui, a, r, size * RUBY_SIZE, p, wrap_w),
-            None => measure_row(ui, a, r, size, text, wrap_w),
+        let wrap_w = vp.w * size_q / LYRIC_MAX;
+        let (w, lay_h) = match ruby {
+            _ if text.is_empty() => (dots_width(size) / k, size_q * LYRIC_LEADING * open),
+            Some(p) => measure_ruby(ui, a, r, size_q * RUBY_SIZE, p, wrap_w),
+            None => measure_row(ui, a, r, size_q, text, wrap_w),
         };
-        rows.push(Row { r, d, size, text, ruby, wrap_w, w, h, open, c: 0.0 });
+        rows.push(Row { r, d, size, size_q, k, lay_h, text, ruby, wrap_w, w: w * k, h: lay_h * k, open, c: 0.0 });
     }
     let ik = k - lo;
     for i in ik + 1..rows.len() {
@@ -931,6 +947,8 @@ fn draw_synced(
 
     let wide = Rect::new(vp.x - 10.0, vp.y, vp.w + 20.0, vp.h);
     ui.c.clip(wide);
+    // Moving lines glide between pixels; at rest they sit on whole pixels.
+    let snap_was = ui.c.set_text_snap(settled);
     for row in &rows {
         if row.open <= 0.01 {
             // A folded gap.
@@ -980,13 +998,22 @@ fn draw_synced(
             let breathe = if current && ctx.live { 1.0 + 0.12 * (ctx.now * 3.4).sin() as f32 } else { 1.0 };
             // The dots shrink away as the gap folds.
             draw_dots(ui, vp.x, cy, row.size * row.open, alpha, lit, breathe);
-        } else if row.ruby.is_some() {
-            draw_ruby(ui, a, row.r, row.size * RUBY_SIZE, vp.x, y, alpha);
         } else {
-            let ts = lyric_style(row.size).color(Color::white(alpha)).top();
-            ui.c.text(row.text, Rect::new(vp.x, y, row.wrap_w, row.h + 2.0), &ts);
+            // Laid out at `size_q`, scaled by `k` about the row's top left.
+            let m0 = ui.c.save_transform();
+            if row.k != 1.0 {
+                ui.c.scale_about(Point::new(vp.x, y), row.k);
+            }
+            if row.ruby.is_some() {
+                draw_ruby(ui, a, row.r, row.size_q * RUBY_SIZE, vp.x, y, alpha);
+            } else {
+                let ts = lyric_style(row.size_q).color(Color::white(alpha)).top();
+                ui.c.text(row.text, Rect::new(vp.x, y, row.wrap_w, row.lay_h + 2.0), &ts);
+            }
+            ui.c.restore_transform(m0);
         }
     }
+    ui.c.set_text_snap(snap_was);
     ui.c.unclip();
     !settled
 }
@@ -1062,6 +1089,7 @@ fn draw_plain(
     let bottom_k = ((max_off - offset) / EDGE_FADE).clamp(0.0, 1.0);
     let ts = lyric_style(PLAIN_SIZE).top();
     ui.c.clip(vp);
+    let snap_was = ui.c.set_text_snap(settled);
     let mut y = if settled { snap(vp.y - offset, scale) } else { vp.y - offset };
     for (i, (line, &h)) in shown.iter().zip(&heights).enumerate() {
         if y > vp.bottom() {
@@ -1082,6 +1110,7 @@ fn draw_plain(
         }
         y += h + PLAIN_GAP;
     }
+    ui.c.set_text_snap(snap_was);
     ui.c.unclip();
     !settled
 }
