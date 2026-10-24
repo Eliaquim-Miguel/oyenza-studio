@@ -276,11 +276,15 @@ fn draw_session(ui: &mut Ui, st: &mut AppState, area: Rect, a: &mut Anim, fr: &F
         open_credit = out.open_credit;
     }
 
-    // The equalizer dances on the frames the page gets anyway while music
-    // plays (below). With none coming (a stream with no length and no synced
-    // lyrics) it rests low as when paused, so a stray frame never jolts it.
+    // The equalizer dances only on the frames the page gets anyway while
+    // music plays (below).
     let drifting = playing && (has_dur || synced_shown);
-    equalizer(ui, block.right(), y0 + EQ_CY, accent, drifting, now);
+    let eq = match (playing, drifting) {
+        (true, true) => EqState::Dancing,
+        (true, false) => EqState::Still,
+        (false, _) => EqState::Paused,
+    };
+    equalizer(ui, block.right(), y0 + EQ_CY, accent, eq, now);
 
     // Classic's frames: full rate only while something catches up (a lyric
     // scroll, the art's spring, the credit fading); the steady drift of the
@@ -388,17 +392,36 @@ fn eq_width() -> f32 {
     EQ_BARS as f32 * EQ_BAR_W + (EQ_BARS - 1) as f32 * EQ_GAP
 }
 
-/// Four bars ending at `right`: dancing while `moving` (each bar at its own
-/// pace, the collapsed equalizer's rhythm), low and still otherwise.
-fn equalizer(ui: &mut Ui, right: f32, cy: f32, color: Color, moving: bool, t: f64) {
+/// How the equalizer shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EqState {
+    /// Playing, on frames that come anyway: each bar at its own pace (the
+    /// collapsed equalizer's rhythm).
+    Dancing,
+    /// Playing with no frames coming (a stream with no length and no synced
+    /// lyrics): one still snapshot of the dance, so a stray frame (the
+    /// pointer moving) never jolts it.
+    Still,
+    /// Paused: low and dimmed, as Classic dims its player dot.
+    Paused,
+}
+
+/// A still dance: the bars' heights as a share of the range (the mockup's).
+const EQ_STILL: [f32; EQ_BARS] = [0.55, 1.0, 0.25, 0.8];
+/// The paused equalizer's opacity (Classic's paused player dot).
+const EQ_PAUSED_ALPHA: f32 = 0.45;
+
+/// Four bars ending at `right`.
+fn equalizer(ui: &mut Ui, right: f32, cy: f32, color: Color, eq: EqState, t: f64) {
     let x0 = right - eq_width();
+    let color = if eq == EqState::Paused { color.mul_alpha(EQ_PAUSED_ALPHA) } else { color };
     for i in 0..EQ_BARS {
-        let h = if moving {
-            let phase = t * (5.0 + i as f64 * 1.3) + i as f64 * 1.7;
-            lerp(EQ_LOW, EQ_HIGH, (0.5 + 0.5 * phase.sin()) as f32)
-        } else {
-            EQ_LOW
+        let k = match eq {
+            EqState::Dancing => (0.5 + 0.5 * (t * (5.0 + i as f64 * 1.3) + i as f64 * 1.7).sin()) as f32,
+            EqState::Still => EQ_STILL[i],
+            EqState::Paused => 0.0,
         };
+        let h = lerp(EQ_LOW, EQ_HIGH, k);
         let x = x0 + i as f32 * (EQ_BAR_W + EQ_GAP);
         ui.c.fill_rrect(Rect::new(x, cy - h / 2.0, EQ_BAR_W, h), EQ_BAR_W / 2.0, color);
     }
