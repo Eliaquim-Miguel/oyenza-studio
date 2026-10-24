@@ -129,6 +129,8 @@ Pair a phone once, and it finds this PC from any network, whenever Oyen Poni run
 |---|---|
 | ![A pairing code under the shelf](docs/screenshots/page-shelf-pairing.png) | ![The paired phones, each with Remove](docs/screenshots/page-shelf-paired-phones.png) |
 
+![The phone page: paired, your PCs, sending, and on the Shelf](docs/screenshots/paired-phone-page.webp)
+
 The phone and PC meet through a small server (`drop.oyenza.com`, code in [`server/`](server)); the files go straight between them over WebRTC, encrypted with keys made on the two devices, or through a relay that can't read them when both networks block a direct link. The server never sees a file, a file name, or the pairing secret: every message is signed with that secret, which only the QR code carries. **Paired phones** lists each phone with **Remove**. How it works: [docs/paired-drop.md](docs/paired-drop.md).
 
 ## Oyenza (optional)
