@@ -2,9 +2,10 @@
 //! and Terbit for one place, the next and current prayer, and the qibla.
 //!
 //! Indonesian places use Kemenag RI's (Bimas Islam) rules, the engine Oyen
-//! Umroh checked against Kemenag's published 2026 schedule (97.6% of 60,837
-//! times to the minute, never more than 1 minute off):
-//! - Subuh: sun 20° below the horizon; Isya: 18° below.
+//! Umroh runs, checked here against Kemenag's published 2026 schedule for
+//! all 517 of its locations (see tests.rs):
+//! - Subuh: sun 20° below the horizon; Isya: 18° below (21° and 19° in six
+//!   Papua highland regencies, as Kemenag computes them).
 //! - Ashar: a shadow as long as the object plus its noon shadow (Syafi'i).
 //! - Terbit and Maghrib: the sun's centre at the place's `h0` (-1°, or -2° in
 //!   highland places where Kemenag uses a lower horizon); Dzuhur: transit.
@@ -46,6 +47,13 @@ pub struct Place {
     /// Sun altitude for Terbit and Maghrib (Kemenag places only).
     #[serde(default = "default_h0")]
     pub h0: f64,
+    /// Degrees below the horizon for Subuh (Kemenag places only). Kemenag
+    /// uses 21 in six Papua highland regencies.
+    #[serde(default = "default_subuh_angle")]
+    pub subuh_angle: f64,
+    /// Degrees below the horizon for Isya (Kemenag places only; 19 in those six).
+    #[serde(default = "default_isya_angle")]
+    pub isya_angle: f64,
     #[serde(default)]
     pub method: Method,
 }
@@ -54,10 +62,26 @@ fn default_h0() -> f64 {
     -1.0
 }
 
+fn default_subuh_angle() -> f64 {
+    KEMENAG_SUBUH_ANGLE
+}
+
+fn default_isya_angle() -> f64 {
+    KEMENAG_ISYA_ANGLE
+}
+
 impl Place {
     /// What the engine needs, or `None` when the time zone isn't one we know.
     pub fn site(&self) -> Option<Site> {
-        Some(Site { lat: self.lat, lng: self.lng, offset_min: utc_offset_min(&self.tz)?, h0: self.h0, method: self.method })
+        Some(Site {
+            lat: self.lat,
+            lng: self.lng,
+            offset_min: utc_offset_min(&self.tz)?,
+            h0: self.h0,
+            subuh_angle: self.subuh_angle,
+            isya_angle: self.isya_angle,
+            method: self.method,
+        })
     }
 }
 
@@ -108,6 +132,8 @@ pub struct Site {
     /// Minutes east of UTC.
     pub offset_min: i32,
     pub h0: f64,
+    pub subuh_angle: f64,
+    pub isya_angle: f64,
     pub method: Method,
 }
 
@@ -259,8 +285,8 @@ pub fn day_times(site: &Site, day: i64) -> Option<DayTimes> {
 /// Subuh, Terbit, Dzuhur, Ashar, Maghrib, Isya in UTC milliseconds.
 fn kemenag(site: &Site, y: i32, m: u8, d: u8) -> Option<[i64; 6]> {
     let base = Params {
-        fajr_angle: KEMENAG_SUBUH_ANGLE,
-        isha_angle: KEMENAG_ISYA_ANGLE,
+        fajr_angle: site.subuh_angle,
+        isha_angle: site.isya_angle,
         isha_interval_min: 0.0,
         shadow_length: 1.0,
         high_latitude: HighLatitudeRule::recommended(site.lat),

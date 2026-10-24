@@ -63,7 +63,7 @@ fn computed(site: &Site, day: i64) -> [i64; 7] {
 fn matches_oyen_umroh_engine_to_the_minute() {
     let list = places();
     let rows = rows(&unpack(GOLDEN));
-    assert!(rows.len() > 13_000, "{}", rows.len());
+    assert!(rows.len() > 18_000, "{}", rows.len());
     let mut wrong = Vec::new();
     for (id, day, want) in &rows {
         let site = list.find(id).unwrap_or_else(|| panic!("{id} missing")).site().unwrap();
@@ -81,18 +81,24 @@ fn matches_kemenag_published_2026_schedule() {
     let rows = rows(&unpack(KEMENAG));
     let (mut total, mut exact, mut worst) = (0usize, 0usize, 0i64);
     let mut per_time = [[0usize; 2]; 7];
+    // Per place: (times, exact, largest difference).
+    let mut per_place: std::collections::BTreeMap<&str, (usize, usize, i64)> = Default::default();
     for (id, day, want) in &rows {
         let site = list.find(id).unwrap_or_else(|| panic!("{id} missing")).site().unwrap();
         let got = computed(&site, *day);
+        let place = per_place.entry(id.as_str()).or_default();
         for i in 0..7 {
             let diff = (got[i] - want[i]).abs();
             total += 1;
             per_time[i][0] += 1;
+            place.0 += 1;
             if diff == 0 {
                 exact += 1;
                 per_time[i][1] += 1;
+                place.1 += 1;
             }
             worst = worst.max(diff);
+            place.2 = place.2.max(diff);
         }
     }
     let rate = exact as f64 / total as f64;
@@ -100,9 +106,35 @@ fn matches_kemenag_published_2026_schedule() {
         eprintln!("{:8} {:6} times, {:5.1}% exact", t.name(), per_time[i][0], 100.0 * per_time[i][1] as f64 / per_time[i][0] as f64);
     }
     eprintln!("all      {total:6} times, {:5.1}% exact, largest difference {worst} min", 100.0 * rate);
-    assert_eq!(total, 60_837);
-    assert!(rate >= 0.976, "{:.4}", rate);
+    let (low_id, low) = per_place.iter().map(|(id, p)| (*id, p.1 as f64 / p.0 as f64)).min_by(|a, b| a.1.total_cmp(&b.1)).unwrap();
+    eprintln!("{} places; lowest exact rate {:.1}% ({low_id})", per_place.len(), 100.0 * low);
+    // Every Indonesian place in the list is replayed.
+    assert_eq!(per_place.len(), list.places.iter().filter(|p| p.kind != "abroad").count());
+    assert_eq!(total, 227_367);
+    assert!(rate >= 0.98, "{:.4}", rate);
     assert!(worst <= 1, "{worst}");
+    assert!(low >= 0.95, "{low_id} {low:.3}");
+}
+
+#[test]
+fn papua_highland_regencies_use_kemenags_wider_twilight_angles() {
+    // Kemenag's Subuh and Isya there match 21 and 19 degrees below the
+    // horizon, 4-5 minutes wider than the usual 20 and 18.
+    let list = places();
+    let own: Vec<&Place> = list.places.iter().filter(|p| p.subuh_angle != KEMENAG_SUBUH_ANGLE || p.isya_angle != KEMENAG_ISYA_ANGLE).collect();
+    let mut ids: Vec<&str> = own.iter().map(|p| p.id.as_str()).collect();
+    ids.sort();
+    assert_eq!(ids, ["kab-intan-jaya", "kab-lanny-jaya", "kab-paniai", "kab-pegunungan-arfak", "kab-puncak", "kab-puncak-jaya"]);
+    let day = parse_day("2026-06-01");
+    for p in own {
+        assert_eq!((p.subuh_angle, p.isya_angle), (21.0, 19.0), "{}", p.id);
+        let site = p.site().unwrap();
+        let usual = Site { subuh_angle: KEMENAG_SUBUH_ANGLE, isya_angle: KEMENAG_ISYA_ANGLE, ..site };
+        let (t, u) = (day_times(&site, day).unwrap(), day_times(&usual, day).unwrap());
+        assert!((240..=360).contains(&(u.subuh - t.subuh)), "{} subuh {}", p.id, u.subuh - t.subuh);
+        assert!((240..=360).contains(&(t.isya - u.isya)), "{} isya {}", p.id, t.isya - u.isya);
+        assert_eq!((t.terbit, t.dzuhur, t.ashar, t.maghrib), (u.terbit, u.dzuhur, u.ashar, u.maghrib), "{}", p.id);
+    }
 }
 
 #[test]
@@ -132,18 +164,23 @@ fn place_list_is_complete_and_consistent() {
         assert!(labels.insert(p.label.as_str()), "duplicate label {}", p.label);
         assert!(p.site().is_some(), "{}: unknown zone {}", p.id, p.tz);
         match p.kind.as_str() {
-            "kota" | "kab" => {
+            "kota" | "kab" | "pulau" => {
                 assert_eq!(p.method, Method::Kemenag, "{}", p.id);
                 assert!((-11.5..=6.5).contains(&p.lat) && (94.5..=141.5).contains(&p.lng), "{} outside Indonesia", p.id);
                 assert!((-3.5..=-0.5).contains(&p.h0), "{} h0 {}", p.id, p.h0);
-                let prefix = if p.kind == "kota" { "Kota " } else { "Kab. " };
-                assert!(p.label.starts_with(prefix), "{}", p.label);
+                match p.kind.as_str() {
+                    "kota" => assert!(p.label.starts_with("Kota "), "{}", p.label),
+                    "kab" => assert!(p.label.starts_with("Kab. "), "{}", p.label),
+                    _ => assert!(p.label.contains(", Kab. "), "{}", p.label), // "Pulau Laut, Kab. Natuna"
+                }
             }
             "abroad" => assert_eq!(p.method, Method::UmmAlQura, "{}", p.id),
             k => panic!("{}: kind {k}", p.id),
         }
     }
-    for id in ["jakarta", "bandung", "kab-bandung", "semarang", "makkah", "madinah", "jeddah"] {
+    // Every location in Kemenag's list, plus Makkah, Madinah and Jeddah.
+    assert_eq!(list.places.len(), 520);
+    for id in ["jakarta", "bandung", "kab-bandung", "semarang", "kota-sofifi", "kab-intan-jaya", "pulau-laut-kab-natuna", "makkah", "madinah", "jeddah"] {
         assert!(list.find(id).is_some(), "{id}");
     }
 }
