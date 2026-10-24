@@ -106,6 +106,21 @@ Each session gets a new secret link that only the QR code carries. It stops work
 
 This isn't AirDrop. An iPhone only AirDrops over Apple's own Wi-Fi link (AWDL), which Windows Wi-Fi drivers can't run, so Phone drop uses the phone's browser instead.
 
+## Oyenza (optional)
+
+If you keep your money in [Oyenza](https://oyenza.app), the island can show it. Signing in is optional and works like a TV: no password is typed into Oyen Poni.
+
+1. Right-click the island (or the tray icon) → **Oyenza** → **Sign in to Oyenza…**. The island shows an 8-letter code.
+2. Open oyenza.app/connect on your phone or this PC (**Open oyenza.app** fills the code in), check the PC's name, and choose **Connect**.
+
+Then the island shows:
+
+- **Money as it arrives**: money Oyenza logged by itself from your bank's emails or notifications. The sum and sender stay hidden until you click **Show**, so a shared screen shows only "Money in · BCA".
+- **Bills before they're due**: a reminder the day before a subscription renews or a card bill is due.
+- **Note a spend**: type it in the **Oyenza** tab ("kopi 25rb") and press Enter; it goes straight to Oyenza, with Undo for 10 seconds.
+
+This PC gets a key of its own that can do only these things: it can't read your history, change or delete anything else, or touch your account. It is stored encrypted for your Windows account (`%LOCALAPPDATA%\Poni\oyenza-link.bin`). Oyen Poni asks Oyenza once a minute while you use the PC (every 3 minutes on battery, never while it's locked or asleep). **Oyenza › Disconnect** signs this PC out; you can also disconnect it in oyenza.app under Connected apps.
+
 ## Build
 
 Oyen Poni is a Cargo workspace:

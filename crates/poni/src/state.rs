@@ -12,6 +12,7 @@ use poni_core::datetime::LocalDateTime;
 use poni_core::geom::{palette, Color};
 use poni_core::health::HealthSnapshot;
 use poni_core::lrc::Lyrics;
+use poni_core::oyenza::{Arrival, Bill, Saved};
 use poni_core::phonedrop::QrMatrix;
 use poni_core::pomodoro::Pomodoro;
 use poni_core::romanize::Ruby;
@@ -133,6 +134,8 @@ pub enum NoticeAction {
 pub enum InlineAction {
     /// Start the idle Pomodoro phase.
     StartFocus,
+    /// Put the notice's hidden sum (and sender) in place (Oyenza).
+    ShowAmount,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -144,6 +147,8 @@ pub struct Notice {
     pub until: f64,
     pub action: Option<NoticeAction>,
     pub inline: Option<InlineAction>,
+    /// The subtitle Show puts in place of `subtitle` ([`InlineAction::ShowAmount`]).
+    pub reveal: Option<String>,
 }
 
 /// A phone wants to send these files; the Shelf asks the person at the PC.
@@ -214,6 +219,53 @@ pub struct PageUiState {
     pub tab_hover: Option<(usize, f64)>,
 }
 
+/// Oyenza sign-in, as the island sees it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum OyenzaLink {
+    #[default]
+    Off,
+    /// A code on screen, waiting for approval in oyenza.app, until mono time `until`.
+    Connecting { code: String, url: String, until: f64 },
+    Connected { account: String },
+}
+
+/// What the Oyenza tab and its notices show (`pages::oyenza`). Oyen's moods
+/// never read any of it: money never makes him happier or a bill sadder.
+#[derive(Clone, Debug, Default)]
+pub struct OyenzaState {
+    pub link: OyenzaLink,
+    /// Today's money in, newest first.
+    pub today: Vec<Arrival>,
+    pub bills: Vec<Bill>,
+    /// The server's today for `bills` (YYYY-MM-DD).
+    pub bills_today: String,
+    /// Unix time of Oyenza's last answer ("Updated 13:49").
+    pub updated_unix: Option<i64>,
+    /// The spend being typed.
+    pub input: String,
+    /// A note is on its way to the server.
+    pub saving: bool,
+    /// What was just saved, with Undo until mono time `.1`.
+    pub saved: Option<(Vec<Saved>, f64)>,
+    /// Why the last note wasn't saved (until the text changes).
+    pub error: Option<String>,
+    /// A short line ("Taken back") until mono time `.1`.
+    pub flash: Option<(String, f64)>,
+    /// "Show amounts" in the tab, until the island closes.
+    pub reveal: bool,
+    /// A notice that came while a full-screen app hid the island, and when.
+    pub held: Option<(Notice, f64)>,
+    /// Pinned before a sign-in code pinned the island open.
+    pub pinned_before: Option<bool>,
+}
+
+impl OyenzaState {
+    /// The Oyenza tab shows while signing in and once signed in.
+    pub fn tab_visible(&self) -> bool {
+        self.link != OyenzaLink::Off
+    }
+}
+
 pub struct AppState {
     pub settings: Settings,
     pub store: Store,
@@ -245,6 +297,7 @@ pub struct AppState {
     pub drag_hover: bool,
     /// Phone drop, while it's open.
     pub phone: Option<PhoneDrop>,
+    pub oyenza: OyenzaState,
     /// Side effects requested during the frame.
     pub cmds: Vec<Command>,
 }
@@ -281,6 +334,7 @@ impl AppState {
             pinned: false,
             drag_hover: false,
             phone: None,
+            oyenza: OyenzaState::default(),
             cmds: Vec::new(),
         }
     }
@@ -308,7 +362,7 @@ impl AppState {
 
     /// Show a notice pill for `secs` seconds.
     pub fn notify(&mut self, icon: Icon, color: Color, title: impl Into<String>, subtitle: impl Into<String>, secs: f64, action: Option<NoticeAction>) {
-        self.notice = Some(Notice { icon, color, title: title.into(), subtitle: subtitle.into(), until: self.now + secs, action, inline: None });
+        self.notice = Some(Notice { icon, color, title: title.into(), subtitle: subtitle.into(), until: self.now + secs, action, inline: None, reveal: None });
     }
 
     /// Give the current notice a one-click inline action pill.

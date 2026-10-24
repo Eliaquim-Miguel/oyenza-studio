@@ -1,0 +1,510 @@
+//! Oyenza (oyenza.app), optional: signing in with a code, then asking for
+//! money that arrived and bills due soon, and saving the spends typed in the
+//! island. Words, URLs and parsing live in `poni_core::oyenza`; this file
+//! does the HTTP on one worker thread and keeps the key sealed with DPAPI
+//! (`services::secret`) at `paths::oyenza_link_path()`.
+//!
+//! Nothing runs until the person signs in from the tray. Then:
+//! - money every minute while the PC is in use on mains power, every 3
+//!   minutes on battery or battery saver, and not at all while the session is
+//!   locked or the display is off (one call as soon as it's back);
+//! - bills every half hour, and both again when the Oyenza tab opens;
+//! - failures back off to 1, 2, 4 … 15 minutes, honouring `Retry-After`;
+//! - a 401 means the key was disconnected in oyenza.app (or ran out): the key
+//!   is deleted and the island says so once.
+//!
+//! The thread sleeps on a condition variable between calls, so the island's
+//! idle stays at zero CPU. Calls block this thread only (8 s budget; a note,
+//! which the server reads with AI, 30 s).
+
+use crate::commands::OyenzaCmd;
+use crate::events::{AppEvent, EventSink, OyenzaEvent};
+use crate::services::http::{Client, FetchError, Method, MtaGuard, Response};
+use poni_core::oyenza::{self, Claim, Link};
+use std::collections::VecDeque;
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
+use std::time::{Duration, Instant};
+
+const USER_AGENT: &str = concat!("OyenPoni/", env!("CARGO_PKG_VERSION"), " (+https://github.com/lucacadalora/poni)");
+const TIMEOUT: Duration = Duration::from_secs(8);
+const NOTE_TIMEOUT: Duration = Duration::from_secs(30);
+/// Opening the tab again within this time asks for nothing new.
+const REFRESH_GAP: Duration = Duration::from_secs(30);
+/// A disconnect that couldn't reach the server is retried this often.
+const REVOKE_EVERY: Duration = Duration::from_secs(3600);
+
+pub struct OyenzaService {
+    shared: Arc<Shared>,
+}
+
+impl OyenzaService {
+    pub fn start(sink: EventSink, activity: Activity) -> windows::core::Result<Self> {
+        let shared = Arc::new(Shared { q: Mutex::new(Queue { activity, ..Default::default() }), cv: Condvar::new() });
+        let worker = shared.clone();
+        std::thread::Builder::new().name("poni-oyenza".into()).spawn(move || worker_main(worker, sink)).map_err(|e| {
+            windows::core::Error::new(windows::Win32::Foundation::E_FAIL, format!("could not start the Oyenza thread: {e}"))
+        })?;
+        Ok(Self { shared })
+    }
+
+    /// Queue a command and return at once (UI thread safe).
+    pub fn send(&self, cmd: OyenzaCmd) {
+        self.shared.lock().cmds.push_back(cmd);
+        self.shared.cv.notify_all();
+    }
+
+    /// The PC's use and power changed: the worker paces itself by them.
+    pub fn set_activity(&self, a: Activity) {
+        let mut q = self.shared.lock();
+        if q.activity != a {
+            q.activity = a;
+            drop(q);
+            self.shared.cv.notify_all();
+        }
+    }
+}
+
+impl Drop for OyenzaService {
+    fn drop(&mut self) {
+        // The worker exits at its next wait; a call in flight ends on its own
+        // timeout. Never join from the UI thread.
+        self.shared.lock().shutdown = true;
+        self.shared.cv.notify_all();
+    }
+}
+
+/// What paces the calls.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Activity {
+    /// Unlocked with the display on.
+    pub in_use: bool,
+    pub on_ac: bool,
+    pub saver: bool,
+}
+
+#[derive(Default)]
+struct Queue {
+    cmds: VecDeque<OyenzaCmd>,
+    activity: Activity,
+    shutdown: bool,
+}
+
+struct Shared {
+    q: Mutex<Queue>,
+    cv: Condvar,
+}
+
+impl Shared {
+    /// The queue holds plain data, so a panic elsewhere can't leave it
+    /// inconsistent: recover from poisoning instead of panicking.
+    fn lock(&self) -> MutexGuard<'_, Queue> {
+        self.q.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    fn wait_for<'a>(&self, g: MutexGuard<'a, Queue>, timeout: Option<Duration>) -> MutexGuard<'a, Queue> {
+        match timeout {
+            Some(d) => match self.cv.wait_timeout(g, d) {
+                Ok((g, _)) => g,
+                Err(p) => p.into_inner().0,
+            },
+            None => self.cv.wait(g).unwrap_or_else(|p| p.into_inner()),
+        }
+    }
+}
+
+// ----------------------------------------------------------------- worker
+
+/// A sign-in code on screen, waiting for the person's approval.
+struct Pending {
+    device_code: String,
+    until: Instant,
+    next_ask: Instant,
+    every: Duration,
+}
+
+struct Worker {
+    sink: EventSink,
+    client: Option<Client>,
+    link: Option<Link>,
+    pending: Option<Pending>,
+    cursor: Option<String>,
+    want_today: bool,
+    next_money: Instant,
+    next_bills: Instant,
+    last_refresh: Option<Instant>,
+    fails: u32,
+    /// A key whose disconnect couldn't reach the server yet.
+    revoke: Option<String>,
+    next_revoke: Instant,
+    was_in_use: bool,
+}
+
+fn worker_main(shared: Arc<Shared>, sink: EventSink) {
+    let _com = MtaGuard::new();
+    let now = Instant::now();
+    let mut w = Worker {
+        sink,
+        client: None,
+        link: None,
+        pending: None,
+        cursor: None,
+        want_today: true,
+        next_money: now,
+        next_bills: now,
+        last_refresh: None,
+        fails: 0,
+        revoke: None,
+        next_revoke: now,
+        was_in_use: true,
+    };
+    w.restore();
+    loop {
+        let (cmds, activity) = {
+            let mut q = shared.lock();
+            loop {
+                if q.shutdown {
+                    return;
+                }
+                if !q.cmds.is_empty() {
+                    break;
+                }
+                let now = Instant::now();
+                match w.next_due(q.activity) {
+                    Some(t) if t <= now => break,
+                    Some(t) => q = shared.wait_for(q, Some(t - now)),
+                    None => q = shared.wait_for(q, None),
+                }
+            }
+            (q.cmds.drain(..).collect::<Vec<_>>(), q.activity)
+        };
+        for c in cmds {
+            w.run(c);
+        }
+        w.due(activity);
+    }
+}
+
+impl Worker {
+    fn send(&self, ev: OyenzaEvent) {
+        self.sink.send(AppEvent::Oyenza(ev));
+    }
+
+    fn client(&mut self) -> Result<&Client, FetchError> {
+        if self.client.is_none() {
+            self.client = Some(Client::new(USER_AGENT)?);
+        }
+        Ok(self.client.as_ref().expect("client was just made"))
+    }
+
+    fn call(&mut self, method: Method, url: &str, key: Option<&str>, json: Option<&str>, timeout: Duration) -> Result<Response, FetchError> {
+        let auth = key.map(|k| format!("Bearer {k}"));
+        let headers: Vec<(&str, &str)> = auth.as_deref().map(|a| vec![("Authorization", a)]).unwrap_or_default();
+        self.client()?.send(method, url, &headers, json, timeout)
+    }
+
+    /// The sign-in saved on this PC, and a disconnect still to tell the server.
+    fn restore(&mut self) {
+        self.link = crate::services::secret::load(&crate::paths::oyenza_link_path()).and_then(|s| oyenza::parse_link(&s));
+        if let Some(l) = &self.link {
+            crate::pinfo!("oyenza: signed in (this PC is {})", l.device_name);
+            self.send(OyenzaEvent::Restored { account: l.account.clone() });
+        }
+        self.revoke = crate::services::secret::load(&crate::paths::oyenza_revoke_path()).filter(|k| k.starts_with("oyzd_"));
+    }
+
+    /// When the worker next has something to do on its own.
+    fn next_due(&mut self, a: Activity) -> Option<Instant> {
+        let now = Instant::now();
+        if a.in_use && !self.was_in_use {
+            // Back from a lock or a dark display: one look at once.
+            self.next_money = now;
+        }
+        self.was_in_use = a.in_use;
+        let mut next: Option<Instant> = None;
+        let mut consider = |t: Instant| next = Some(next.map_or(t, |n| n.min(t)));
+        if let Some(p) = &self.pending {
+            consider(p.next_ask.min(p.until));
+        }
+        if self.link.is_some() && a.in_use {
+            consider(self.next_money);
+            consider(self.next_bills);
+        }
+        if self.revoke.is_some() && a.in_use {
+            consider(self.next_revoke);
+        }
+        next
+    }
+
+    fn run(&mut self, cmd: OyenzaCmd) {
+        match cmd {
+            OyenzaCmd::SignIn => self.sign_in(),
+            OyenzaCmd::Cancel => {
+                if self.pending.take().is_some() {
+                    crate::pinfo!("oyenza: sign-in cancelled");
+                    self.send(OyenzaEvent::ConnectCancelled);
+                }
+            }
+            OyenzaCmd::Disconnect => self.disconnect(),
+            OyenzaCmd::Note(text) => self.note(text),
+            OyenzaCmd::Undo(id) => self.undo(id),
+            OyenzaCmd::Refresh => {
+                let now = Instant::now();
+                if self.link.is_some() && self.last_refresh.is_none_or(|t| now - t >= REFRESH_GAP) {
+                    self.last_refresh = Some(now);
+                    self.want_today = true;
+                    self.next_money = now;
+                    self.next_bills = now;
+                }
+            }
+        }
+    }
+
+    fn due(&mut self, a: Activity) {
+        let now = Instant::now();
+        if self.pending.as_ref().is_some_and(|p| now >= p.until) {
+            self.pending = None;
+            self.send(OyenzaEvent::ConnectFailed("expired".into()));
+        } else if self.pending.as_ref().is_some_and(|p| now >= p.next_ask) {
+            self.ask_for_key();
+        }
+        if self.link.is_some() && a.in_use {
+            if Instant::now() >= self.next_money {
+                self.poll_money(a);
+            }
+            if self.link.is_some() && Instant::now() >= self.next_bills {
+                self.poll_bills();
+            }
+        }
+        if self.revoke.is_some() && a.in_use && Instant::now() >= self.next_revoke {
+            self.retry_revoke();
+        }
+    }
+
+    // ------------------------------------------------------------ signing in
+
+    fn sign_in(&mut self) {
+        if let Some(l) = &self.link {
+            // Already signed in: say so again.
+            self.send(OyenzaEvent::Restored { account: l.account.clone() });
+            return;
+        }
+        let name = oyenza::pc_name(&std::env::var("COMPUTERNAME").unwrap_or_default());
+        let body = oyenza::start_body(&name, env!("CARGO_PKG_VERSION"));
+        match self.call(Method::Post, &oyenza::start_url(), None, Some(&body), TIMEOUT) {
+            Ok(r) if r.status == 200 => match oyenza::parse_started(&r.body) {
+                Some(s) => {
+                    let now = Instant::now();
+                    let every = Duration::from_secs(s.interval.clamp(2, 30));
+                    self.pending =
+                        Some(Pending { device_code: s.device_code, until: now + Duration::from_secs(s.expires_in.clamp(30, 1800)), next_ask: now + every, every });
+                    crate::pinfo!("oyenza: showing a sign-in code");
+                    self.send(OyenzaEvent::Connecting { code: s.user_code, url: s.verify_url_complete, expires_in_s: s.expires_in });
+                }
+                None => self.sign_in_failed("other", "unreadable answer"),
+            },
+            Ok(r) => self.sign_in_failed("other", &format!("HTTP {}", r.status)),
+            Err(e) => self.sign_in_failed("offline", &e.to_string()),
+        }
+    }
+
+    fn sign_in_failed(&mut self, code: &str, detail: &str) {
+        crate::pwarn!("oyenza: sign-in didn't start ({detail})");
+        self.send(OyenzaEvent::ConnectFailed(code.into()));
+    }
+
+    fn ask_for_key(&mut self) {
+        let Some(device_code) = self.pending.as_ref().map(|p| p.device_code.clone()) else { return };
+        let body = oyenza::token_body(&device_code);
+        let answer = self.call(Method::Post, &oyenza::token_url(), None, Some(&body), TIMEOUT);
+        let now = Instant::now();
+        let claim = match &answer {
+            Ok(r) => oyenza::parse_claim(r.status, &r.body),
+            Err(_) => None,
+        };
+        match claim {
+            Some(Claim::Connected(link)) => {
+                self.pending = None;
+                if let Err(e) = crate::services::secret::save(&crate::paths::oyenza_link_path(), &oyenza::link_json(&link)) {
+                    // Still signed in for this run; it just won't survive a restart.
+                    crate::pwarn!("oyenza: cannot save the sign-in ({e})");
+                }
+                crate::pinfo!("oyenza: signed in (this PC is {})", link.device_name);
+                self.send(OyenzaEvent::Connected { account: link.account.clone() });
+                self.link = Some(link);
+                self.cursor = None;
+                self.want_today = true;
+                self.fails = 0;
+                self.next_money = now;
+                self.next_bills = now;
+            }
+            Some(Claim::Waiting) => self.ask_again(now, false),
+            Some(Claim::SlowDown) => self.ask_again(now, true),
+            Some(Claim::Expired | Claim::Invalid) => {
+                self.pending = None;
+                self.send(OyenzaEvent::ConnectFailed("expired".into()));
+            }
+            Some(Claim::Denied) => {
+                self.pending = None;
+                crate::pinfo!("oyenza: the sign-in code was refused in oyenza.app");
+                self.send(OyenzaEvent::ConnectFailed("denied".into()));
+            }
+            // A network hiccup or a server error: keep asking until the code runs out.
+            None => self.ask_again(now, false),
+        }
+    }
+
+    fn ask_again(&mut self, now: Instant, slower: bool) {
+        if let Some(p) = self.pending.as_mut() {
+            if slower {
+                p.every += Duration::from_secs(5);
+            }
+            p.next_ask = now + p.every;
+        }
+    }
+
+    fn disconnect(&mut self) {
+        self.pending = None;
+        let Some(link) = self.link.take() else {
+            self.send(OyenzaEvent::Disconnected { by_server: false });
+            return;
+        };
+        let told = matches!(self.call(Method::Post, &oyenza::disconnect_url(), Some(&link.key), Some("{}"), TIMEOUT), Ok(r) if r.status == 200 || r.status == 401);
+        if !told {
+            // Keep the key only to tell the server later; it's no longer used for anything else.
+            crate::pwarn!("oyenza: couldn't reach Oyenza to disconnect; will retry");
+            let _ = crate::services::secret::save(&crate::paths::oyenza_revoke_path(), &link.key);
+            self.revoke = Some(link.key.clone());
+            self.next_revoke = Instant::now() + REVOKE_EVERY;
+        }
+        self.forget();
+        crate::pinfo!("oyenza: disconnected from this PC");
+        self.send(OyenzaEvent::Disconnected { by_server: false });
+    }
+
+    fn retry_revoke(&mut self) {
+        let Some(key) = self.revoke.clone() else { return };
+        let done = matches!(self.call(Method::Post, &oyenza::disconnect_url(), Some(&key), Some("{}"), TIMEOUT), Ok(r) if r.status == 200 || r.status == 401);
+        if done {
+            let _ = crate::services::secret::delete(&crate::paths::oyenza_revoke_path());
+            self.revoke = None;
+            crate::pinfo!("oyenza: the earlier disconnect reached Oyenza");
+        } else {
+            self.next_revoke = Instant::now() + REVOKE_EVERY;
+        }
+    }
+
+    /// Drop the sign-in and everything kept from Oyenza.
+    fn forget(&mut self) {
+        self.link = None;
+        self.cursor = None;
+        self.want_today = true;
+        self.fails = 0;
+        if let Err(e) = crate::services::secret::delete(&crate::paths::oyenza_link_path()) {
+            crate::pwarn!("oyenza: cannot remove the saved sign-in ({e})");
+        }
+    }
+
+    /// The server no longer takes the key (disconnected in oyenza.app, a
+    /// password reset, 90 days unused).
+    fn signed_out_by_server(&mut self) {
+        if self.link.is_none() {
+            return;
+        }
+        crate::pinfo!("oyenza: the key was disconnected in Oyenza");
+        self.forget();
+        self.send(OyenzaEvent::Disconnected { by_server: true });
+    }
+
+    // ------------------------------------------------------------ reading
+
+    fn failed(&mut self, what: &str, detail: String, retry_after_s: Option<u64>) -> Instant {
+        self.fails = self.fails.saturating_add(1);
+        let wait = oyenza::backoff_s(self.fails, retry_after_s);
+        crate::pwarn!("oyenza: {what} failed ({detail}); next try in {wait} s");
+        Instant::now() + Duration::from_secs(wait)
+    }
+
+    fn poll_money(&mut self, a: Activity) {
+        let Some(key) = self.link.as_ref().map(|l| l.key.clone()) else { return };
+        let today = self.want_today;
+        let url = oyenza::money_url(self.cursor.as_deref(), &tz_now(), today);
+        match self.call(Method::Get, &url, Some(&key), None, TIMEOUT) {
+            Ok(r) if r.status == 200 => match oyenza::parse_money(&r.body) {
+                Some(feed) => {
+                    self.fails = 0;
+                    self.cursor = Some(feed.cursor);
+                    self.want_today = false;
+                    self.next_money = Instant::now() + Duration::from_secs(oyenza::money_every_s(a.on_ac, a.saver));
+                    self.send(OyenzaEvent::Money { arrived: feed.arrived, today: feed.today });
+                }
+                None => self.next_money = self.failed("money check", "unreadable answer".into(), None),
+            },
+            Ok(r) if r.status == 401 => self.signed_out_by_server(),
+            Ok(r) => self.next_money = self.failed("money check", format!("HTTP {}", r.status), r.retry_after_s),
+            Err(e) => self.next_money = self.failed("money check", e.to_string(), None),
+        }
+    }
+
+    fn poll_bills(&mut self) {
+        let Some(key) = self.link.as_ref().map(|l| l.key.clone()) else { return };
+        match self.call(Method::Get, &oyenza::bills_url(&tz_now()), Some(&key), None, TIMEOUT) {
+            Ok(r) if r.status == 200 => match oyenza::parse_bills(&r.body) {
+                Some(feed) => {
+                    self.next_bills = Instant::now() + Duration::from_secs(oyenza::BILLS_EVERY_S);
+                    self.send(OyenzaEvent::Bills { today: feed.today, bills: feed.bills });
+                }
+                None => self.next_bills = self.failed("bills check", "unreadable answer".into(), None),
+            },
+            Ok(r) if r.status == 401 => self.signed_out_by_server(),
+            Ok(r) => self.next_bills = self.failed("bills check", format!("HTTP {}", r.status), r.retry_after_s),
+            Err(e) => self.next_bills = self.failed("bills check", e.to_string(), None),
+        }
+    }
+
+    // ------------------------------------------------------------ writing
+
+    fn note(&mut self, text: String) {
+        let Some(key) = self.link.as_ref().map(|l| l.key.clone()) else {
+            self.send(OyenzaEvent::NoteFailed { text, code: "offline".into() });
+            return;
+        };
+        let body = oyenza::note_body(&text, &tz_now());
+        match self.call(Method::Post, &oyenza::note_url(), Some(&key), Some(&body), NOTE_TIMEOUT) {
+            Ok(r) if r.status == 200 => match oyenza::parse_saved(&r.body) {
+                Some(saved) => {
+                    crate::pinfo!("oyenza: {} spend(s) saved", saved.len());
+                    self.send(OyenzaEvent::NoteSaved(saved));
+                }
+                None => self.send(OyenzaEvent::NoteFailed { text, code: "other".into() }),
+            },
+            Ok(r) if r.status == 401 => {
+                self.send(OyenzaEvent::NoteFailed { text, code: "offline".into() });
+                self.signed_out_by_server();
+            }
+            Ok(r) => {
+                let code = oyenza::error_code(&r.body).unwrap_or_else(|| "other".into());
+                crate::pwarn!("oyenza: note not saved ({code})");
+                self.send(OyenzaEvent::NoteFailed { text, code });
+            }
+            Err(e) => {
+                crate::pwarn!("oyenza: note not sent ({e})");
+                self.send(OyenzaEvent::NoteFailed { text, code: "offline".into() });
+            }
+        }
+    }
+
+    fn undo(&mut self, id: String) {
+        let Some(key) = self.link.as_ref().map(|l| l.key.clone()) else { return };
+        match self.call(Method::Delete, &oyenza::undo_url(&id), Some(&key), None, TIMEOUT) {
+            Ok(r) if r.status == 200 => self.send(OyenzaEvent::Undone),
+            Ok(r) if r.status == 401 => self.signed_out_by_server(),
+            Ok(r) => self.send(OyenzaEvent::UndoFailed(oyenza::error_code(&r.body).unwrap_or_else(|| "other".into()))),
+            Err(_) => self.send(OyenzaEvent::UndoFailed("offline".into())),
+        }
+    }
+}
+
+/// The local zone as the server reads days in it ("+07:00").
+fn tz_now() -> String {
+    oyenza::tz_param(oyenza::offset_minutes(&crate::clock::local_now(), crate::clock::unix_now()))
+}

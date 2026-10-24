@@ -30,6 +30,23 @@ pub enum PhoneCmd {
     Answer { id: u64, accept: bool },
 }
 
+/// Requests for the Oyenza worker (`services::oyenza`).
+#[derive(Clone, Debug, PartialEq)]
+pub enum OyenzaCmd {
+    /// Ask for a sign-in code to show.
+    SignIn,
+    /// Stop waiting for the code's approval.
+    Cancel,
+    /// Sign this PC out (and tell the server).
+    Disconnect,
+    /// Save a spend typed in the island.
+    Note(String),
+    /// Take back a spend just saved (its id).
+    Undo(String),
+    /// The Oyenza tab opened: today's money and the bills, now.
+    Refresh,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
     Media(MediaCmd),
@@ -61,4 +78,5 @@ pub enum Command {
     /// Start/stop the 1 Hz system-stats sampler.
     WantStats(bool),
     Phone(PhoneCmd),
+    Oyenza(OyenzaCmd),
 }

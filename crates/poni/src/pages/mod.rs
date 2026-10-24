@@ -13,6 +13,7 @@ pub mod clipboard;
 pub mod focus;
 pub mod health;
 pub mod media;
+pub mod oyenza;
 pub mod shelf;
 pub mod tasks;
 pub mod today;
@@ -49,11 +50,21 @@ pub enum PageKind {
     Tasks,
     Clipboard,
     Today,
+    /// Only while signing in to Oyenza or signed in ([`tabs`]).
+    Oyenza,
 }
 
 impl PageKind {
-    pub const ALL: [PageKind; 7] =
-        [PageKind::Media, PageKind::Focus, PageKind::Health, PageKind::Shelf, PageKind::Tasks, PageKind::Clipboard, PageKind::Today];
+    pub const ALL: [PageKind; 8] = [
+        PageKind::Media,
+        PageKind::Focus,
+        PageKind::Health,
+        PageKind::Shelf,
+        PageKind::Tasks,
+        PageKind::Clipboard,
+        PageKind::Today,
+        PageKind::Oyenza,
+    ];
 
     pub fn key(self) -> &'static str {
         match self {
@@ -64,6 +75,7 @@ impl PageKind {
             PageKind::Tasks => "tasks",
             PageKind::Clipboard => "clipboard",
             PageKind::Today => "today",
+            PageKind::Oyenza => "oyenza",
         }
     }
 
@@ -82,6 +94,7 @@ impl PageKind {
             PageKind::Tasks => "Tasks",
             PageKind::Clipboard => "Clipboard",
             PageKind::Today => "Today",
+            PageKind::Oyenza => "Oyenza",
         }
     }
 
@@ -94,6 +107,7 @@ impl PageKind {
             PageKind::Tasks => Icon::ListChecks,
             PageKind::Clipboard => Icon::Clipboard,
             PageKind::Today => Icon::Calendar,
+            PageKind::Oyenza => Icon::Wallet,
         }
     }
 
@@ -101,18 +115,24 @@ impl PageKind {
         Self::ALL.iter().position(|p| *p == self).unwrap_or(0)
     }
 
-    pub fn next(self) -> PageKind {
-        Self::ALL[(self.index() + 1) % Self::ALL.len()]
-    }
-
-    pub fn prev(self) -> PageKind {
-        Self::ALL[(self.index() + Self::ALL.len() - 1) % Self::ALL.len()]
-    }
-
     /// Position in the tab row (for slide direction).
     pub fn tab_index(self) -> usize {
         self.index()
     }
+}
+
+/// The tabs in the header: every page, and Oyenza only while signing in or
+/// signed in.
+pub fn tabs(st: &AppState) -> Vec<PageKind> {
+    PageKind::ALL.into_iter().filter(|p| *p != PageKind::Oyenza || st.oyenza.tab_visible()).collect()
+}
+
+/// The tab after (or before) `p` among [`tabs`], wrapping around.
+pub fn step_tab(p: PageKind, st: &AppState, forward: bool) -> PageKind {
+    let tabs = tabs(st);
+    let n = tabs.len();
+    let i = tabs.iter().position(|t| *t == p).unwrap_or(0);
+    tabs[if forward { (i + 1) % n } else { (i + n - 1) % n }]
 }
 
 pub fn content_height(p: PageKind, st: &AppState) -> f32 {
@@ -124,6 +144,7 @@ pub fn content_height(p: PageKind, st: &AppState) -> f32 {
         PageKind::Tasks => tasks::height(st),
         PageKind::Clipboard => clipboard::height(st),
         PageKind::Today => today::height(st),
+        PageKind::Oyenza => oyenza::height(st),
     }
 }
 
@@ -136,6 +157,7 @@ pub fn next_wake(page: PageKind, st: &AppState) -> Option<f64> {
         PageKind::Clipboard => clipboard::next_wake(st),
         PageKind::Tasks => tasks::next_wake(st),
         PageKind::Shelf => shelf::next_wake(st),
+        PageKind::Oyenza => oyenza::next_wake(st),
         _ => None,
     };
     // Oyen in the header blinks and flicks an ear now and then.
@@ -226,6 +248,7 @@ fn draw_page(ui: &mut Ui, st: &mut AppState, area: Rect, page: PageKind) {
         PageKind::Tasks => tasks::draw(ui, st, area),
         PageKind::Clipboard => clipboard::draw(ui, st, area),
         PageKind::Today => today::draw(ui, st, area),
+        PageKind::Oyenza => oyenza::draw(ui, st, area),
     }
 }
 
@@ -270,7 +293,7 @@ const TIP_PAD: f32 = 8.0;
 const TIP_RADIUS: f32 = 8.0;
 /// White 0.16 over the black island, made opaque so page text can't show through.
 const TIP_FILL: Color = Color::rgba(0.16, 0.16, 0.16, 1.0);
-/// `tab_hover` slot of the pin button (tabs use their index).
+/// `tab_hover` slot of the pin button (tabs use their place in the row).
 const PIN_SLOT: usize = PageKind::ALL.len();
 
 /// A hover label waiting to be painted above the page.
@@ -280,16 +303,17 @@ struct Tip {
     alpha: f32,
 }
 
-/// Tab slots (x, width) with `active` showing its label.
-fn tab_layout(ui: &mut Ui, x0: f32, active: PageKind, label_st: &TextStyle, scale: f32) -> [(f32, f32); 7] {
-    let mut out = [(0.0, 0.0); 7];
+/// Tab slots (x, width) of `tabs`, with `active` showing its label.
+fn tab_layout(ui: &mut Ui, x0: f32, tabs: &[PageKind], active: PageKind, label_st: &TextStyle, scale: f32) -> Vec<(f32, f32)> {
     let mut x = x0;
-    for (i, p) in PageKind::ALL.into_iter().enumerate() {
-        let w = if p == active { snap(TAB_LABEL_X + ui.c.measure(p.title(), label_st, 200.0).0 + TAB_LABEL_END, scale) } else { TAB_W };
-        out[i] = (snap(x, scale), w);
-        x += w + TAB_GAP;
-    }
-    out
+    tabs.iter()
+        .map(|&p| {
+            let w = if p == active { snap(TAB_LABEL_X + ui.c.measure(p.title(), label_st, 200.0).0 + TAB_LABEL_END, scale) } else { TAB_W };
+            let slot = (snap(x, scale), w);
+            x += w + TAB_GAP;
+            slot
+        })
+        .collect()
 }
 
 /// Tabs on the left; pin, date and clock on the right. During a page switch
@@ -301,11 +325,14 @@ fn draw_header(ui: &mut Ui, st: &mut AppState, r: Rect, page: PageKind, tr: Opti
     let label_st = TextStyle::body().weight(Weight::Semibold);
     let from = tr.map_or(page, |t| t.from);
     let e = tr.map_or(1.0, |t| ease_out_cubic(t.t / TABS_END));
-    let lay_from = tab_layout(ui, r.x, from, &label_st, scale);
-    let lay_to = if from == page { lay_from } else { tab_layout(ui, r.x, page, &label_st, scale) };
-    let tabs: [Rect; 7] =
-        std::array::from_fn(|i| Rect::new(lerp(lay_from[i].0, lay_to[i].0, e), cy - TAB_H / 2.0, lerp(lay_from[i].1, lay_to[i].1, e), TAB_H));
-    let (fi, pi) = (from.tab_index(), page.tab_index());
+    let row = self::tabs(st);
+    let lay_from = tab_layout(ui, r.x, &row, from, &label_st, scale);
+    let lay_to = if from == page { lay_from.clone() } else { tab_layout(ui, r.x, &row, page, &label_st, scale) };
+    let tabs: Vec<Rect> =
+        (0..row.len()).map(|i| Rect::new(lerp(lay_from[i].0, lay_to[i].0, e), cy - TAB_H / 2.0, lerp(lay_from[i].1, lay_to[i].1, e), TAB_H)).collect();
+    // A page that isn't in the row (Oyenza right after signing out) counts as the first tab.
+    let place = |p: PageKind| row.iter().position(|t| *t == p).unwrap_or(0);
+    let (fi, pi) = (place(from), place(page));
     let tabs_end = tabs[tabs.len() - 1].right();
 
     // Selection pill, gliding from the old tab to the new one.
@@ -313,7 +340,7 @@ fn draw_header(ui: &mut Ui, st: &mut AppState, r: Rect, page: PageKind, tr: Opti
     ui.c.fill_rrect(pill, TAB_H / 2.0, Color::white(0.14));
 
     let mut hover: Option<(usize, Rect)> = None;
-    for (i, p) in PageKind::ALL.into_iter().enumerate() {
+    for (i, &p) in row.iter().enumerate() {
         let tr = tabs[i];
         let resp = ui.button(wid_n("tab", i as u64), tr);
         let active = p == page;
@@ -395,7 +422,7 @@ fn draw_header(ui: &mut Ui, st: &mut AppState, r: Rect, page: PageKind, tr: Opti
     if alpha <= 0.0 {
         return None;
     }
-    let text = match PageKind::ALL.get(slot) {
+    let text = match row.get(slot) {
         Some(p) => p.title(),
         None if st.pinned => "Unpin",
         None => "Keep open",

@@ -10,6 +10,7 @@ pub mod http;
 pub mod imaging;
 pub mod lyrics;
 pub mod media;
+pub mod oyenza;
 pub mod phonedrop;
 pub mod power;
 pub mod romanize;
@@ -17,7 +18,7 @@ pub mod secret;
 pub mod sound;
 pub mod sysstats;
 
-use crate::commands::MediaCmd;
+use crate::commands::{MediaCmd, OyenzaCmd};
 use crate::events::EventSink;
 use crate::state::MediaSession;
 use poni_core::geom::Color;
@@ -31,6 +32,7 @@ pub struct Services {
     _bluetooth: Option<bluetooth::BluetoothService>,
     fullscreen: Option<fullscreen::FullscreenWatcher>,
     clip: Option<clipboard::ClipboardHistory>,
+    oyenza: Option<oyenza::OyenzaService>,
 }
 
 fn started<T>(name: &str, r: windows::core::Result<T>) -> Option<T> {
@@ -47,14 +49,16 @@ fn started<T>(name: &str, r: windows::core::Result<T>) -> Option<T> {
 }
 
 impl Services {
-    pub fn start(sink: &EventSink, _island: HWND, helper: HWND, settings: &Settings) -> Self {
+    pub fn start(sink: &EventSink, _island: HWND, helper: HWND, settings: &Settings, activity: oyenza::Activity) -> Self {
         let media = started("media", media::MediaService::start(sink.clone()));
         let lyrics = started("lyrics", lyrics::LyricsService::start(sink.clone()));
         let audio = started("audio", audio::AudioService::start(sink.clone()));
         let bluetooth = started("bluetooth", bluetooth::BluetoothService::start(sink.clone()));
         let fullscreen = started("fullscreen", fullscreen::FullscreenWatcher::start(helper, sink.clone()));
         let clip = started("clipboard history", clipboard::ClipboardHistory::start(sink.clone(), settings.clipboard_history));
-        Self { media, lyrics, _audio: audio, _bluetooth: bluetooth, fullscreen, clip }
+        // Idle (no calls) until the person signs in to Oyenza from the tray.
+        let oyenza = started("oyenza", oyenza::OyenzaService::start(sink.clone(), activity));
+        Self { media, lyrics, _audio: audio, _bluetooth: bluetooth, fullscreen, clip, oyenza }
     }
 
     pub fn stop(self, _helper: HWND) {
@@ -89,6 +93,19 @@ impl Services {
     pub fn request_lyrics(&self, s: &MediaSession) {
         if let Some(l) = &self.lyrics {
             l.request(s);
+        }
+    }
+
+    pub fn oyenza(&self, c: OyenzaCmd) {
+        if let Some(o) = &self.oyenza {
+            o.send(c);
+        }
+    }
+
+    /// The PC's use or power changed (the Oyenza worker paces itself by it).
+    pub fn oyenza_activity(&self, a: oyenza::Activity) {
+        if let Some(o) = &self.oyenza {
+            o.set_activity(a);
         }
     }
 

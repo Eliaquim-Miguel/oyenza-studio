@@ -3,8 +3,8 @@
 
 use crate::activities::{self, Mode};
 use crate::clock;
-use crate::commands::{Command, MediaCmd, PhoneCmd};
-use crate::events::{AppEvent, AppleMusicStatus, EventSink, SendHwnd, WM_APP_APPBAR, WM_APP_EVENT, WM_APP_FRAME, WM_APP_TRAY};
+use crate::commands::{Command, MediaCmd, OyenzaCmd, PhoneCmd};
+use crate::events::{AppEvent, AppleMusicStatus, EventSink, OyenzaEvent, SendHwnd, WM_APP_APPBAR, WM_APP_EVENT, WM_APP_FRAME, WM_APP_TRAY};
 use crate::gfx::{px_rect, px_union, scale_about, union_rect, Canvas, Gfx, HitMask};
 use crate::icons::Icon;
 use crate::island::{Geom, Island, HIT_MARGIN, SHOULDER};
@@ -12,7 +12,7 @@ use crate::oyen;
 use crate::pages::{self, PageKind};
 use crate::paths;
 use crate::services::{self, Services};
-use crate::state::{AppState, HudKind, InlineAction, LyricsState, LyricsStatus, Notice, NoticeAction, PhoneAsk, PhoneDrop, PhoneTransfer};
+use crate::state::{AppState, HudKind, InlineAction, LyricsState, LyricsStatus, Notice, NoticeAction, OyenzaLink, PhoneAsk, PhoneDrop, PhoneTransfer};
 use crate::tray::{self, Tray};
 use crate::ui::{wid, CursorKind, Hit, Input, KeyInput, MouseButton, Ui};
 use crate::window::{self, FrameClock, FrameTick, MonitorInfo};
@@ -20,6 +20,7 @@ use crate::{dragdrop, selftest, shell};
 use poni_core::frametime::{ambient_divisor, MotionStats};
 use poni_core::geom::{palette, Color, Point, Rect};
 use poni_core::health::fmt_steps;
+use poni_core::oyenza;
 use poni_core::phonedrop::{Event as PhoneEvent, QrMatrix};
 use poni_core::settings::{IdleStyle, Settings, Theme};
 use poni_core::settings::MonitorChoice;
@@ -250,7 +251,7 @@ fn run_deferred(d: Deferred) {
             with_app(|app| app.request_frame());
         }
         Deferred::Menu(pt) => {
-            let Some((helper, items)) = with_app(|app| (app.helper, tray::menu_items(&app.st.settings, app.st.pinned))) else { return };
+            let Some((helper, items)) = with_app(|app| (app.helper, tray::menu_items(&app.st.settings, app.st.pinned, &app.st.oyenza.link))) else { return };
             if let Some(cmd) = tray::show_menu(helper, pt, &items) {
                 with_app(|app| app.on_menu(cmd));
             }
@@ -469,7 +470,7 @@ impl App {
         self.st.power = services::power::query();
         services::power::register(self.helper);
         if !fake {
-            self.services = Some(Services::start(&self.sink, self.hwnd, self.helper, &self.st.settings));
+            self.services = Some(Services::start(&self.sink, self.hwnd, self.helper, &self.st.settings, self.oyenza_activity()));
             self.try_add_tray();
             services::power::register_session(self.helper);
         }
@@ -926,6 +927,7 @@ impl App {
                 }
                 let p = services::power::query();
                 self.on_event(AppEvent::Power(p));
+                self.tell_oyenza_activity();
                 self.request_frame();
                 Some(LRESULT(1))
             }
@@ -935,6 +937,7 @@ impl App {
                     WTS_SESSION_UNLOCK_ => self.locked = false,
                     _ => {}
                 }
+                self.tell_oyenza_activity();
                 self.request_frame();
                 Some(LRESULT(0))
             }
@@ -1061,6 +1064,170 @@ impl App {
         self.st.notify(Icon::Lyrics, color, title, subtitle, 6.0, None);
     }
 
+    // ------------------------------------------------------------ Oyenza
+
+    /// How the Oyenza worker should pace itself: in use (unlocked, display
+    /// on) and the power source.
+    fn oyenza_activity(&self) -> services::oyenza::Activity {
+        let p = self.st.power;
+        services::oyenza::Activity { in_use: !self.locked && !self.display_off, on_ac: p.on_ac || !p.has_battery, saver: p.saver }
+    }
+
+    fn tell_oyenza_activity(&self) {
+        if let Some(s) = self.services.as_ref() {
+            s.oyenza_activity(self.oyenza_activity());
+        }
+    }
+
+    fn oyenza(&self, c: OyenzaCmd) {
+        if let Some(s) = self.services.as_ref() {
+            s.oyenza(c);
+        }
+    }
+
+    fn on_oyenza(&mut self, ev: OyenzaEvent) {
+        let now = self.st.now;
+        let link_before = self.st.oyenza.link.clone();
+        match ev {
+            OyenzaEvent::Restored { account } => self.st.oyenza.link = OyenzaLink::Connected { account },
+            OyenzaEvent::Connecting { code, url, expires_in_s } => {
+                self.st.oyenza.link = OyenzaLink::Connecting { code, url, until: now + expires_in_s as f64 };
+                // Keep the code on screen while the person goes to oyenza.app.
+                if self.st.oyenza.pinned_before.is_none() {
+                    self.st.oyenza.pinned_before = Some(self.st.pinned);
+                }
+                self.st.pinned = true;
+                self.st.page = PageKind::Oyenza;
+                self.expand();
+            }
+            OyenzaEvent::Connected { account } => {
+                self.end_sign_in();
+                self.st.notify(Icon::Check, palette::GREEN, "Connected to Oyenza", format!("as {account}"), 6.0, Some(NoticeAction::OpenPage(PageKind::Oyenza)));
+                self.st.oyenza.link = OyenzaLink::Connected { account };
+            }
+            OyenzaEvent::ConnectFailed(code) => {
+                self.end_sign_in();
+                self.st.oyenza.link = OyenzaLink::Off;
+                let (title, subtitle) = oyenza::connect_failure_text(&code);
+                self.st.notify(Icon::Unlink, palette::ORANGE, title, subtitle, 6.0, None);
+            }
+            OyenzaEvent::ConnectCancelled => {
+                self.end_sign_in();
+                self.st.oyenza.link = OyenzaLink::Off;
+            }
+            OyenzaEvent::Money { arrived, today } => {
+                let o = &mut self.st.oyenza;
+                if let Some(t) = today {
+                    o.today = t;
+                    o.today.truncate(oyenza::MAX_TODAY_ROWS);
+                }
+                oyenza::merge_today(&mut o.today, &arrived);
+                o.updated_unix = Some(self.st.unix);
+                if let Some(n) = oyenza::money_notice(&arrived) {
+                    self.oyenza_notice(Icon::MoneyIn, palette::GREEN, n.title, n.shown, Some(n.hidden));
+                }
+            }
+            OyenzaEvent::Bills { today, bills } => {
+                let day = if today.is_empty() { self.st.day_key() } else { today };
+                self.st.oyenza.bills = bills;
+                self.st.oyenza.bills_today = day.clone();
+                self.st.oyenza.updated_unix = Some(self.st.unix);
+                self.remind_bills(&day);
+            }
+            OyenzaEvent::NoteSaved(saved) => {
+                let o = &mut self.st.oyenza;
+                o.saving = false;
+                o.input.clear();
+                o.error = None;
+                o.saved = Some((saved, now + oyenza::UNDO_S));
+            }
+            OyenzaEvent::NoteFailed { text, code } => {
+                let o = &mut self.st.oyenza;
+                o.saving = false;
+                if o.input.trim().is_empty() {
+                    o.input = text;
+                }
+                o.error = Some(oyenza::note_error_text(&code).into());
+            }
+            OyenzaEvent::Undone => self.st.oyenza.flash = Some(("Taken back".into(), now + 3.0)),
+            OyenzaEvent::UndoFailed(code) => {
+                let line = if code == "too_late" { "Too late to undo here. Change it in oyenza.app" } else { "Couldn't undo. Change it in oyenza.app" };
+                self.st.oyenza.flash = Some((line.into(), now + 5.0));
+            }
+            OyenzaEvent::Disconnected { by_server } => {
+                self.end_sign_in();
+                self.st.oyenza = crate::state::OyenzaState::default();
+                let (title, subtitle) =
+                    if by_server { ("Oyenza disconnected", "Sign in again from the tray") } else { ("Disconnected from Oyenza", "Sign in again any time from the tray") };
+                self.st.notify(Icon::Unlink, palette::TEXT_DIM, title, subtitle, 6.0, None);
+            }
+        }
+        // The Oyenza tab came or went: the window makes room for its page (or no longer has to).
+        if self.st.oyenza.link != link_before {
+            self.layout_surface();
+        }
+    }
+
+    /// The code is gone (signed in, refused, cancelled): the island stops
+    /// staying open for it.
+    fn end_sign_in(&mut self) {
+        if let Some(p) = self.st.oyenza.pinned_before.take() {
+            self.st.pinned = p;
+            if !p {
+                self.maybe_schedule_collapse();
+            }
+        }
+    }
+
+    /// A money or bill notice. Its sum waits for Show unless the tray's "Show
+    /// amounts on the island" is on (`hidden` None: nothing to hide). While a
+    /// full-screen app hides the island it waits, and shows when the island
+    /// is back if it isn't old by then.
+    fn oyenza_notice(&mut self, icon: Icon, color: Color, title: String, shown: String, hidden: Option<String>) {
+        let now = self.st.now;
+        let hide = hidden.is_some() && !self.st.settings.oyenza_show_amounts;
+        let notice = Notice {
+            icon,
+            color,
+            title,
+            subtitle: if hide { hidden.unwrap_or_default() } else { shown.clone() },
+            until: now + oyenza::NOTICE_S,
+            action: Some(NoticeAction::OpenPage(PageKind::Oyenza)),
+            inline: hide.then_some(InlineAction::ShowAmount),
+            reveal: hide.then_some(shown),
+        };
+        if self.fullscreen_hidden {
+            self.st.oyenza.held = Some((notice, now));
+        } else {
+            self.st.notice = Some(notice);
+        }
+    }
+
+    fn show_held_notice(&mut self, now: f64) {
+        if let Some((mut n, at)) = self.st.oyenza.held.take() {
+            if now - at <= oyenza::HELD_MAX_S {
+                n.until = now + oyenza::NOTICE_S;
+                self.st.notice = Some(n);
+            }
+        }
+    }
+
+    /// One reminder per bill, the day before it (or on the day, if the PC was
+    /// off), from the morning on; the rest come with the next look.
+    fn remind_bills(&mut self, today: &str) {
+        let st = &mut self.st;
+        oyenza::prune_noticed(&mut st.store.oyenza_noticed, today);
+        if st.local.hour < oyenza::BILL_HOUR {
+            return;
+        }
+        let Some(b) = oyenza::bills_to_remind(&st.oyenza.bills, today, &st.store.oyenza_noticed).first().map(|b| (*b).clone()) else { return };
+        st.store.oyenza_noticed.push(oyenza::notice_key(&b));
+        st.save();
+        let (shown, hidden) = oyenza::bill_subtitles(&b);
+        let icon = if b.is_card() { Icon::Card } else { Icon::Calendar };
+        self.oyenza_notice(icon, palette::ORANGE, oyenza::bill_title(&b, today), shown, hidden);
+    }
+
     /// Remove history entries holding `secret` and clear the clipboard.
     fn forget_clipboard_text(&mut self, secret: &str) {
         let hits: Vec<usize> = self.st.clip.iter().enumerate().filter(|(_, c)| c.text.contains(secret)).map(|(i, _)| i).collect();
@@ -1169,6 +1336,11 @@ impl App {
             AppleMusicToken => self.use_apple_music_token(),
             AppleMusicHelp => shell::open(APPLE_MUSIC_HELP_URL),
             AppleMusicForget => self.forget_apple_music_token(),
+            OyenzaSignIn => self.oyenza(OyenzaCmd::SignIn),
+            OyenzaCancel => self.oyenza(OyenzaCmd::Cancel),
+            OyenzaDisconnect => self.oyenza(OyenzaCmd::Disconnect),
+            OyenzaOpen => shell::open(oyenza::WEB),
+            ToggleOyenzaAmounts => s.oyenza_show_amounts = !s.oyenza_show_amounts,
             Quit => {
                 self.quit(0);
                 return;
@@ -1287,6 +1459,9 @@ impl App {
                         self.input.mouse = None;
                     }
                     pinfo!("fullscreen app {}: island {}", if on { "detected" } else { "gone" }, if hide { "hidden" } else { "shown" });
+                    if !hide {
+                        self.show_held_notice(now);
+                    }
                 }
             }
             AppEvent::ShelfAdd(paths) => {
@@ -1324,6 +1499,7 @@ impl App {
             }
             AppEvent::AppleMusic(status) => self.on_apple_music(status),
             AppEvent::Phone(e) => self.on_phone(e),
+            AppEvent::Oyenza(ev) => self.on_oyenza(ev),
             AppEvent::Log(s) => pinfo!("{s}"),
         }
         if let Some(before) = media_before {
@@ -1367,6 +1543,9 @@ impl App {
         if !self.expanded {
             self.expanded = true;
             self.cancel_hover();
+            if self.st.page == PageKind::Oyenza {
+                self.oyenza(OyenzaCmd::Refresh);
+            }
         }
         self.request_frame();
     }
@@ -1394,6 +1573,8 @@ impl App {
             }
             self.set_stats(false);
             self.st.ui.clip_flash = None;
+            // Sums shown in the Oyenza tab hide again.
+            self.st.oyenza.reveal = false;
             // A notice that arrived while expanded gets its full time now.
             let min_until = self.st.now + 4.0;
             if let Some(n) = self.st.notice.as_mut() {
@@ -1560,6 +1741,10 @@ impl App {
         }
         if let Some(ended) = self.st.pomodoro.tick(now) {
             pages::focus::on_phase_ended(&mut self.st, ended);
+        }
+        // Signed out: the Oyenza tab is gone.
+        if self.st.page == PageKind::Oyenza && !self.st.oyenza.tab_visible() {
+            self.st.page = PageKind::ALL[0];
         }
     }
 
@@ -1762,7 +1947,7 @@ impl App {
                 self.wheel_t = now;
                 self.wheel_acc += wheel_left;
                 if self.wheel_acc.abs() >= 1.0 && now - self.page_switch_t > 0.3 {
-                    let next = if self.wheel_acc < 0.0 { p.next() } else { p.prev() };
+                    let next = pages::step_tab(p, &self.st, self.wheel_acc < 0.0);
                     self.st.cmds.push(Command::SetPage(next));
                     self.wheel_acc = 0.0;
                     self.page_switch_t = now;
@@ -1960,8 +2145,21 @@ impl App {
         if st.notice.as_ref().is_none_or(|n| n.icon == Icon::Check) {
             return;
         }
+        if a == InlineAction::ShowAmount {
+            // The sum and sender take the subtitle's place for a few seconds; the
+            // pill turns into a check (activities.rs inline_done).
+            let until = st.now + oyenza::SHOWN_S;
+            if let Some(n) = st.notice.as_mut() {
+                if let Some(text) = n.reveal.take() {
+                    n.subtitle = text;
+                    n.until = n.until.max(until);
+                }
+            }
+            return;
+        }
         match a {
             InlineAction::StartFocus => st.pomodoro.start(st.now),
+            InlineAction::ShowAmount => {}
         }
         let until = st.now + INLINE_DONE_S;
         if let Some(n) = st.notice.as_mut() {
@@ -2027,6 +2225,9 @@ impl App {
                         if self.text_focus {
                             self.blur_text();
                         }
+                        if p == PageKind::Oyenza {
+                            self.oyenza(OyenzaCmd::Refresh);
+                        }
                     }
                 }
                 Command::SetPinned(b) => {
@@ -2040,6 +2241,7 @@ impl App {
                 Command::OpenUrl(u) => shell::open(&u),
                 Command::WantStats(b) => self.set_stats(b),
                 Command::Phone(c) => self.phone_cmd(c),
+                Command::Oyenza(c) => self.oyenza(c),
             }
         }
         self.sync_phone_offer();
@@ -2360,5 +2562,6 @@ pub(crate) fn steps_goal_notice(steps: u32, until: f64) -> Notice {
         until,
         action: Some(NoticeAction::OpenPage(PageKind::Health)),
         inline: None,
+        reveal: None,
     }
 }
