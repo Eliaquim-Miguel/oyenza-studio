@@ -41,6 +41,9 @@ pub struct Store {
     /// Day key → completed focus sessions.
     pub focus_sessions: BTreeMap<String, u32>,
     pub last_page: String,
+    /// Oyenza bill reminders already shown (`oyenza::notice_key`), so a bill
+    /// is reminded of once even across restarts.
+    pub oyenza_noticed: Vec<String>,
 }
 
 impl Default for Store {
@@ -52,6 +55,7 @@ impl Default for Store {
             shelf: Shelf::default(),
             focus_sessions: BTreeMap::new(),
             last_page: String::new(),
+            oyenza_noticed: Vec::new(),
         }
     }
 }

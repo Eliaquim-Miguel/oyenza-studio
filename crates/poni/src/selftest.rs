@@ -15,15 +15,18 @@
 use crate::app::App;
 use crate::clock;
 use crate::gfx::{Image, ImageData};
+use crate::icons::Icon;
 use crate::pages::PageKind;
 use crate::paths;
 use crate::png;
 use crate::state::{
-    AppState, Hud, HudKind, LyricsState, LyricsStatus, MediaSession, PhoneAsk, PhoneDrop, PhoneTransfer, PowerState, SysStats, VolumeState,
+    AppState, Hud, HudKind, InlineAction, LyricsState, LyricsStatus, MediaSession, Notice, NoticeAction, OyenzaLink, OyenzaState, PhoneAsk,
+    PhoneDrop, PhoneTransfer, PowerState, SysStats, VolumeState,
 };
 use poni_core::geom::{palette, Color, Point, Rect};
 use poni_core::health::{HealthDay, HealthSnapshot, HealthSource};
 use poni_core::lrc::parse_lrc;
+use poni_core::oyenza::{Arrival, Bill, Saved, WalletRef};
 use poni_core::phonedrop::QrMatrix;
 use poni_core::pomodoro::{Phase as PomoPhase, RunState};
 use poni_core::settings::{IdleStyle, Theme};
@@ -188,6 +191,54 @@ fn fake_stats() -> SysStats {
     }
 }
 
+/// Oyenza, signed in as an example account: two arrivals today, a
+/// subscription tomorrow and a card bill the day after (all made up).
+fn fake_oyenza(st: &AppState, scene: Scene, now: f64) -> OyenzaState {
+    let at = |hours_ago: i64| {
+        let t = st.unix - hours_ago * 3600;
+        let (y, m, d) = poni_core::datetime::civil_from_days(t.div_euclid(86_400));
+        let s = t.rem_euclid(86_400);
+        format!("{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z", s / 3600, s % 3600 / 60, s % 60)
+    };
+    let arrival = |id: &str, amount: f64, text: &str, title: &str, wallet: &str, color: &str, hours_ago: i64| Arrival {
+        id: id.into(),
+        amount,
+        currency: "IDR".into(),
+        text: text.into(),
+        title: title.into(),
+        wallet: Some(WalletRef { name: wallet.into(), color: color.into() }),
+        at: at(hours_ago),
+    };
+    let day = |n: i64| st.local.add_days(n).day_key();
+    let link = match scene {
+        Scene::OyenzaSignIn => OyenzaLink::Connecting {
+            code: "KPJX-TMNQ".into(),
+            url: "https://oyenza.app/connect?code=KPJX-TMNQ".into(),
+            // Pinned on every step, so the countdown reads 9:41 in the screenshot.
+            until: now + 581.0,
+        },
+        _ => OyenzaLink::Connected { account: "a•••@example.com".into() },
+    };
+    OyenzaState {
+        link,
+        today: vec![
+            arrival("t2", 50_000.0, "Rp 50.000", "Uang masuk", "GoPay", "#00AED6", 1),
+            arrival("t1", 1_250_000.0, "Rp 1.250.000", "Gaji Oktober", "BCA", "#0060AF", 3),
+        ],
+        bills: vec![
+            Bill { kind: "subscription".into(), name: "Spotify".into(), due: day(1), amount: Some(54_990.0), text: Some("Rp 54.990".into()) },
+            Bill { kind: "card".into(), name: "Kartu Kredit BCA".into(), due: day(2), amount: None, text: None },
+        ],
+        bills_today: st.day_key(),
+        updated_unix: Some(st.unix - 60),
+        saved: (scene == Scene::OyenzaSaved).then(|| {
+            let kopi = Saved { id: "s1".into(), title: "Kopi".into(), amount: 25_000.0, text: "Rp 25.000".into(), category: Some("Makan & Minum".into()), wallet: "GoPay".into() };
+            (vec![kopi], now + 9.5)
+        }),
+        ..OyenzaState::default()
+    }
+}
+
 fn fake_power(plugged: bool) -> PowerState {
     PowerState { has_battery: true, percent: 76, charging: plugged, on_ac: plugged, saver: false }
 }
@@ -220,9 +271,21 @@ enum Scene {
     TabClick,
     /// The Health page before the person signs in with Oyenza: no numbers yet.
     HealthSignedOut,
+    /// Oyenza: money arrived, its sum hidden behind Show.
+    OyenzaMoney,
+    /// ...and after Show.
+    OyenzaMoneyShown,
+    /// Oyenza: the day before a subscription renews.
+    OyenzaBill,
+    /// The Oyenza tab while a sign-in code waits for approval.
+    OyenzaSignIn,
+    /// The Oyenza tab right after a spend was saved (Undo showing).
+    OyenzaSaved,
+    /// The Health page signed in to Oyenza, before the phone sends any steps.
+    HealthSignedIn,
 }
 
-const SCENES: [Scene; 23] = [
+const SCENES: [Scene; 30] = [
     Scene::IdleClock,
     Scene::IdleEyes,
     Scene::Media,
@@ -247,6 +310,13 @@ const SCENES: [Scene; 23] = [
     Scene::Page(PageKind::Today),
     Scene::TabClick,
     Scene::HealthSignedOut,
+    Scene::OyenzaMoney,
+    Scene::OyenzaMoneyShown,
+    Scene::OyenzaBill,
+    Scene::Page(PageKind::Oyenza),
+    Scene::OyenzaSignIn,
+    Scene::OyenzaSaved,
+    Scene::HealthSignedIn,
 ];
 
 impl Scene {
@@ -269,6 +339,12 @@ impl Scene {
             Scene::ShelfPhoneReceive => "page-shelf-phone-receive".into(),
             Scene::TabClick => "tab-click-media".into(),
             Scene::HealthSignedOut => "page-health-signed-out".into(),
+            Scene::OyenzaMoney => "oyenza-money".into(),
+            Scene::OyenzaMoneyShown => "oyenza-money-shown".into(),
+            Scene::OyenzaBill => "oyenza-bill".into(),
+            Scene::OyenzaSignIn => "page-oyenza-signin".into(),
+            Scene::OyenzaSaved => "page-oyenza-saved".into(),
+            Scene::HealthSignedIn => "page-health-signed-in".into(),
         }
     }
 
@@ -278,8 +354,25 @@ impl Scene {
             Scene::ShelfDrop | Scene::ShelfEmpty | Scene::ShelfPhone | Scene::ShelfPhoneAsk | Scene::ShelfPhoneReceive => Some(PageKind::Shelf),
             Scene::TabClick => Some(PageKind::ALL[0]),
             Scene::HealthSignedOut => Some(PageKind::Health),
+            Scene::OyenzaSignIn | Scene::OyenzaSaved => Some(PageKind::Oyenza),
+            Scene::HealthSignedIn => Some(PageKind::Health),
             _ => None,
         }
+    }
+
+    /// Scenes that show something from Oyenza (every other one is signed out,
+    /// so their screenshots stay what they were before Oyenza).
+    fn oyenza(self) -> bool {
+        matches!(
+            self,
+            Scene::OyenzaMoney
+                | Scene::OyenzaMoneyShown
+                | Scene::OyenzaBill
+                | Scene::OyenzaSignIn
+                | Scene::OyenzaSaved
+                | Scene::Page(PageKind::Oyenza)
+                | Scene::HealthSignedIn
+        )
     }
 
     fn expanded(self) -> bool {
@@ -673,7 +766,7 @@ impl SelfTest {
         st.volume = VolumeState { level: 0.64, muted: false, known: true };
         st.pinned = false;
         st.drag_hover = scene == Scene::ShelfDrop;
-        st.health = if scene == Scene::HealthSignedOut { None } else { self.health.clone() };
+        st.health = if matches!(scene, Scene::HealthSignedOut | Scene::HealthSignedIn) { None } else { self.health.clone() };
         st.phone = fake_phone(scene);
         st.store.shelf.items = if scene == Scene::ShelfEmpty { Vec::new() } else { self.shelf_items.clone() };
         if scene != Scene::ShelfEmpty {
@@ -714,8 +807,32 @@ impl SelfTest {
                 let steps = st.health.as_ref().map_or(0, |h| h.steps_on(&st.local.day_key()));
                 Some(crate::app::steps_goal_notice(steps, until))
             }
+            Scene::OyenzaMoney | Scene::OyenzaMoneyShown => {
+                let hidden = scene == Scene::OyenzaMoney;
+                Some(Notice {
+                    icon: Icon::MoneyIn,
+                    color: palette::GREEN,
+                    title: "Money in · BCA".into(),
+                    subtitle: if hidden { "Amount and sender hidden".into() } else { "Rp 1.250.000 · Gaji Oktober".into() },
+                    until,
+                    action: Some(NoticeAction::OpenPage(PageKind::Oyenza)),
+                    inline: Some(InlineAction::ShowAmount),
+                    reveal: hidden.then(|| "Rp 1.250.000 · Gaji Oktober".into()),
+                })
+            }
+            Scene::OyenzaBill => Some(Notice {
+                icon: Icon::Calendar,
+                color: palette::ORANGE,
+                title: "Spotify renews tomorrow".into(),
+                subtitle: "Amount hidden".into(),
+                until,
+                action: Some(NoticeAction::OpenPage(PageKind::Oyenza)),
+                inline: Some(InlineAction::ShowAmount),
+                reveal: Some("Rp 54.990".into()),
+            }),
             _ => None,
         };
+        st.oyenza = if scene.oyenza() { fake_oyenza(st, scene, now) } else { OyenzaState::default() };
         if let Some(p) = scene.page() {
             st.page = p;
         }

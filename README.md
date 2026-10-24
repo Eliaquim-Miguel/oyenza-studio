@@ -30,14 +30,15 @@ Native Rust, no web view, no runtime, around 1.7 MB, and **zero CPU while nothin
 - Album art and an equalizer while music plays. The title peeks for a moment when the song changes.
 - A focus-timer countdown.
 - Pop-ups for volume, charging and Bluetooth headsets, with battery level.
-- With your Oyenza account (coming soon), a notice when the steps from your phone reach the daily goal.
+- Signed in to [Oyenza](#oyenza-optional), a notice when money arrives and a reminder the day before a bill is due.
+- Once Oyenza can send the steps from your phone (coming soon), a notice when they reach the daily goal.
 
 **Point at the island (or click it) to open it.** Scroll over the header to switch pages.
 
 <table>
 <tr><td width="84" align="center"><img src="docs/brand/art/poses/oyen-music.webp" width="64" alt=""></td><td><b>Music</b><br>Controls for whatever is playing (Spotify, Apple Music, YouTube in your browser, any app in Windows' media controls), with time-synced lyrics from <a href="https://lrclib.net">LRCLIB</a>, or Apple Music's own lyrics if you add <a href="#apple-music-lyrics">your Apple Music token</a></td></tr>
 <tr><td width="84" align="center"><img src="docs/brand/art/poses/oyen-focus.webp" width="64" alt=""></td><td><b>Focus</b><br>A Pomodoro timer that keeps counting in the island</td></tr>
-<tr><td width="84" align="center"><img src="docs/brand/art/poses/oyen-health.webp" width="64" alt=""></td><td><b>Health</b><br>Today's steps against your goal, distance, active energy and your week, from Apple Health or Health Connect on your phone through your Oyenza account (sign-in coming soon)</td></tr>
+<tr><td width="84" align="center"><img src="docs/brand/art/poses/oyen-health.webp" width="64" alt=""></td><td><b>Health</b><br>Today's steps against your goal, distance, active energy and your week, from Apple Health or Health Connect on your phone through your Oyenza account (coming soon)</td></tr>
 <tr><td width="84" align="center"><img src="docs/brand/art/poses/oyen-shelf.webp" width="64" alt=""></td><td><b>Shelf</b><br>Drop files on the island to keep them handy; click to open or drag them back out. <a href="#phone-drop">Phone drop</a> brings files over from your phone and sends Shelf files to it</td></tr>
 <tr><td width="84" align="center"><img src="docs/brand/art/poses/oyen-tasks.webp" width="64" alt=""></td><td><b>Tasks</b><br>A tiny to-do list</td></tr>
 <tr><td width="84" align="center"><img src="docs/brand/art/poses/oyen-clipboard.webp" width="64" alt=""></td><td><b>Clipboard</b><br>Recent copied text, kept in memory only. It skips anything password managers mark as private.</td></tr>
@@ -105,6 +106,21 @@ The phone and the PC need the same Wi-Fi; guest networks often keep devices apar
 Each session gets a new secret link that only the QR code carries. It stops working when you click **Done**, and after 10 minutes without a phone. Oyen Poni reads nothing from an upload before you accept, keeps a transfer only when every file arrived, and never sends anything through the internet. Files travel over your Wi-Fi without extra encryption on top of the Wi-Fi's own, so use Phone drop on networks you trust rather than public hotspots.
 
 This isn't AirDrop. An iPhone only AirDrops over Apple's own Wi-Fi link (AWDL), which Windows Wi-Fi drivers can't run, so Phone drop uses the phone's browser instead.
+
+## Oyenza (optional)
+
+If you keep your money in [Oyenza](https://oyenza.app), the island can show it. Signing in is optional and works like a TV: no password is typed into Oyen Poni.
+
+1. Right-click the island (or the tray icon) → **Oyenza** → **Sign in to Oyenza…**. The island shows an 8-letter code.
+2. Open oyenza.app/connect on your phone or this PC (**Open oyenza.app** fills the code in), check the PC's name, and choose **Connect**.
+
+Then the island shows:
+
+- **Money as it arrives**: money Oyenza logged by itself from your bank's emails or notifications. The sum and sender stay hidden until you click **Show**, so a shared screen shows only "Money in · BCA".
+- **Bills before they're due**: a reminder the day before a subscription renews or a card bill is due.
+- **Note a spend**: type it in the **Oyenza** tab ("kopi 25rb") and press Enter; it goes straight to Oyenza, with Undo for 10 seconds.
+
+This PC gets a key of its own that can do only these things: it can't read your history, change or delete anything else, or touch your account. It is stored encrypted for your Windows account (`%LOCALAPPDATA%\Poni\oyenza-link.bin`). Oyen Poni asks Oyenza once a minute while you use the PC (every 3 minutes on battery, never while it's locked or asleep). **Oyenza › Disconnect** signs this PC out; you can also disconnect it in oyenza.app under Connected apps.
 
 ## Build
 

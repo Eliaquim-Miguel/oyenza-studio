@@ -17,6 +17,7 @@ pub mod lrc;
 pub mod lrclib;
 pub mod nowplaying;
 pub mod oyen;
+pub mod oyenza;
 pub mod phonedrop;
 pub mod pomodoro;
 pub mod romanize;

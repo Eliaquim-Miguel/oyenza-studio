@@ -6,6 +6,7 @@
 use crate::gfx::Image;
 use crate::state::{MediaSession, PowerState, SysStats};
 use poni_core::lrc::Lyrics;
+use poni_core::oyenza::{Arrival, Bill, Saved};
 use poni_core::romanize::Ruby;
 use poni_core::timeline::Timeline;
 use std::sync::mpsc::Sender;
@@ -79,6 +80,30 @@ pub enum LyricsResult {
     Error(String),
 }
 
+/// What the Oyenza worker reports (`services::oyenza`).
+#[derive(Clone, Debug)]
+pub enum OyenzaEvent {
+    /// The sign-in saved on this PC was found at start (no notice).
+    Restored { account: String },
+    /// A sign-in code to show, the oyenza.app address that takes it, and how long it lasts.
+    Connecting { code: String, url: String, expires_in_s: u64 },
+    Connected { account: String },
+    /// Signing in stopped without a key: `expired`, `denied`, `offline` or `other`.
+    ConnectFailed(String),
+    ConnectCancelled,
+    /// Money that just arrived (oldest first), and today's when asked for.
+    Money { arrived: Vec<Arrival>, today: Option<Vec<Arrival>> },
+    /// Bills due in the next 7 days, and the server's today (YYYY-MM-DD).
+    Bills { today: String, bills: Vec<Bill> },
+    NoteSaved(Vec<Saved>),
+    /// The note wasn't saved; the island puts `text` back and says why (`code`).
+    NoteFailed { text: String, code: String },
+    Undone,
+    UndoFailed(String),
+    /// Signed out: from the tray, or by the server (disconnected in oyenza.app).
+    Disconnected { by_server: bool },
+}
+
 pub enum AppEvent {
     /// The current media session changed (None = nothing playing / no session).
     Media(Option<MediaSession>),
@@ -104,6 +129,7 @@ pub enum AppEvent {
     ClipboardText(String),
     /// Phone drop's server: a phone opened the page, asked, sent, gave up.
     Phone(poni_core::phonedrop::Event),
+    Oyenza(OyenzaEvent),
     /// Free-form log line from a service thread.
     Log(String),
 }

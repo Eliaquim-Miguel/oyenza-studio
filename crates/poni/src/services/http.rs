@@ -1,4 +1,4 @@
-//! Minimal HTTPS GET over WinRT `Windows.Web.Http.HttpClient`.
+//! Minimal HTTPS requests (GET, and POST/DELETE with a JSON body) over WinRT `Windows.Web.Http.HttpClient`.
 //!
 //! Every call blocks until the response (headers and body) has arrived or the
 //! timeout has passed, so use it on worker threads only, never on the UI
@@ -14,8 +14,8 @@ use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::{Duration, Instant};
 use windows::core::{h, RuntimeType, HSTRING};
 use windows::Foundation::{AsyncOperationWithProgressCompletedHandler, AsyncStatus, IAsyncOperationWithProgress, Uri};
-use windows::Storage::Streams::{DataReader, IBuffer};
-use windows::Web::Http::{HttpClient, HttpMethod, HttpRequestMessage, HttpResponseMessage, IHttpContent};
+use windows::Storage::Streams::{DataReader, IBuffer, UnicodeEncoding};
+use windows::Web::Http::{HttpClient, HttpMethod, HttpRequestMessage, HttpResponseMessage, HttpStringContent, IHttpContent};
 use windows::Win32::Foundation::RPC_E_CHANGED_MODE;
 use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_MULTITHREADED};
 
@@ -27,6 +27,14 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(8);
 
 /// Bodies larger than this are refused (nothing Poni fetches comes close).
 const MAX_BODY_BYTES: u64 = 8 * 1024 * 1024;
+
+/// The methods [`Client::send`] speaks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Method {
+    Get,
+    Post,
+    Delete,
+}
 
 /// A complete response.
 #[derive(Clone, Debug)]
@@ -129,15 +137,31 @@ impl Client {
 
     /// GET `url` with extra request headers (`Authorization`, `Origin`, …).
     pub fn get_with_headers(&self, url: &str, headers: &[(&str, &str)], timeout: Duration) -> Result<Response, FetchError> {
+        self.send(Method::Get, url, headers, None, timeout)
+    }
+
+    /// `method` on `url` with extra request headers and, when given, a JSON
+    /// body (sent as `application/json; charset=utf-8`).
+    pub fn send(&self, method: Method, url: &str, headers: &[(&str, &str)], json: Option<&str>, timeout: Duration) -> Result<Response, FetchError> {
         let deadline = Instant::now() + timeout;
         let uri = Uri::CreateUri(&HSTRING::from(url)).map_err(|e| other("invalid URL", &e))?;
-        let method = HttpMethod::Get().map_err(|e| other("could not create a request", &e))?;
+        let method = match method {
+            Method::Get => HttpMethod::Get(),
+            Method::Post => HttpMethod::Post(),
+            Method::Delete => HttpMethod::Delete(),
+        }
+        .map_err(|e| other("could not create a request", &e))?;
         let request = HttpRequestMessage::Create(&method, &uri).map_err(|e| other("could not create a request", &e))?;
         let request_headers = request.Headers().map_err(|e| other("could not set request headers", &e))?;
         for (name, value) in headers {
             if !request_headers.TryAppendWithoutValidation(&HSTRING::from(*name), &HSTRING::from(*value)).unwrap_or(false) {
                 return Err(FetchError::Other(format!("could not set the {name} header")));
             }
+        }
+        if let Some(body) = json {
+            let content = HttpStringContent::CreateFromStringWithEncodingAndMediaType(&HSTRING::from(body), UnicodeEncoding::Utf8, h!("application/json"))
+                .map_err(|e| other("could not set the request body", &e))?;
+            request.SetContent(&content).map_err(|e| other("could not set the request body", &e))?;
         }
         let op = self.http.SendRequestAsync(&request).map_err(classify)?;
         let resp = wait(&op, deadline)?;

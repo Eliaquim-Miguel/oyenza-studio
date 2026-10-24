@@ -1,6 +1,7 @@
 //! Notification-area icon and its menu (also shown on right-click of the island).
 
 use crate::events::WM_APP_TRAY;
+use crate::state::OyenzaLink;
 use poni_core::settings::{IdleStyle, Settings, Theme};
 use windows::core::{Result, PCWSTR};
 use windows::Win32::Foundation::{HWND, LPARAM, POINT, WPARAM};
@@ -67,11 +68,18 @@ pub enum MenuCmd {
     AppleMusicToken,
     AppleMusicHelp,
     AppleMusicForget,
+    OyenzaSignIn,
+    OyenzaCancel,
+    OyenzaDisconnect,
+    OyenzaOpen,
+    ToggleOyenzaAmounts,
     Quit,
 }
 
 pub enum MenuItem {
     Item { label: String, cmd: MenuCmd, checked: bool },
+    /// A greyed line that only says something ("Connected as …").
+    Info { label: String },
     Sub { label: String, items: Vec<MenuItem> },
     Separator,
 }
@@ -80,7 +88,7 @@ fn item(label: &str, cmd: MenuCmd, checked: bool) -> MenuItem {
     MenuItem::Item { label: label.to_string(), cmd, checked }
 }
 
-pub fn menu_items(s: &Settings, pinned: bool) -> Vec<MenuItem> {
+pub fn menu_items(s: &Settings, pinned: bool, oyenza: &OyenzaLink) -> Vec<MenuItem> {
     let style = |label: &str, st: IdleStyle| item(label, MenuCmd::ToggleIdleStyle(st), s.idle_style == st);
     let theme = |label: &str, t: Theme| item(label, MenuCmd::SetTheme(t), s.theme == t);
     // In the Oyen theme the eyes are Oyen's own.
@@ -101,6 +109,7 @@ pub fn menu_items(s: &Settings, pinned: bool) -> Vec<MenuItem> {
         item("Synced lyrics", MenuCmd::ToggleLyrics, s.lyrics),
         item("Lyrics pronunciation (romaji, pinyin, Korean)", MenuCmd::TogglePronunciation, s.lyrics_pronunciation),
         apple_music_menu(),
+        oyenza_menu(s, oyenza),
         item("Clipboard history", MenuCmd::ToggleClipboard, s.clipboard_history),
         item("Sounds", MenuCmd::ToggleSounds, s.sounds),
         item("Hide in full-screen apps", MenuCmd::ToggleHideFullscreen, s.hide_in_fullscreen),
@@ -129,6 +138,23 @@ fn apple_music_menu() -> MenuItem {
     MenuItem::Sub { label: if on { "Apple Music lyrics: on".into() } else { "Apple Music lyrics".into() }, items }
 }
 
+/// Oyenza, optional: sign in with a code from oyenza.app, then what the
+/// island may show, and signing out.
+fn oyenza_menu(s: &Settings, link: &OyenzaLink) -> MenuItem {
+    let items = match link {
+        OyenzaLink::Off => vec![item("Sign in to Oyenza…", MenuCmd::OyenzaSignIn, false)],
+        OyenzaLink::Connecting { .. } => vec![item("Cancel sign-in", MenuCmd::OyenzaCancel, false)],
+        OyenzaLink::Connected { account } => vec![
+            MenuItem::Info { label: format!("Connected as {account}") },
+            item("Show amounts on the island", MenuCmd::ToggleOyenzaAmounts, s.oyenza_show_amounts),
+            item("Open oyenza.app", MenuCmd::OyenzaOpen, false),
+            MenuItem::Separator,
+            item("Disconnect", MenuCmd::OyenzaDisconnect, false),
+        ],
+    };
+    MenuItem::Sub { label: "Oyenza".into(), items }
+}
+
 fn build(menu: HMENU, items: &[MenuItem], cmds: &mut Vec<MenuCmd>) {
     for it in items {
         unsafe {
@@ -139,6 +165,10 @@ fn build(menu: HMENU, items: &[MenuItem], cmds: &mut Vec<MenuCmd>) {
                     let w: Vec<u16> = label.encode_utf16().chain(Some(0)).collect();
                     let flags = MF_STRING | if *checked { MF_CHECKED } else { MF_UNCHECKED };
                     let _ = AppendMenuW(menu, flags, id, PCWSTR(w.as_ptr()));
+                }
+                MenuItem::Info { label } => {
+                    let w: Vec<u16> = label.encode_utf16().chain(Some(0)).collect();
+                    let _ = AppendMenuW(menu, MF_STRING | MF_GRAYED | MF_DISABLED, 0, PCWSTR(w.as_ptr()));
                 }
                 MenuItem::Sub { label, items } => {
                     if let Ok(sub) = CreatePopupMenu() {
@@ -170,7 +200,7 @@ pub fn show_menu(owner: HWND, pt: POINT, items: &[MenuItem]) -> Option<MenuCmd> 
         let _ = DestroyMenu(menu);
         let idx = chosen.0 as usize;
         let cmd = if idx == 0 { None } else { cmds.get(idx - 1).copied() };
-        let launches = matches!(cmd, Some(MenuCmd::OpenSettings | MenuCmd::OpenDataFolder | MenuCmd::About | MenuCmd::AppleMusicHelp));
+        let launches = matches!(cmd, Some(MenuCmd::OpenSettings | MenuCmd::OpenDataFolder | MenuCmd::About | MenuCmd::AppleMusicHelp | MenuCmd::OyenzaOpen));
         if !launches && !prev.is_invalid() && prev != owner && IsWindow(prev).as_bool() && GetForegroundWindow() == owner {
             let _ = SetForegroundWindow(prev);
         }

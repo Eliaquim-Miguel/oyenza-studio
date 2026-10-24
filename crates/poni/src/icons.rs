@@ -48,6 +48,16 @@ pub enum Icon {
     Sliders,
     Open,
     Phone,
+    /// Oyenza: show a hidden sum.
+    Eye,
+    /// Oyenza: money that arrived.
+    MoneyIn,
+    /// Oyenza: a credit card bill.
+    Card,
+    /// Oyenza: the tab.
+    Wallet,
+    /// Oyenza: signed out.
+    Unlink,
 }
 
 pub struct Part {
@@ -189,6 +199,23 @@ pub fn parts(icon: Icon) -> &'static [Part] {
         ],
         Open => p![s("M14 4h6v6"), s("M20 4l-9 9"), s("M18 14v4.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10")],
         Phone => p![s("M9 2.5h6A2.5 2.5 0 0 1 17.5 5v14a2.5 2.5 0 0 1-2.5 2.5H9A2.5 2.5 0 0 1 6.5 19V5A2.5 2.5 0 0 1 9 2.5z"), s("M11 18.5h2")],
+        Eye => p![s("M2.5 12s3.5-6.5 9.5-6.5 9.5 6.5 9.5 6.5-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"), s("M9.2 12a2.8 2.8 0 1 0 5.6 0a2.8 2.8 0 1 0-5.6 0")],
+        MoneyIn => p![s("M12 4v10.5"), s("M7.5 10.5L12 15l4.5-4.5"), s("M5 19.5h14")],
+        Card => p![
+            s("M4.5 6.5h15A1.5 1.5 0 0 1 21 8v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 16V8a1.5 1.5 0 0 1 1.5-1.5z"),
+            s("M3 10h18"),
+            s("M6.5 14h4"),
+        ],
+        Wallet => p![
+            s("M4 7.5h14.5A1.5 1.5 0 0 1 20 9v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18z"),
+            s("M4 7.5l10.5-3v3"),
+            s("M15.5 13.5h2"),
+        ],
+        Unlink => p![
+            s("M9.5 14.5l-1.7 1.7a3 3 0 0 1-4.2-4.2l2.2-2.2a3 3 0 0 1 4.2 0"),
+            s("M14.5 9.5l1.7-1.7a3 3 0 0 1 4.2 4.2l-2.2 2.2a3 3 0 0 1-4.2 0"),
+            s("M4 4l16 16"),
+        ],
     }
 }
 
@@ -202,7 +229,7 @@ mod tests {
         Icon::Close, Icon::Clipboard, Icon::Copy, Icon::Calendar, Icon::Clock, Icon::Cpu, Icon::Memory, Icon::Disk,
         Icon::Battery, Icon::Bolt, Icon::Bluetooth, Icon::Headphones, Icon::Volume, Icon::VolumeLow, Icon::VolumeMute,
         Icon::Pin, Icon::PinFill, Icon::Folder, Icon::File, Icon::Trash, Icon::Undo, Icon::Reset,
-        Icon::Sliders, Icon::Open, Icon::Phone,
+        Icon::Sliders, Icon::Open, Icon::Phone, Icon::Eye, Icon::MoneyIn, Icon::Card, Icon::Wallet, Icon::Unlink,
     ];
 
     #[test]

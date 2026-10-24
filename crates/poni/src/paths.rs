@@ -73,3 +73,15 @@ fn downloads_dir() -> Option<PathBuf> {
         s.filter(|s| !s.is_empty()).map(PathBuf::from)
     }
 }
+
+/// The Oyenza sign-in (this PC's key and the masked account), sealed with
+/// DPAPI. Signing out or uninstalling removes it.
+pub fn oyenza_link_path() -> PathBuf {
+    cache_dir().join("oyenza-link.bin")
+}
+
+/// A key signed out while Oyenza couldn't be reached, sealed, kept only to
+/// tell the server once it can.
+pub fn oyenza_revoke_path() -> PathBuf {
+    cache_dir().join("oyenza-revoke.bin")
+}

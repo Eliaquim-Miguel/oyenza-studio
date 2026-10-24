@@ -127,7 +127,7 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect);  // draw + handle input
 | `gfx.rs`, `icons.rs`, `ui.rs`, `island.rs`, `window.rs` | rendering/UI foundation |
 | `state.rs`, `events.rs`, `commands.rs` | shared contracts |
 | `pages/*.rs` | expanded pages |
-| `services/*.rs` | media, lyrics/http, audio, bluetooth, fullscreen, clipboard, imaging, power, sound, sysstats, phonedrop (started and stopped by the Shelf's phone panel) |
+| `services/*.rs` | media, lyrics/http, audio, bluetooth, fullscreen, clipboard, imaging, oyenza, power, sound, sysstats, phonedrop (started and stopped by the Shelf's phone panel) |
 | `dragdrop.rs`, `shell.rs`, `tray.rs`, `autostart.rs` | OS integration |
 | `selftest.rs` | `poni.exe --selftest <dir>` scripted screenshots for CI |
 
@@ -140,6 +140,11 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect);  // draw + handle input
   developer token (`apple-music-web.json`).
 * Phone drop: received files go to `Downloads\Oyen Poni` (`paths::phone_inbox_dir`),
   staged in a `.oyen-poni-incoming-<n>` folder there until every file of a send has arrived.
+* Oyenza (optional): the sign-in, this PC's own key, sealed with DPAPI
+  (`%LOCALAPPDATA%\Poni\oyenza-link.bin`; `oyenza-revoke.bin` while a sign-out
+  still has to reach the server). The worker (`services/oyenza.rs`) asks
+  api.oyenza.app on its own thread, paced by the PC's use and power; words,
+  parsing and cadence are in `poni_core::oyenza`, the tab in `pages/oyenza.rs`.
 * `PONI_HOME` overrides both (the self-test uses it).
 * Clipboard history is memory-only and skips content marked
   `ExcludeClipboardContentFromMonitorProcessing` / `CanIncludeInClipboardHistory=0`

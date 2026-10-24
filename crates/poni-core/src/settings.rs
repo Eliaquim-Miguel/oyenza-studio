@@ -76,6 +76,9 @@ pub struct Settings {
     /// Remember the last page instead of `start_page`.
     pub remember_page: bool,
     pub pomodoro: PomodoroConfig,
+    /// Oyenza (once signed in): show sums and senders on the island straight
+    /// away. Off: they wait for a click on Show, so a shared screen shows none.
+    pub oyenza_show_amounts: bool,
 }
 
 impl Default for Settings {
@@ -102,6 +105,7 @@ impl Default for Settings {
             start_page: "media".into(),
             remember_page: true,
             pomodoro: PomodoroConfig::default(),
+            oyenza_show_amounts: false,
         }
     }
 }

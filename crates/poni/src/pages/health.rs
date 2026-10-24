@@ -45,7 +45,8 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
         // No week to chart yet: the explanation takes the middle and right columns.
         draw_ring(ui, ring_c, None);
         let w = (area.right() - mid_x).clamp(0.0, SIGNED_OUT_W);
-        draw_not_connected(ui, Rect::new(mid_x, area.y, w, area.h), ring_c.y);
+        let signed_in = matches!(st.oyenza.link, crate::state::OyenzaLink::Connected { .. });
+        draw_not_connected(ui, Rect::new(mid_x, area.y, w, area.h), ring_c.y, signed_in);
         return;
     };
     let today = st.local.day_key();
@@ -142,11 +143,18 @@ fn updated_text(st: &AppState, at: i64) -> String {
 
 /// Title, explanation and the "coming soon" tag, stacked and centred on `center_y`
 /// (the ring's centre). Heights are measured, so a wider font wraps instead of clipping.
-fn draw_not_connected(ui: &mut Ui, r: Rect, center_y: f32) {
+/// Signed in to Oyenza already (`services::oyenza`), it says the steps themselves
+/// are what's still coming: Oyenza on the phone doesn't send them yet.
+fn draw_not_connected(ui: &mut Ui, r: Rect, center_y: f32, signed_in: bool) {
     let title = "Your steps, from your phone";
-    let body = "Oyenza on your iPhone or Android reads them from Apple Health or Health Connect. Sign in with your Oyenza account to see them here.";
-    // Not a button yet: signing in arrives with the Oyenza connection.
-    let label = "Sign in with Oyenza · coming soon";
+    let body = if signed_in {
+        "You're signed in to Oyenza. Your steps show here once Oyenza on your iPhone or Android can send them from Apple Health or Health Connect."
+    } else {
+        "Oyenza on your iPhone or Android reads them from Apple Health or Health Connect. Soon they'll show here when you're signed in to Oyenza."
+    };
+    // Not a button yet: Oyenza on the phone doesn't send the steps yet. Signing in itself
+    // already works (tray › Oyenza), so the tag names the steps either way.
+    let label = "Steps from Oyenza · coming soon";
     let title_st = TextStyle::headline().wrap().top();
     let body_st = TextStyle::footnote().color(palette::TEXT_DIM).wrap().top();
     let tag_st = TextStyle::caption().weight(Weight::Semibold).color(palette::TEXT_DIM);
