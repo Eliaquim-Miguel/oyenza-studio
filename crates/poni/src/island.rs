@@ -64,7 +64,7 @@ pub struct Island {
     top: Spring,
     /// `Some(gap)` while the island floats.
     gap: Option<f32>,
-    /// Floating: the target a shrinking axis lands on and stops at.
+    /// Floating: the size a shrinking axis lands on and stops at.
     floor_w: Option<f32>,
     floor_h: Option<f32>,
     /// Whether a frame has moved the island yet. Until then a new gap is
@@ -153,8 +153,8 @@ impl Island {
             self.w.retune(tw.0, tw.1);
             self.h.retune(th.0, th.1);
             self.r.retune(tr.0, tr.1);
-            self.floor_w = (g.w < self.w.value).then_some(g.w);
-            self.floor_h = (g.h < self.h.value).then_some(g.h);
+            self.floor_w = floor(&self.w, g.w, self.floor_w);
+            self.floor_h = floor(&self.h, g.h, self.floor_h);
         } else {
             let (tw, th) = if growing { (GROW_W, GROW_H) } else { (SHRINK_W, SHRINK_H) };
             self.w.retune(tw.0, tw.1);
@@ -300,7 +300,20 @@ impl Island {
     }
 }
 
-/// A shrinking axis stops on its target instead of dipping past it (a
+/// The size an axis heading for `to` must not go below: `to` itself when it
+/// shrinks there. Growing, a spring still falling from the last morph keeps
+/// that morph's floor, so it turns around above it instead of squashing.
+fn floor(s: &Spring, to: f32, was: Option<f32>) -> Option<f32> {
+    if to < s.value {
+        Some(to)
+    } else if s.velocity < 0.0 {
+        was
+    } else {
+        None
+    }
+}
+
+/// A shrinking axis stops on its floor instead of dipping past it (a
 /// spring turned around mid-flight can carry it through).
 fn land(s: &mut Spring, floor: Option<f32>) {
     if let Some(f) = floor {
@@ -424,20 +437,22 @@ mod tests {
 
     #[test]
     fn floating_shrink_never_squashes() {
-        // Straight down, an axis shrinking while the other grows, and a morph
-        // turned around mid-flight onto a target just below where it is.
-        let lyric = Geom::new(520.0, 32.0, 16.0);
-        let notice = Geom::new(340.0, 48.0, 24.0);
+        // (from, targets with the time they come, the least size allowed): straight
+        // down, an axis shrinking while the other grows, and morphs turned around
+        // mid-flight (onto a lift just above the pill, and onto a size the width
+        // has already passed: it carries on a little, then turns, above the pill).
         let lifted = motion::hover_lift(PILL);
-        let cases: [(Geom, &[(f32, Geom)]); 4] =
-            [(CARD, &[(0.0, PILL)]), (notice, &[(0.0, lyric)]), (CARD, &[(0.0, PILL), (0.12, lifted)]), (CARD, &[(0.0, PILL), (0.2, Geom::new(150.0, 36.0, 18.0))])];
-        for (from, steps) in cases {
+        let cases: [(Geom, &[(f32, Geom)], (f32, f32)); 4] = [
+            (CARD, &[(0.0, PILL)], (120.0, 32.0)),
+            (Geom::new(340.0, 48.0, 24.0), &[(0.0, Geom::new(520.0, 32.0, 16.0))], (340.0, 32.0)),
+            (CARD, &[(0.0, PILL), (0.12, lifted)], (126.0, 32.0)),
+            (CARD, &[(0.0, PILL), (0.2, Geom::new(150.0, 36.0, 18.0))], (120.0, 32.0)),
+        ];
+        for (from, steps, least) in cases {
             let mut i = floating(from);
-            let mut t = 0.0;
-            let mut next = 0;
-            let mut want = from;
+            let (mut t, mut next, mut want) = (0.0, 0, from);
             while t < 1.5 {
-                if next < steps.len() && t >= steps[next].0 {
+                if next < steps.len() && t >= steps[next].0 - 1e-4 {
                     want = steps[next].1;
                     i.set_target(want, t as f64, false);
                     next += 1;
@@ -445,12 +460,27 @@ mod tests {
                 i.step(1.0 / 60.0, t as f64);
                 t += 1.0 / 60.0;
                 let g = i.current();
-                assert!(g.w >= want.w.min(from.w) - 1e-3 && g.h >= want.h.min(from.h) - 1e-3, "{from:?} -> {want:?}: {g:?} at {t:.3} s");
+                assert!(g.w >= least.0 && g.h >= least.1, "{from:?} -> {want:?}: {g:?} at {t:.3} s");
                 assert!(g.r <= g.h / 2.0 + 1e-4, "rounder than a capsule: {g:?}");
             }
             assert!(i.settled(), "{from:?} -> {want:?} did not settle");
             assert_eq!((i.current().w, i.current().h), (want.w, want.h));
         }
+    }
+
+    #[test]
+    fn a_turned_around_morph_keeps_its_floor() {
+        // Falling fast just above the pill when a slightly wider target comes: it
+        // turns around on the pill's size at the lowest, never below it.
+        let mut i = floating(CARD);
+        i.set_target(PILL, 0.0, false);
+        (i.w.value, i.w.velocity) = (124.0, -1500.0);
+        i.set_target(Geom::new(130.0, 32.0, 16.0), 0.0, false);
+        assert_eq!(tuning(&i.w), motion::GROW_W);
+        let mut least = f32::MAX;
+        run(&mut i, 60.0, 2.0, |i| least = least.min(i.current().w));
+        assert_eq!(least, 120.0);
+        assert_eq!(i.current().w, 130.0);
     }
 
     #[test]
