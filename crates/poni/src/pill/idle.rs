@@ -1,8 +1,9 @@
 //! The resting pill (`Mode::Idle`): the time on the left, the battery on
 //! the right (its percentage and a drawn battery, a bolt inside while it
-//! charges). `IdleStyle` still picks what rests there (Clock, Minimal, Eyes,
-//! Hidden, and Status, which [`super::status`] draws). `None` / `false` =
-//! Classic's layout.
+//! charges); on a PC without a battery, the time alone in the middle.
+//! `IdleStyle` still picks what rests there (Clock, Minimal, Eyes, Hidden,
+//! and Status, which [`super::status`] draws). `None` / `false` = Classic's
+//! layout. [`battery`] is the drawn battery for the other Pill surfaces.
 
 use crate::gfx::{TextStyle, Weight};
 use crate::island::Geom;
@@ -164,5 +165,47 @@ pub fn battery(ui: &mut Ui, r: Rect, percent: u8, charging: bool) {
         segs.push(Seg::Close);
         ui.c.path(&segs, Some(palette::ISLAND), Some((palette::ISLAND, 2.0 * s)));
         ui.c.path(&segs, Some(Color::white(1.0)), None);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::PowerState;
+    use poni_core::settings::{Settings, Theme};
+    use poni_core::store::Store;
+
+    fn state(battery: bool, use_24h: bool) -> AppState {
+        let mut st = AppState::new(Settings::default(), Store::default());
+        st.settings.theme = Theme::Pill;
+        st.settings.use_24h = use_24h;
+        st.power = PowerState { has_battery: battery, percent: 99, charging: false, on_ac: !battery, saver: false };
+        st
+    }
+
+    #[test]
+    fn the_resting_pill_is_a_capsule_sized_to_the_time_and_the_battery() {
+        let size = |battery, use_24h| geom(&state(battery, use_24h));
+        assert_eq!(size(true, true), Some(Geom::new(152.0, 32.0, 16.0)));
+        assert_eq!(size(true, false), Some(Geom::new(180.0, 32.0, 16.0)));
+        assert_eq!(size(false, true), Some(Geom::new(84.0, 32.0, 16.0)));
+        assert_eq!(size(false, false), Some(Geom::new(104.0, 32.0, 16.0)));
+    }
+
+    #[test]
+    fn plugged_in_charges_and_the_other_looks_keep_their_shapes() {
+        let mut st = state(true, true);
+        assert_eq!(battery_state(&st), Some((99, false)));
+        // Full on the charger: Windows clears the charging flag, the bolt stays.
+        st.power.on_ac = true;
+        assert_eq!(battery_state(&st), Some((99, true)));
+        assert_eq!(battery_state(&state(false, true)), None);
+        st.settings.idle_style = IdleStyle::Minimal;
+        assert_eq!(geom(&st), Some(Geom::new(96.0, 24.0, 12.0)));
+        st.settings.idle_style = IdleStyle::Eyes;
+        assert_eq!(geom(&st), Some(Geom::new(84.0, 32.0, 16.0)));
+        // Hidden stays Classic's invisible strip.
+        st.settings.idle_style = IdleStyle::Hidden;
+        assert_eq!(geom(&st), None);
     }
 }
