@@ -95,6 +95,9 @@ pub fn main_entry() -> i32 {
         perror!("OleInitialize failed: {e}");
         return 2;
     }
+    if crate::autostart::packaged() {
+        pinfo!("running as the Microsoft Store package");
+    }
     let code = match run(selftest_dir) {
         Ok(code) => code,
         Err(e) => {

@@ -1,18 +1,36 @@
-//! "Start with Windows" via HKCU\Software\Microsoft\Windows\CurrentVersion\Run.
+//! "Start with Windows".
+//!
+//! The installer build writes HKCU\Software\Microsoft\Windows\CurrentVersion\Run.
+//! The Microsoft Store build (MSIX) can't: Windows keeps a packaged app's HKCU
+//! writes in a private per-app copy that sign-in never reads. That build uses
+//! the package's startup task instead (installer/msix/AppxManifest.xml), which
+//! people also see under Settings > Apps > Startup.
 
-use windows::core::{w, Result, PCWSTR};
+use std::sync::{mpsc, OnceLock};
+use std::time::Duration;
+use windows::core::{w, Error, Result, RuntimeType, HSTRING, PCWSTR};
+use windows::ApplicationModel::{Package, StartupTask, StartupTaskState};
+use windows::Foundation::{AsyncOperationCompletedHandler, IAsyncOperation};
+use windows::Win32::Foundation::{E_FAIL, ERROR_TIMEOUT};
 use windows::Win32::System::Registry::*;
 
 const RUN_KEY: PCWSTR = w!("Software\\Microsoft\\Windows\\CurrentVersion\\Run");
 const VALUE: PCWSTR = w!("Poni");
+/// The StartupTask TaskId in installer/msix/AppxManifest.xml.
+const TASK_ID: &str = "PoniStartup";
+/// Startup-task calls answer in milliseconds; never let one hang the UI thread.
+const TASK_TIMEOUT: Duration = Duration::from_secs(2);
 
-fn open_run_key(access: REG_SAM_FLAGS) -> Result<HKEY> {
-    let mut key = HKEY::default();
-    unsafe { RegOpenKeyExW(HKEY_CURRENT_USER, RUN_KEY, 0, access, &mut key).ok()? };
-    Ok(key)
+/// True in the Microsoft Store build (the process has a package identity).
+pub fn packaged() -> bool {
+    static PACKAGED: OnceLock<bool> = OnceLock::new();
+    *PACKAGED.get_or_init(|| Package::Current().is_ok())
 }
 
 pub fn is_enabled() -> bool {
+    if packaged() {
+        return task_state().is_ok_and(|s| s == StartupTaskState::Enabled || s == StartupTaskState::EnabledByPolicy);
+    }
     let Ok(key) = open_run_key(KEY_READ) else { return false };
     let mut size = 0u32;
     let ok = unsafe { RegQueryValueExW(key, VALUE, None, None, None, Some(&mut size)) }.is_ok();
@@ -23,6 +41,9 @@ pub fn is_enabled() -> bool {
 }
 
 pub fn set_enabled(on: bool) -> Result<()> {
+    if packaged() {
+        return set_task_enabled(on);
+    }
     let key = open_run_key(KEY_READ | KEY_WRITE)?;
     let res = if on {
         let exe = std::env::current_exe().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
@@ -40,4 +61,79 @@ pub fn set_enabled(on: bool) -> Result<()> {
         let _ = RegCloseKey(key);
     }
     res
+}
+
+/// How "Start with Windows" works in this copy, for the self-test report.
+/// Err when the Store build can't reach its startup task.
+pub fn describe() -> std::result::Result<String, String> {
+    if !packaged() {
+        let set = if is_enabled() { "set" } else { "not set" };
+        return Ok(format!("installer build: Run value {set}"));
+    }
+    match task_state() {
+        Ok(s) => Ok(format!("packaged: startup task {TASK_ID} is {}", state_name(s))),
+        Err(e) => Err(format!("packaged: startup task {TASK_ID} unavailable: {e}")),
+    }
+}
+
+fn open_run_key(access: REG_SAM_FLAGS) -> Result<HKEY> {
+    let mut key = HKEY::default();
+    unsafe { RegOpenKeyExW(HKEY_CURRENT_USER, RUN_KEY, 0, access, &mut key).ok()? };
+    Ok(key)
+}
+
+// ---------------------------------------------------------------- Store build
+
+fn startup_task() -> Result<StartupTask> {
+    wait(StartupTask::GetAsync(&HSTRING::from(TASK_ID))?)
+}
+
+fn task_state() -> Result<StartupTaskState> {
+    startup_task()?.State()
+}
+
+fn set_task_enabled(on: bool) -> Result<()> {
+    let task = startup_task()?;
+    if !on {
+        return task.Disable();
+    }
+    // Desktop apps get no consent prompt here; Windows answers with the new state.
+    match wait(task.RequestEnableAsync()?)? {
+        StartupTaskState::Enabled | StartupTaskState::EnabledByPolicy => Ok(()),
+        // Turned off in Settings or Task Manager: only the user can turn it back on there.
+        StartupTaskState::DisabledByUser => {
+            crate::shell::open_startup_settings();
+            Ok(())
+        }
+        s => Err(Error::new(E_FAIL, format!("startup task stays {}", state_name(s)))),
+    }
+}
+
+fn state_name(s: StartupTaskState) -> &'static str {
+    match s {
+        StartupTaskState::Enabled => "on",
+        StartupTaskState::EnabledByPolicy => "on (policy)",
+        StartupTaskState::Disabled => "off",
+        StartupTaskState::DisabledByUser => "off (turned off in Settings)",
+        StartupTaskState::DisabledByPolicy => "off (policy)",
+        _ => "unknown",
+    }
+}
+
+/// Wait for a WinRT async operation for up to [`TASK_TIMEOUT`] (cancelling it
+/// on timeout).
+fn wait<T: RuntimeType + 'static>(op: IAsyncOperation<T>) -> Result<T> {
+    let (tx, rx) = mpsc::channel();
+    op.SetCompleted(&AsyncOperationCompletedHandler::<T>::new(move |_, status| {
+        let _ = tx.send(status);
+        Ok(())
+    }))?;
+    match rx.recv_timeout(TASK_TIMEOUT) {
+        // A failed or cancelled operation returns its error here.
+        Ok(_) => op.GetResults(),
+        Err(_) => {
+            let _ = op.Cancel();
+            Err(Error::new(ERROR_TIMEOUT.to_hresult(), "no answer from the startup task"))
+        }
+    }
 }

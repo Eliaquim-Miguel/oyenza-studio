@@ -360,6 +360,13 @@ impl SelfTest {
         let today = st.day_key();
         st.store.focus_sessions.insert(today, 2);
         self.seed_shelf(st);
+
+        // Read-only: the Store build must reach the startup task its manifest declares.
+        let (ok, detail) = match crate::autostart::describe() {
+            Ok(d) => (true, d),
+            Err(d) => (false, d),
+        };
+        self.checks.push(check("start-with-windows", ok, detail));
     }
 
     /// Called every ~50 ms; returns Some(exit code) when finished.
