@@ -24,6 +24,7 @@ pub mod oyenza;
 pub mod pairdrop;
 pub mod phonedrop;
 pub mod pomodoro;
+pub mod prayer;
 pub mod romanize;
 pub mod settings;
 pub mod shelf;
