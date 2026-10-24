@@ -487,7 +487,7 @@ jobs:
       - name: Fetch the release to upgrade from
         shell: pwsh
         # 0.1.1 is the installer people have today; the check upgrades from it.
-        run: Invoke-WebRequest -Uri "https://github.com/lucacadalora/oyenza-studio/releases/download/v0.1.1/Poni-Setup-0.1.1.exe" -OutFile previous-setup.exe
+        run: Invoke-WebRequest -Uri "https://github.com/lucacadalora/poni/releases/download/v0.1.1/Poni-Setup-0.1.1.exe" -OutFile previous-setup.exe
       - name: Install, check, uninstall
         shell: pwsh
         run: ./tools/ci-installer.ps1 -Setup "dist\Oyenza-Studio-Setup-$env:PONI_VERSION.exe" -Version $env:PONI_VERSION -Previous previous-setup.exe -Out installer-out
@@ -518,8 +518,12 @@ jobs:
         with:
           name: oyenza-studio-setup
           path: dist
-      - name: Copy the installer to a fixed name for the README's download link
-        run: cp "dist/Oyenza-Studio-Setup-$PONI_VERSION.exe" dist/Oyenza-Studio-Setup.exe
+      # Oyen-Poni-Setup.exe is the fixed name from before the rename (0.1.2 to 0.1.19). Links to it are
+      # out there (oyenza.com, shared links, old README copies), so every release keeps carrying it.
+      - name: Copy the installer to the fixed names the download links use
+        run: |
+          cp "dist/Oyenza-Studio-Setup-$PONI_VERSION.exe" dist/Oyenza-Studio-Setup.exe
+          cp "dist/Oyenza-Studio-Setup-$PONI_VERSION.exe" dist/Oyen-Poni-Setup.exe
       - name: Publish as the latest release
         if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
@@ -531,6 +535,7 @@ jobs:
           files: |
             dist/Oyenza-Studio-Setup-${{ env.PONI_VERSION }}.exe
             dist/Oyenza-Studio-Setup.exe
+            dist/Oyen-Poni-Setup.exe
             dist/Oyenza-Studio-${{ env.PONI_VERSION }}-portable.zip
           fail_on_unmatched_files: true
       - name: What a tag would publish (dry run, nothing is published)
@@ -547,7 +552,7 @@ jobs:
             echo "A \`v$PONI_VERSION\` tag would publish **Oyenza Studio $PONI_VERSION** as the latest release, with \`$notes\` as its text and these files:"
             echo
             echo '```'
-            (cd dist && sha256sum "Oyenza-Studio-Setup-$PONI_VERSION.exe" Oyenza-Studio-Setup.exe "Oyenza-Studio-$PONI_VERSION-portable.zip" && ls -l "Oyenza-Studio-Setup-$PONI_VERSION.exe" Oyenza-Studio-Setup.exe "Oyenza-Studio-$PONI_VERSION-portable.zip")
+            (cd dist && sha256sum "Oyenza-Studio-Setup-$PONI_VERSION.exe" Oyenza-Studio-Setup.exe Oyen-Poni-Setup.exe "Oyenza-Studio-$PONI_VERSION-portable.zip" && ls -l "Oyenza-Studio-Setup-$PONI_VERSION.exe" Oyenza-Studio-Setup.exe Oyen-Poni-Setup.exe "Oyenza-Studio-$PONI_VERSION-portable.zip")
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
 

@@ -1,10 +1,16 @@
-# Poni architecture
+# Oyenza Studio architecture
 
-Poni is a "living notch" for Windows 10/11: a black island that hangs from the
+Oyenza Studio is a "living notch" for Windows 10/11: a black island that hangs from the
 top-centre of the screen, shows live activities (media, timers, pop-ups) while
 collapsed, and expands on hover into pages (Music + synced lyrics, Focus,
 Health, Shelf, Tasks, Clipboard, Today, System). The Shelf's Phone drop serves a
 small web page on the local network so a phone can send files to it.
+
+It was called Oyen Poni until 0.2.0, and plain Poni before that. The code keeps the
+old short name where people don't see it: the crates (`poni`, `poni-core`), `poni.exe`,
+its folders (`%LOCALAPPDATA%\Programs\Poni`, `%APPDATA%\Poni`), the uninstall key and
+Run value, `Local\Poni.Island`, the Mac bundle id `com.oyenza.poni` and the `PONI_*`
+variables. Changing those would break upgrades and settings, so they stay.
 
 ## Crates
 
@@ -149,7 +155,7 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect);  // draw + handle input
 | `gfx.rs`, `icons.rs`, `ui.rs`, `island.rs`, `window.rs` | rendering/UI foundation |
 | `state.rs`, `events.rs`, `commands.rs` | shared contracts |
 | `pages/*.rs` | expanded pages |
-| `services/*.rs` | media (Apple Music's own progress slider and back button through UI Automation in `applemusic_ui`: it declines both from Windows' media controls), lyrics/http, audio, bluetooth, fullscreen, clipboard, imaging, oyenza, power, sound, sysstats, phonedrop (started and stopped by the Shelf's phone panel), sysmon (the System page's readings: each second while the page is open or a game's readout shows, a light reading a second for the kept minute while it's closed; all of it rests while nobody is at the PC, the kept minute also on battery saver), addons (add-on files: downloaded from their GitHub pre-release when an add-on is switched on, checked against the size and SHA-256 in `poni_core::addons`, deleted when it is switched off; asleep otherwise), frames (Show over games' frame count: a real-time event tracing session of the game's Present calls, only while the readout shows; the one-time OK that lets Poni read it is `poni.exe --allow-fps <SID>`, run elevated) |
+| `services/*.rs` | media (Apple Music's own progress slider and back button through UI Automation in `applemusic_ui`: it declines both from Windows' media controls), lyrics/http, audio, bluetooth, fullscreen, clipboard, imaging, oyenza, power, sound, sysstats, phonedrop (started and stopped by the Shelf's phone panel), sysmon (the System page's readings: each second while the page is open or a game's readout shows, a light reading a second for the kept minute while it's closed; all of it rests while nobody is at the PC, the kept minute also on battery saver), addons (add-on files: downloaded from their GitHub pre-release when an add-on is switched on, checked against the size and SHA-256 in `poni_core::addons`, deleted when it is switched off; asleep otherwise), frames (Show over games' frame count: a real-time event tracing session of the game's Present calls, only while the readout shows; the one-time OK that lets the app read it is `poni.exe --allow-fps <SID>`, run elevated) |
 | `dragdrop.rs`, `shell.rs`, `tray.rs`, `autostart.rs` | OS integration |
 | `selftest.rs` | `poni.exe --selftest <dir>` scripted screenshots for CI |
 

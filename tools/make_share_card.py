@@ -2,7 +2,7 @@
 
     python3 tools/make_share_card.py
 
-Writes site/assets/share/oyen-poni-share.jpg at 1200x630, the size Facebook,
+Writes site/assets/share/oyenza-studio-share.jpg at 1200x630, the size Facebook,
 LinkedIn, X and WhatsApp all show in full. The card is drawn at 2x and scaled
 down so the type and the island stay sharp, and saved as a JPEG well under
 300 KB (WhatsApp skips bigger preview images). Rename the file, or bump the
@@ -20,7 +20,7 @@ from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "tools" / "share_card.html"
-OUT = ROOT / "site" / "assets" / "share" / "oyen-poni-share.jpg"
+OUT = ROOT / "site" / "assets" / "share" / "oyenza-studio-share.jpg"
 W, H = 1200, 630
 
 

@@ -4,7 +4,7 @@ Oyenza Studio is made by Jatevo Labs. It needs no account, and has no ads, no an
 
 ## What leaves your PC
 
-**Lyrics lookups.** When a song plays and **Synced lyrics** is on, Oyenza Studio asks [LRCLIB](https://lrclib.net), a free public lyrics library, for that song's lyrics. The request carries the song's title, artist, album and length, plus a User-Agent that names Poni and links to this project. LRCLIB is run by other people and has its own terms. Answers are cached on your PC, so a song isn't looked up again every time it plays.
+**Lyrics lookups.** When a song plays and **Synced lyrics** is on, Oyenza Studio asks [LRCLIB](https://lrclib.net), a free public lyrics library, for that song's lyrics. The request carries the song's title, artist, album and length, plus a User-Agent that names Oyenza Studio and links to this project. LRCLIB is run by other people and has its own terms. Answers are cached on your PC, so a song isn't looked up again every time it plays.
 
 To stop lookups, right-click the island or the tray icon and turn off **Synced lyrics**.
 

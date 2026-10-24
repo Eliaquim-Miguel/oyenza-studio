@@ -1,7 +1,7 @@
 ; Oyenza Studio installer (NSIS 3). Per-user install, no admin rights needed.
 ;
-; The name shown to people is "Oyenza Studio"; the install folder, the uninstall key, the Run value and
-; poni.exe keep the name "Poni", so installs of 0.1.x upgrade in place.
+; The name shown to people is "Oyenza Studio" (0.1.2 to 0.1.19 said "Oyen Poni"); the install folder,
+; the uninstall key, the Run value and poni.exe keep the name "Poni", so older installs upgrade in place.
 ;
 ; Build (Linux/macOS/Windows with makensis):
 ;   makensis -DEXE=/abs/path/poni.exe -DOUTDIR=/abs/path/dist installer/poni.nsi
@@ -93,8 +93,9 @@ Section "Oyenza Studio" SecMain
   ; The licenses of what poni.exe is built from (mecab-ipadic asks for its notice in every copy).
   File "../THIRD-PARTY-NOTICES.txt"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
-  ; 0.1.x named its shortcut "Poni".
+  ; Older shortcuts: "Poni" (0.1.0, 0.1.1) and "Oyen Poni" (0.1.2 to 0.1.19).
   Delete "$SMPROGRAMS\Poni.lnk"
+  Delete "$SMPROGRAMS\Oyen Poni.lnk"
   CreateShortcut "$SMPROGRAMS\${APPNAME}.lnk" "$INSTDIR\poni.exe" "" "$INSTDIR\poni.exe" 0
   WriteRegStr HKCU "Software\Poni" "InstallDir" "$INSTDIR"
   WriteRegStr HKCU "${UNINST_KEY}" "DisplayName" "${APPNAME}"
@@ -127,6 +128,7 @@ Section "Uninstall"
   RMDir "$INSTDIR"
   Delete "$SMPROGRAMS\${APPNAME}.lnk"
   Delete "$SMPROGRAMS\Poni.lnk"
+  Delete "$SMPROGRAMS\Oyen Poni.lnk"
   DeleteRegValue HKCU "${RUN_KEY}" "Poni"
   DeleteRegKey HKCU "${UNINST_KEY}"
   DeleteRegKey HKCU "Software\Poni"

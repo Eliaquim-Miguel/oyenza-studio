@@ -74,7 +74,7 @@ $uninstKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Poni"
 function PoniEntries {
     $roots = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall", "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall"
     @($roots | ForEach-Object { Get-ChildItem $_ -ErrorAction SilentlyContinue } |
-        ForEach-Object { Get-ItemProperty $_.PSPath } | Where-Object { $_.DisplayName -like "*Poni*" })
+        ForEach-Object { Get-ItemProperty $_.PSPath } | Where-Object { $_.DisplayName -like "*Poni*" -or $_.DisplayName -like "*Oyenza Studio*" })
 }
 
 # 1. The previous release, the way people have it today.
@@ -82,6 +82,10 @@ if ($Previous) {
     Start-Process -FilePath $Previous -ArgumentList "/S" -Wait
     Check "previous release installed" (Test-Path $exe) $Previous
     Check "previous Start menu shortcut" (Test-Path (Join-Path $programs "Poni.lnk"))
+    # 0.1.2 to 0.1.19 named the shortcut "Oyen Poni": put one there too, the upgrade must remove it.
+    $old = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $programs "Oyen Poni.lnk"))
+    $old.TargetPath = $exe
+    $old.Save()
     New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
     Set-Content -Path $marker -Value "settings and data must survive the upgrade"
 }
@@ -123,6 +127,7 @@ $entries = PoniEntries
 Check "one Installed apps entry" ($entries.Count -eq 1) (($entries | ForEach-Object { $_.DisplayName }) -join ", ")
 Check "new Start menu shortcut" (Test-Path (Join-Path $programs "Oyenza Studio.lnk"))
 Check "old Start menu shortcut removed" (-not (Test-Path (Join-Path $programs "Poni.lnk")))
+if ($Previous) { Check "Oyen Poni shortcut removed" (-not (Test-Path (Join-Path $programs "Oyen Poni.lnk"))) }
 $vi = (Get-Item $exe -ErrorAction SilentlyContinue).VersionInfo
 Check "poni.exe product name" ($vi.ProductName -eq "Oyenza Studio") "$($vi.ProductName)"
 Check "poni.exe version" ($vi.ProductVersion -eq $Version) "$($vi.ProductVersion)"

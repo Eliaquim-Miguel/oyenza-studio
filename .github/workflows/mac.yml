@@ -144,8 +144,10 @@ jobs:
 
   # The Mac app on the release: Oyenza-Studio-<version>-mac.dmg, plus
   # Oyenza-Studio-Mac.dmg, the fixed name the README's and the website's Mac
-  # buttons download from releases/latest. ci publishes the release once the
-  # Windows build, installer and install test pass, so this waits for it.
+  # buttons download from releases/latest, and Oyen-Poni-Mac.dmg, the fixed
+  # name from before the rename (0.1.17 to 0.1.19), which links out there still
+  # use. ci publishes the release once the Windows build, installer and install
+  # test pass, so this waits for it.
   release:
     name: Put the DMG on the GitHub release (tags v*)
     if: startsWith(github.ref, 'refs/tags/v')
@@ -167,8 +169,9 @@ jobs:
           src=$(ls dist/*.dmg | head -1)
           [ "$src" = "dist/Oyenza-Studio-${tag#v}-mac.dmg" ] || cp "$src" "dist/Oyenza-Studio-${tag#v}-mac.dmg"
           cp "$src" dist/Oyenza-Studio-Mac.dmg
+          cp "$src" dist/Oyen-Poni-Mac.dmg
           for i in $(seq 1 90); do
             gh release view "$tag" > /dev/null 2>&1 && break
             sleep 30
           done
-          gh release upload "$tag" "dist/Oyenza-Studio-${tag#v}-mac.dmg" dist/Oyenza-Studio-Mac.dmg --clobber
+          gh release upload "$tag" "dist/Oyenza-Studio-${tag#v}-mac.dmg" dist/Oyenza-Studio-Mac.dmg dist/Oyen-Poni-Mac.dmg --clobber

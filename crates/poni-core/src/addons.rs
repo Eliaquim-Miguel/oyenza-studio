@@ -11,7 +11,9 @@ use crate::phonedrop::fmt_bytes;
 use crate::sha256;
 
 /// Where the files live: `<RELEASES>/<tag>/<name>`.
-pub const RELEASES: &str = "https://github.com/lucacadalora/oyenza-studio/releases/download";
+// Still the repo's old name until it is renamed to lucacadalora/oyenza-studio; the rename PR flips it
+// (GitHub forwards the old name, which add-on downloads in 0.1.17 to 0.1.19 rely on for good).
+pub const RELEASES: &str = "https://github.com/lucacadalora/poni/releases/download";
 
 /// One file an add-on downloads.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -188,7 +190,7 @@ mod tests {
             assert!(f.matches(bytes), "{name}: size {} sha256 {}", bytes.len(), sha256::hex(&sha256::sha256(bytes)));
         }
         let ja = Addon::find("ja").unwrap();
-        assert_eq!(ja.url(&ja.files[0]), "https://github.com/lucacadalora/oyenza-studio/releases/download/addon-ja-1/ja-readings.dic.zst");
+        assert_eq!(ja.url(&ja.files[0]), "https://github.com/lucacadalora/poni/releases/download/addon-ja-1/ja-readings.dic.zst");
         assert_eq!(Status::Off.line(ja), ja.blurb);
         assert_eq!(Status::Ready.line(ja), "On · 3.8 MB on this PC");
     }
@@ -208,7 +210,7 @@ mod tests {
     #[test]
     fn files_come_from_the_release() {
         let a = Addon::find("sholat").unwrap();
-        assert_eq!(a.url(&a.files[1]), "https://github.com/lucacadalora/oyenza-studio/releases/download/addon-sholat-1/adzan.m4a");
+        assert_eq!(a.url(&a.files[1]), "https://github.com/lucacadalora/poni/releases/download/addon-sholat-1/adzan.m4a");
         assert_eq!(a.size(), 1_903_069);
         assert!(Addon::find("nope").is_none());
     }

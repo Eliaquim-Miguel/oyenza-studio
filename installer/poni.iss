@@ -70,6 +70,10 @@ Name: "autostart"; Description: "Start with Windows"; GroupDescription: "Startup
 Source: "{#ExeSource}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\THIRD-PARTY-NOTICES.txt"; DestDir: "{app}"; Flags: ignoreversion
 
+[InstallDelete]
+; The shortcut 0.1.2 to 0.1.19 made, before the app was renamed Oyenza Studio.
+Type: files; Name: "{autoprograms}\Oyen Poni.lnk"
+
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"; Comment: "A living notch for Windows"
 

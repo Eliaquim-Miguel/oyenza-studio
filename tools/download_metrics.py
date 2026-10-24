@@ -78,14 +78,18 @@ REFERRERS = ["date", "referrer", "views", "visitors"]
 
 # The page's columns, by file name (see kind()).
 KINDS = {"button": "Download button", "installer": "Versioned installer", "zip": "Portable zip", "other": "Other files"}
+# The repo's name before it became lucacadalora/oyenza-studio. GitHub forwards its URLs, so a
+# step may still fetch through it.
+OLD_NAMES = ("lucacadalora/poni",)
 DOWNLOAD_URL = re.compile(r"github\.com/([\w.-]+/[\w.-]+)/releases/download/([^/\s\"']+)/([^\s\"'?#]+)")
 
 
 def kind(file: str) -> str:
     if file.endswith("-portable.zip"):
         return "zip"
-    # The website's and README's Download link: releases/latest/download/Oyenza-Studio-Setup.exe.
-    if re.fullmatch(r"(Oyen-)?Poni-Setup\.exe", file):
+    # The website's and README's Download link: releases/latest/download/Oyenza-Studio-Setup.exe
+    # (Oyen-Poni-Setup.exe before the rename, which every release still carries for older links).
+    if re.fullmatch(r"(Oyen-)?Poni-Setup\.exe|Oyenza-Studio-Setup\.exe", file):
         return "button"
     if file.endswith(".exe"):
         return "installer"
@@ -200,7 +204,7 @@ def fetch_steps(repo: str) -> dict[str, dict[str, tuple[str, str]]]:
                 if key and len(key.group(1)) == key_indent:
                     name = key.group(2).strip("\"'")
             for owner_repo, tag, file in DOWNLOAD_URL.findall(line):
-                if owner_repo.lower() != repo.lower():
+                if owner_repo.lower() not in (repo.lower(), *OLD_NAMES):
                     continue
                 if name:
                     found.setdefault(workflow.name, {})[name] = (tag, urllib.parse.unquote(file))

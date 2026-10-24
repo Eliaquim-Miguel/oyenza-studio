@@ -507,6 +507,11 @@ impl App {
             let place = if self.screen.notch.is_some() { "Point at the notch to open it" } else { "Point at the island to open it" };
             self.st.notify(Icon::CheckCircle, self.st.accent, "Oyenza Studio is on", place, 6.0, None);
         }
+        if self.smoke.is_none() {
+            if let Some(dir) = services::trash_app_from_before_rename() {
+                self.st.notify(Icon::Trash, self.st.accent, "Oyen Poni is now Oyenza Studio", format!("The old copy in {dir} is in the Trash"), 8.0, None);
+            }
+        }
         if self.smoke.is_some() {
             self.set_timer(Timer::Smoke, 600);
         }
