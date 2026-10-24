@@ -369,7 +369,7 @@ footer a { color: var(--muted); }
         </div></div>
         <div>
           <h3>Music, with the words</h3>
-          <p>Controls for whatever is playing: Spotify, Apple Music, YouTube in your browser, or any app that shows up in Windows' media controls. Lyrics scroll in time with the song, from the free LRCLIB library, or Apple Music's own synced lyrics if you have a subscription. YouTube videos find theirs too, even when the title carries subtitle tags or puts the song name first. After an intro or a break, the waiting dots fold away the moment the next line starts.</p>
+          <p>Controls for whatever is playing: Spotify, Apple Music, YouTube in your browser, or any app that shows up in Windows' media controls. Lyrics scroll in time with the song, from the free LRCLIB library, or Apple Music's own synced lyrics if you have a subscription. YouTube videos find theirs too, even when the title carries subtitle tags or puts the song name first. After an intro or a break, the waiting dots fold away the moment the next line starts. Drag the time bar to jump anywhere in a song: the times follow as you slide, and it jumps when you let go.</p>
           <img class="oyen-pose" src="brand/art/poses/oyen-music.webp" alt="Oyen in headphones" width="480" height="560" loading="lazy">
         </div>
       </div>
@@ -493,13 +493,13 @@ footer a { color: var(--muted); }
       </div>
       <div class="music flip" id="system">
         <div>
-          <p class="eyebrow">New in 0.1.11</p>
+          <p class="eyebrow">New in 0.1.11 · Redone in 0.1.17</p>
           <h3>System: your PC at a glance</h3>
-          <p>CPU, memory, drives, network and battery, each with the last minute as a chart, the apps using the most, and Task Manager one click away. It reads only while the page is open, from the same counters Task Manager uses: no driver, no admin rights, and nothing leaves your PC.</p>
+          <p>CPU, GPU, memory, drives, network and battery in rings and charts: each core's load with performance and efficiency cores apart, the graphics card's engines and memory, memory pressure and what fills memory, read, write, download and upload speeds, and the processes using the most. Since 0.1.17 it reads Windows' own kernel counters and keeps the last minute while the page is closed, so the charts are full the moment it opens. No driver, no admin rights, and nothing leaves your PC.</p>
         </div>
         <div class="sky"><div class="island">
-          <img class="look-classic" src="assets/shots/classic/page-system.webp" alt="The System page: CPU, memory, drives, network and battery, each with a one-minute chart" width="660" height="251" loading="lazy">
-          <img class="look-oyen" src="assets/shots/oyen/page-system.webp" alt="The System page in the Oyen theme" width="660" height="251" loading="lazy">
+          <img class="look-classic" src="assets/shots/classic/page-system.webp" alt="The System page: a strip of every part's live value, the CPU's rings and details, a minute of history, each core's load and the processes using the most" width="660" height="335" loading="lazy">
+          <img class="look-oyen" src="assets/shots/oyen/page-system.webp" alt="The System page in the Oyen theme" width="660" height="335" loading="lazy">
         </div></div>
       </div>
       <div class="music" id="on-top">
@@ -549,7 +549,7 @@ footer a { color: var(--muted); }
           <li><span>Cream and brown on every page, with Oyen's orange on the play button, the progress and volume bars and the switches.</span></li>
           <li><span>Every Latin letter is set in Outfit, this website's typeface, which now ships inside the app.</span></li>
           <li><span>Built from the Oyenza logo, so he stays sharp at every size and scaling. On an open page he peeks up beside the pin, eyes on your cursor.</span></li>
-          <li><span>He moves only when something happens and sleeps after midnight. Oyen Poni still uses no CPU while nothing moves.</span></li>
+          <li><span>He moves only when something happens and sleeps after midnight, so he costs no CPU while nothing moves.</span></li>
         </ul>
         <div>
           <img src="brand/art/oyen-poni-asleep.webp" alt="Oyen asleep on the island while a song plays" width="900" height="654" loading="lazy" style="width:min(340px,100%)">
@@ -646,7 +646,7 @@ footer a { color: var(--muted); }
       <div class="facts">
         <div class="fact"><h3>No account needed</h3><p>No sign-up and no tracking. Tasks, shelf and focus history are files in your own user folder.</p></div>
         <div class="fact"><h3>Clipboard in memory</h3><p>Copied text is never written to disk, and anything a password manager marks private is skipped.</p></div>
-        <div class="fact"><h3>Smooth and light</h3><p>Drawn on your graphics card in step with your screen's refresh rate (60, 144 or 240 Hz). Native Rust, no web view, and no CPU while nothing moves.</p></div>
+        <div class="fact"><h3>Smooth and light</h3><p>Drawn on your graphics card in step with your screen's refresh rate (60, 144 or 240 Hz). Native Rust, no web view, and nothing drawn while nothing moves. Keeping the System page's last minute takes about a third of a millisecond each second, and the tray menu turns it off.</p></div>
       </div>
     </div>
   </section>
@@ -663,7 +663,7 @@ footer a { color: var(--muted); }
           <li><div><b>Run it</b><p>It installs just for you and needs no admin rights.</p></div></li>
           <li><div><b>If Windows warns you</b><p>Builds aren't code-signed yet, so SmartScreen may say "Windows protected your PC". Choose More info, then Run anyway. If Smart App Control is on, Windows won't run unsigned apps at all; a Microsoft Store version is on the way.</p></div></li>
         </ol>
-        <p class="mac-steps"><b>On a Mac</b> (macOS 14 or later, Apple silicon or Intel): open Oyen-Poni-Mac.dmg and drag Oyen Poni into Applications. It isn't signed with an Apple Developer ID yet, so the first time macOS warns you, click Done, then open System Settings › Privacy &amp; Security and click Open Anyway. On a Mac the music page follows Music and Spotify, and Glass, paired phones and Oyenza sign-in aren't there yet.</p>
+        <p class="mac-steps"><b>On a Mac</b> (macOS 14 or later, Apple silicon or Intel): open Oyen-Poni-Mac.dmg and drag Oyen Poni into Applications. It isn't signed with an Apple Developer ID yet, so the first time macOS warns you, click Done, then open System Settings › Privacy &amp; Security and click Open Anyway. On a Mac the music page follows Music and Spotify, and Glass, paired phones, Oyenza sign-in and add-ons aren't there yet.</p>
         <div class="ctas" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:24px">
           <a class="btn btn-dark" href="https://github.com/lucacadalora/poni/releases/latest/download/Oyen-Poni-Setup.exe">
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2 2h9.2v9.2H2zm10.8 0H22v9.2h-9.2zM2 12.8h9.2V22H2zm10.8 0H22V22h-9.2z"/></svg>

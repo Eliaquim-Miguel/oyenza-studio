@@ -90,7 +90,7 @@ Builds aren't code-signed yet, so Windows SmartScreen may say "Windows protected
 
 Your data lives in `%APPDATA%\Poni\`, and cache plus log in `%LOCALAPPDATA%\Poni\`. Uninstalling removes the app, cache and log, and keeps your data.
 
-**On a Mac** (macOS 14 or later, Apple silicon or Intel): **[download Oyen-Poni-Mac.dmg](https://github.com/lucacadalora/poni/releases/latest/download/Oyen-Poni-Mac.dmg)**, open it and drag Oyen Poni into Applications. It isn't signed with an Apple Developer ID yet, so the first time macOS warns you, click **Done**, then open **System Settings → Privacy & Security** and click **Open Anyway**. On a Mac the music page follows Music and Spotify, and Glass, paired phones and Oyenza sign-in aren't there yet. Your data lives in `~/Library/Application Support/Poni/`, the log in `~/Library/Logs/Poni/`.
+**On a Mac** (macOS 14 or later, Apple silicon or Intel): **[download Oyen-Poni-Mac.dmg](https://github.com/lucacadalora/poni/releases/latest/download/Oyen-Poni-Mac.dmg)**, open it and drag Oyen Poni into Applications. It isn't signed with an Apple Developer ID yet, so the first time macOS warns you, click **Done**, then open **System Settings → Privacy & Security** and click **Open Anyway**. On a Mac the music page follows Music and Spotify, and Glass, paired phones, Oyenza sign-in and add-ons aren't there yet. Your data lives in `~/Library/Application Support/Poni/`, the log in `~/Library/Logs/Poni/`.
 
 ## Apple Music lyrics
 
