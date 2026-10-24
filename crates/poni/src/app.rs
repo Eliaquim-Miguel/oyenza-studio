@@ -807,7 +807,7 @@ impl App {
             WM_LBUTTONDOWN | WM_LBUTTONDBLCLK => {
                 let p = self.mouse_dip(lp);
                 if self.over_shadow(p) {
-                    // Off the floating island, on its shadow (software renderer): not a press on it.
+                    // A press on the floating pill's shadow (software renderer): not the island.
                     return Some(LRESULT(0));
                 }
                 self.dbl_press = msg == WM_LBUTTONDBLCLK;
@@ -2198,17 +2198,15 @@ impl App {
         !Rect::new(r.x, r.y, r.w, r.h + 2.0).contains(p)
     }
 
-    /// Software renderer, floating island (the Pill theme): a layered window
-    /// takes the mouse wherever its pixels aren't fully transparent, so the
-    /// resting pill's soft shadow beside and below it takes it too. A
-    /// pointer outside the hit region ([`hit_mask_for`]) is off the island:
-    /// no hover, no click, no menu. (The GPU renderer's hit mask leaves the
-    /// shadow out, and clicks there reach the app below. Open, nothing but
-    /// the canvas is drawn, so only a looser host such as Wine can report a
-    /// pointer outside it.) `p` is a pixel's corner: its centre is tested,
+    /// Software renderer, floating island (the Pill theme) collapsed: a
+    /// layered window takes the mouse wherever its pixels aren't fully
+    /// transparent, so the pill's soft shadow beside and below it takes it
+    /// too. A pointer there is off the island: no hover, no click, no menu.
+    /// (The GPU renderer's hit mask leaves the shadow out, and clicks there
+    /// reach the app below.) `p` is a pixel's corner: its centre is tested,
     /// so an edge pixel the outline mostly covers still counts.
     fn over_shadow(&self, p: Point) -> bool {
-        if !self.island.floating() || self.gfx.needs_hit_mask() {
+        if self.expanded || !self.island.floating() || self.gfx.needs_hit_mask() {
             return false;
         }
         let half = 0.5 / self.gfx.scale();
