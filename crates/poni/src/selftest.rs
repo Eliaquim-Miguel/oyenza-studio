@@ -687,7 +687,7 @@ enum Scene {
     OyenzaSignIn,
     /// The Oyenza tab right after a spend was saved (Undo showing).
     OyenzaSaved,
-    /// The Health page signed in to Oyenza, before the phone sends any steps.
+    /// The Health page signed in to Oyenza, no steps from the phone (its switch is off).
     HealthSignedIn,
     /// Click the gear in the header on the Health page; expect Settings.
     GearClick,
@@ -737,9 +737,11 @@ enum Scene {
     OyenzaTomorrow,
     /// Oyenza: a card charge read from the bank's email, its sum hidden.
     OyenzaMoneyOut,
+    /// The Health page with steps the phone last sent three days ago.
+    HealthStale,
 }
 
-const SCENES: [Scene; 57] = [
+const SCENES: [Scene; 58] = [
     Scene::IdleClock,
     Scene::IdleEyes,
     Scene::Media,
@@ -802,6 +804,7 @@ const SCENES: [Scene; 57] = [
     Scene::OyenzaYesterday,
     Scene::OyenzaTomorrow,
     Scene::OyenzaMoneyOut,
+    Scene::HealthStale,
 ];
 
 impl Scene {
@@ -855,6 +858,7 @@ impl Scene {
             Scene::OyenzaYesterday => "page-oyenza-yesterday".into(),
             Scene::OyenzaTomorrow => "page-oyenza-tomorrow".into(),
             Scene::OyenzaMoneyOut => "oyenza-money-out".into(),
+            Scene::HealthStale => "page-health-stale".into(),
         }
     }
 
@@ -865,7 +869,7 @@ impl Scene {
             Scene::TabClick => Some(PageKind::ALL[0]),
             Scene::HealthSignedOut => Some(PageKind::Health),
             Scene::OyenzaSignIn | Scene::OyenzaSaved | Scene::OyenzaYesterday | Scene::OyenzaTomorrow => Some(PageKind::Oyenza),
-            Scene::HealthSignedIn => Some(PageKind::Health),
+            Scene::HealthSignedIn | Scene::HealthStale => Some(PageKind::Health),
             Scene::GearClick | Scene::SettingsSigningIn | Scene::SettingsSignedIn | Scene::SettingsStayOnTop => Some(PageKind::Settings),
             Scene::SystemMemory | Scene::SystemDrives | Scene::SystemNetwork | Scene::SystemBattery | Scene::SystemWaiting | Scene::SystemGpu => {
                 Some(PageKind::System)
@@ -892,6 +896,7 @@ impl Scene {
                 | Scene::OyenzaMoneyOut
                 | Scene::Page(PageKind::Oyenza)
                 | Scene::HealthSignedIn
+                | Scene::HealthStale
                 | Scene::SettingsSigningIn
                 | Scene::SettingsSignedIn
         )
@@ -1461,7 +1466,11 @@ impl SelfTest {
         st.volume = VolumeState { level: 0.64, muted: false, known: true };
         st.pinned = false;
         st.drag_hover = scene == Scene::ShelfDrop;
-        st.health = if matches!(scene, Scene::HealthSignedOut | Scene::HealthSignedIn) { None } else { self.health.clone() };
+        st.health = match scene {
+            Scene::HealthSignedOut | Scene::HealthSignedIn => None,
+            Scene::HealthStale => Some(sample_week(st, 3)),
+            _ => self.health.clone(),
+        };
         // Start with Windows as Settings shows it once read (it's read off the UI thread).
         st.ui.autostart = Some(true);
         // Hide in full-screen apps (the default), except in the Stay on top scene.
@@ -1968,7 +1977,12 @@ fn seed_tasks(st: &mut AppState) {
 
 /// A week of steps as Oyenza would send it: today just over the goal.
 fn sample_health(st: &AppState) -> HealthSnapshot {
-    let today = st.local;
+    sample_week(st, 0)
+}
+
+/// The sample week as the phone read it `days_ago` days back, its last day then.
+fn sample_week(st: &AppState, days_ago: i64) -> HealthSnapshot {
+    let today = st.local.add_days(-days_ago);
     let week = [5210u32, 9120, 7480, 3960, 10230, 6840, 8412];
     let days = week
         .iter()
@@ -1983,7 +1997,7 @@ fn sample_health(st: &AppState) -> HealthSnapshot {
             }
         })
         .collect();
-    HealthSnapshot { goal: 8000, source: HealthSource::AppleHealth, updated_at: st.unix - 8 * 60, days }
+    HealthSnapshot { goal: 8000, source: HealthSource::AppleHealth, updated_at: st.unix - days_ago * 86_400 - 8 * 60, days }
 }
 
 fn seed_clipboard(st: &mut AppState) {
