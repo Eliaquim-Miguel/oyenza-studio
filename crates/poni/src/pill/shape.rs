@@ -124,8 +124,10 @@ pub struct ShadowPlan {
     pub stops: Vec<(f32, f32)>,
     /// From an arc's centre (or the line through it) to the ramp's end.
     pub reach: f32,
-    /// The corner squares, and the centre their radial gradient spreads from.
-    pub corners: [(Rect, Point); 4],
+    /// The corner squares, and the centre their radial gradient spreads
+    /// from. Corners that share a centre are one piece: a capsule has two
+    /// (its round ends), a circle one.
+    pub corners: [Option<(Rect, Point)>; 4],
     /// Top, bottom, left and right (none where two corners meet, as at a
     /// capsule's ends): the strip, and where its linear gradient starts (at
     /// stop 0) and ends.
@@ -163,16 +165,32 @@ pub fn shadow_plan(r: Rect, radius: f32, ramp: &[(f32, f32)], scale: f32) -> Opt
     let (bl, bt) = (px(cl), px(ct));
     let (br, bb) = (px(cr).max(bl), px(cb).max(bt));
     let (ol, or, ot, ob) = (x0 - last, x1 + last, y0 - last, y1 + last);
-    let corners = [
-        (Rect::new(ol, ot, bl - ol, bt - ot), Point::new(cl, ct)),
-        (Rect::new(br, ot, or - br, bt - ot), Point::new(cr, ct)),
-        (Rect::new(ol, bb, bl - ol, ob - bb), Point::new(cl, cb)),
-        (Rect::new(br, bb, or - br, ob - bb), Point::new(cr, cb)),
-    ];
+    let (wide, tall) = (br > bl, bb > bt);
+    let (mx, my) = ((cl + cr) / 2.0, (ct + cb) / 2.0);
+    let corners = match (wide, tall) {
+        (true, true) => [
+            Some((Rect::new(ol, ot, bl - ol, bt - ot), Point::new(cl, ct))),
+            Some((Rect::new(br, ot, or - br, bt - ot), Point::new(cr, ct))),
+            Some((Rect::new(ol, bb, bl - ol, ob - bb), Point::new(cl, cb))),
+            Some((Rect::new(br, bb, or - br, ob - bb), Point::new(cr, cb))),
+        ],
+        (true, false) => [
+            Some((Rect::new(ol, ot, bl - ol, ob - ot), Point::new(cl, my))),
+            Some((Rect::new(br, ot, or - br, ob - ot), Point::new(cr, my))),
+            None,
+            None,
+        ],
+        (false, true) => [
+            Some((Rect::new(ol, ot, or - ol, bt - ot), Point::new(mx, ct))),
+            Some((Rect::new(ol, bb, or - ol, ob - bb), Point::new(mx, cb))),
+            None,
+            None,
+        ],
+        (false, false) => [Some((Rect::new(ol, ot, or - ol, ob - ot), Point::new(mx, my))), None, None, None],
+    };
     // Sides reach `depth` inside the edge, or the corners' lines if nearer.
     let (it, ib) = ((y0 + depth).min(bt), (y1 - depth).max(bb));
     let (il, ir) = ((x0 + depth).min(bl), (x1 - depth).max(br));
-    let (wide, tall) = (br > bl, bb > bt);
     let sides = [
         wide.then(|| (Rect::new(bl, ot, br - bl, it - ot), Point::new(cl, ct), Point::new(cl, ct - reach))),
         wide.then(|| (Rect::new(bl, ib, br - bl, ob - ib), Point::new(cl, cb), Point::new(cl, cb + reach))),
@@ -369,7 +387,7 @@ mod tests {
             }
         };
         let mut hits = Vec::new();
-        for (sq, o) in &plan.corners {
+        for (sq, o) in plan.corners.iter().flatten() {
             if inside(sq) {
                 hits.push(along((p.0 - o.x).hypot(p.1 - o.y) / plan.reach));
             }
@@ -419,7 +437,7 @@ mod tests {
                     }
                 }
                 // Seams on whole pixels, and nothing past the ramp's reach.
-                for (sq, _) in &plan.corners {
+                for (sq, _) in plan.corners.iter().flatten() {
                     for v in [sq.x, sq.right(), sq.y, sq.bottom()] {
                         let edge = [b.x - last, b.right() + last, b.y - last, b.bottom() + last].iter().any(|e| (e - v).abs() < 1e-4);
                         assert!(edge || ((v * s) - (v * s).round()).abs() < 1e-3, "{s}: seam {v} off the pixel grid");
@@ -437,11 +455,22 @@ mod tests {
                 let body = snap(b, s);
                 let plan = shadow_plan(body.offset(0.0, SHADOW_DROP), r, &SHADOW_RAMP, s).unwrap();
                 let room = Rect::new(body.x - MARGIN, 0.0, body.w + 2.0 * MARGIN, body.bottom() + MARGIN);
-                let pieces = plan.corners.iter().map(|c| c.0).chain(plan.sides.iter().flatten().map(|p| p.0));
+                let pieces = plan.corners.iter().flatten().map(|c| c.0).chain(plan.sides.iter().flatten().map(|p| p.0));
                 for p in pieces {
                     assert!(p.x >= room.x && p.right() <= room.right() && p.bottom() <= room.bottom(), "{s}: {p:?} outside {room:?}");
                 }
             }
+        }
+    }
+
+    #[test]
+    fn a_capsule_takes_four_fills_and_a_card_eight() {
+        let count = |p: &ShadowPlan| (p.corners.iter().flatten().count(), p.sides.iter().flatten().count());
+        for s in SCALES {
+            assert_eq!(count(&shadow_plan(snap(rect(458.0, 12.0, 84.0, 32.0), s), 16.0, &SHADOW_RAMP, s).unwrap()), (2, 2), "{s}: capsule");
+            assert_eq!(count(&shadow_plan(snap(rect(190.0, 12.0, 620.0, 216.0), s), 40.0, &SHADOW_RAMP, s).unwrap()), (4, 4), "{s}: card");
+            assert_eq!(count(&shadow_plan(snap(rect(10.0, 12.0, 30.0, 90.0), s), 40.0, &SHADOW_RAMP, s).unwrap()), (2, 2), "{s}: upright");
+            assert_eq!(count(&shadow_plan(snap(rect(10.0, 12.0, 40.0, 40.0), s), 20.0, &SHADOW_RAMP, s).unwrap()), (1, 0), "{s}: circle");
         }
     }
 

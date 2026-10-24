@@ -1662,10 +1662,10 @@ impl<'a> Canvas<'a> {
     /// inside, in order), from its first stop inside the edge to its last
     /// outside it, where it should reach 0. Deeper inside than the first
     /// stop it may draw or not: cover that, as the floating island's body
-    /// covers its shadow. A few gradient fills (four corners, up to four
-    /// sides, see `pill::shape::shadow_plan`) that meet on whole pixels, so
-    /// draw it without a content transform. The gradients are kept between
-    /// frames.
+    /// covers its shadow. A few gradient fills (corners and sides: four for
+    /// a capsule, eight for a card, see `pill::shape::shadow_plan`) that meet
+    /// on whole pixels, so draw it without a content transform. The
+    /// gradients are kept between frames.
     pub fn rrect_shadow(&mut self, r: Rect, radius: f32, c: Color, ramp: &[(f32, f32)]) {
         let Some(plan) = crate::pill::shape::shadow_plan(r, radius, ramp, self.scale()) else { return };
         let c = self.g.look.paint(c);
@@ -1678,7 +1678,7 @@ impl<'a> Canvas<'a> {
             radial.SetOpacity(opacity);
             radial.SetRadiusX(plan.reach);
             radial.SetRadiusY(plan.reach);
-            for (square, o) in plan.corners {
+            for (square, o) in plan.corners.into_iter().flatten() {
                 radial.SetCenter(pt(o.x, o.y));
                 self.g.rt.FillRectangle(&rectf(square), &radial);
             }

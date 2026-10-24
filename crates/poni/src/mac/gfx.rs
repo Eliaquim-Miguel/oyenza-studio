@@ -912,7 +912,7 @@ impl<'a> Canvas<'a> {
         let extend = CGGradientDrawingOptions::DrawsBeforeStartLocation | CGGradientDrawingOptions::DrawsAfterEndLocation;
         let cgpt = |p: Point| CGPoint { x: p.x as CGFloat, y: p.y as CGFloat };
         let reach = plan.reach as CGFloat;
-        for (square, o) in plan.corners {
+        for (square, o) in plan.corners.into_iter().flatten() {
             CGContext::save_g_state(self.cg());
             CGContext::clip_to_rect(self.cg(), cgrect(square));
             CGContext::draw_radial_gradient(self.cg(), Some(&grad), cgpt(o), 0.0, cgpt(o), reach, extend);
