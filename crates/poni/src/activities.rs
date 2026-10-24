@@ -1,14 +1,17 @@
 //! What the collapsed island shows: idle pill, live activities (media,
 //! timer), HUD pop-ups (volume, charging, Bluetooth) and notices.
+//!
+//! Collapsed pills are sized to their content: Windows has no camera
+//! cut-out to work around, so empty black would only cover the browser tabs.
 
 use crate::gfx::{TextStyle, Weight};
 use crate::icons::Icon;
 use crate::island::Geom;
 use crate::pages::{self, PageKind};
-use crate::state::{AppState, HudKind};
-use crate::ui::{wid, Ui};
+use crate::state::{AppState, HudKind, InlineAction, Notice};
+use crate::ui::{wid, PillStyle, Ui, PILL_SMALL};
 use poni_core::datetime::{fmt_clock, fmt_countdown};
-use poni_core::geom::{palette, Color, Point, Rect};
+use poni_core::geom::{clamp01, palette, Color, Point, Rect};
 use poni_core::pomodoro::Phase;
 use poni_core::settings::IdleStyle;
 
@@ -36,6 +39,30 @@ pub enum Mode {
     Expanded(PageKind),
 }
 
+/// A paused player keeps its pill this long before the island goes idle, so
+/// a short pause doesn't morph the island away and back.
+const MEDIA_GRACE: f64 = 30.0;
+/// The media pill, and its width while it peeks at a new track's title.
+const MEDIA_W: f32 = 120.0;
+const MEDIA_PEEK_W: f32 = 300.0;
+/// After a peek ends its text may still draw this long, so it fades out with
+/// the narrowing pill instead of vanishing. Outside this window the title
+/// never shows (other morphs and the hover lift also widen the pill).
+const PEEK_TAIL: f64 = 1.0;
+/// The one neutral track under every progress ring.
+const RING_TRACK: Color = Color::white(0.14);
+/// How long a notice's inline pill shows its check mark after the action
+/// (the app sets `notice.until = now + 0.6`).
+const INLINE_DONE: f64 = 0.6;
+/// Right padding of HUD content (the left icons sit 16 DIPs in).
+const HUD_PAD: f32 = 16.0;
+/// Bolt icon box and its visible extent (the path spans x 5..19 of 24).
+const BOLT: f32 = 11.0;
+const BOLT_INSET: f32 = BOLT * 5.0 / 24.0;
+const BOLT_VISIBLE: f32 = BOLT * 14.0 / 24.0;
+/// Gap between the idle clock and its battery badge.
+const BADGE_GAP: f32 = 6.0;
+
 /// Modes with the same key share content (no cross-fade between them).
 pub fn content_key(m: &Mode) -> u32 {
     match m {
@@ -58,8 +85,19 @@ fn hud_tag(k: &HudKind) -> HudTag {
     }
 }
 
+/// When a paused session's lingering pill ends (`None` while playing or
+/// when nothing is lingering).
+fn media_grace_end(st: &AppState) -> Option<f64> {
+    let m = st.media.as_ref()?;
+    if m.is_playing() {
+        return None;
+    }
+    st.media_paused_at.map(|t| t + MEDIA_GRACE)
+}
+
 pub fn current_activity(st: &AppState) -> Option<Activity> {
-    let media = st.settings.show_media_activity && st.media.as_ref().is_some_and(|m| m.is_playing());
+    let media = st.settings.show_media_activity
+        && st.media.as_ref().is_some_and(|m| m.is_playing() || media_grace_end(st).is_some_and(|end| st.now < end));
     let timer = st.pomodoro.is_active();
     match (media, timer) {
         (true, true) => Some(Activity::MediaTimer),
@@ -81,21 +119,57 @@ pub fn collapsed_mode(st: &AppState) -> Mode {
     }
 }
 
+/// What sits beside the idle clock: a bolt while charging, the percentage
+/// when the battery runs low. Nothing otherwise (no ring: it read as a spinner).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ClockBadge {
+    Charging,
+    Low(u8),
+}
+
+fn clock_badge(st: &AppState) -> Option<ClockBadge> {
+    let p = &st.power;
+    if !p.has_battery {
+        None
+    } else if p.charging {
+        Some(ClockBadge::Charging)
+    } else if p.percent <= 20 {
+        Some(ClockBadge::Low(p.percent))
+    } else {
+        None
+    }
+}
+
 pub fn geom(m: &Mode, st: &AppState) -> Geom {
     match m {
         Mode::Idle => match st.settings.idle_style {
-            IdleStyle::Clock => Geom::new(if st.settings.use_24h { 124.0 } else { 146.0 }, 30.0, 14.0),
+            IdleStyle::Clock => {
+                let base = if st.settings.use_24h { 84.0 } else { 104.0 };
+                let badge = match clock_badge(st) {
+                    Some(ClockBadge::Charging) => 22.0,
+                    Some(ClockBadge::Low(_)) => 34.0,
+                    None => 0.0,
+                };
+                Geom::new(base + badge, 30.0, 14.0)
+            }
             IdleStyle::Minimal => Geom::new(150.0, 26.0, 12.0),
             IdleStyle::Eyes => Geom::new(118.0, 30.0, 14.0),
             IdleStyle::Hidden => Geom::new(150.0, 5.0, 2.5),
         },
-        Mode::Activity(Activity::Media) => Geom::new(252.0, 32.0, 15.0),
-        Mode::Activity(Activity::Timer) => Geom::new(204.0, 32.0, 15.0),
-        Mode::Activity(Activity::MediaTimer) => Geom::new(296.0, 32.0, 15.0),
+        Mode::Activity(Activity::Media) => {
+            let w = if st.now < st.ui.peek_until { MEDIA_PEEK_W } else { MEDIA_W };
+            Geom::new(w, 32.0, 15.0)
+        }
+        Mode::Activity(Activity::Timer) => {
+            // "MM:SS" until the countdown needs another digit.
+            let long = fmt_countdown(st.pomodoro.remaining(st.now)).len() > 5;
+            Geom::new(if long { 112.0 } else { 96.0 }, 32.0, 15.0)
+        }
+        Mode::Activity(Activity::MediaTimer) => Geom::new(132.0, 32.0, 15.0),
         Mode::Hud(HudTag::Volume) => Geom::new(316.0, 40.0, 19.0),
         Mode::Hud(HudTag::Charging) | Mode::Hud(HudTag::LowBattery) => Geom::new(300.0, 40.0, 19.0),
         Mode::Hud(HudTag::Bluetooth) => Geom::new(336.0, 46.0, 22.0),
-        Mode::Notice => Geom::new(372.0, 60.0, 27.0),
+        Mode::Notice => Geom::new(372.0, 52.0, 24.0),
         Mode::Expanded(p) => {
             let h = pages::HEADER_H + pages::content_height(*p, st) + pages::PAD;
             Geom::new(st.settings.expanded_width, h.round(), 30.0)
@@ -104,19 +178,36 @@ pub fn geom(m: &Mode, st: &AppState) -> Geom {
 }
 
 /// Needs continuous (30 fps) frames: animated equalizer while music plays.
+/// A paused (lingering) pill is static.
 pub fn is_live(m: &Mode, st: &AppState) -> bool {
     matches!(m, Mode::Activity(Activity::Media) | Mode::Activity(Activity::MediaTimer))
         && st.media.as_ref().is_some_and(|s| s.is_playing())
 }
 
-/// Next time the collapsed content changes on its own (eye blinks).
+/// Next time the collapsed content changes on its own: eye blinks, a paused
+/// pill giving way to idle, the title peek ending. One-shot wakes, so the
+/// app stays at zero CPU in between.
 pub fn next_wake(m: &Mode, st: &AppState) -> Option<f64> {
+    let now = st.now;
+    let mut next: Option<f64> = None;
+    let mut consider = |t: f64| {
+        if t > now {
+            next = Some(next.map_or(t, |n: f64| n.min(t)));
+        }
+    };
     if *m == Mode::Idle && st.settings.idle_style == IdleStyle::Eyes {
-        let period = BLINK_PERIOD;
-        let phase = st.now % period;
-        return Some(if phase < BLINK_LEN { st.now - phase + BLINK_LEN } else { st.now - phase + period });
+        let phase = now % BLINK_PERIOD;
+        consider(if phase < BLINK_LEN { now - phase + BLINK_LEN } else { now - phase + BLINK_PERIOD });
     }
-    None
+    if !matches!(m, Mode::Expanded(_)) {
+        if let Some(end) = media_grace_end(st) {
+            consider(end);
+        }
+    }
+    if *m == Mode::Activity(Activity::Media) {
+        consider(st.ui.peek_until);
+    }
+    next
 }
 
 const BLINK_PERIOD: f64 = 5.5;
@@ -132,14 +223,11 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, m: &Mode, body: Rect) {
     }
 }
 
-fn battery_color(st: &AppState) -> Color {
-    if st.power.charging || st.power.on_ac {
-        palette::GREEN
-    } else if st.power.percent <= 20 {
-        palette::RED
-    } else {
-        Color::white(0.9)
-    }
+/// Snap a DIP coordinate to the device-pixel grid (crisp small outlines at
+/// 100 % and 150 %).
+fn snap(ui: &Ui, v: f32) -> f32 {
+    let s = ui.c.scale().max(0.1);
+    (v * s).round() / s
 }
 
 fn draw_idle(ui: &mut Ui, st: &mut AppState, body: Rect) {
@@ -147,17 +235,30 @@ fn draw_idle(ui: &mut Ui, st: &mut AppState, body: Rect) {
     match st.settings.idle_style {
         IdleStyle::Clock => {
             let time = fmt_clock(&st.local, st.settings.use_24h);
-            let ts = TextStyle::new(13.0).weight(Weight::Semibold).tabular();
-            if st.power.has_battery {
-                let c = Point::new(body.x + 17.0, cy);
-                ui.c.ring(c, 6.0, 2.2, st.power.percent as f32 / 100.0, Color::white(0.18), battery_color(st));
-                if st.power.charging {
-                    ui.c.icon(Icon::Bolt, Rect::from_center(c, 8.0, 8.0), palette::GREEN);
-                }
-                ui.c.text(&time, Rect::new(body.x + 30.0, body.y, body.w - 42.0, body.h), &ts.right());
-            } else {
+            let ts = TextStyle::body().weight(Weight::Semibold).tabular();
+            let Some(badge) = clock_badge(st) else {
                 ui.c.text(&time, body, &ts.center());
+                return;
+            };
+            // Badge + gap + time, centred as one group.
+            let (tw, _) = ui.c.measure(&time, &ts, 400.0);
+            let pct_ts = TextStyle::footnote().weight(Weight::Semibold).tabular().color(palette::RED);
+            let (bw, pct) = match badge {
+                ClockBadge::Charging => (BOLT_VISIBLE, String::new()),
+                ClockBadge::Low(p) => {
+                    let s = format!("{p}%");
+                    (ui.c.measure(&s, &pct_ts, 100.0).0, s)
+                }
+            };
+            let x0 = body.center().x - (bw + BADGE_GAP + tw) / 2.0;
+            match badge {
+                ClockBadge::Charging => {
+                    let r = Rect::new(x0 - BOLT_INSET, cy - BOLT / 2.0, BOLT, BOLT);
+                    ui.c.icon(Icon::Bolt, r, palette::GREEN);
+                }
+                ClockBadge::Low(_) => ui.c.text(&pct, Rect::new(x0, body.y, bw + 2.0, body.h), &pct_ts),
             }
+            ui.c.text(&time, Rect::new(x0 + bw + BADGE_GAP, body.y, tw + 2.0, body.h), &ts);
         }
         IdleStyle::Eyes => {
             let blink = (st.now % BLINK_PERIOD) < BLINK_LEN;
@@ -173,7 +274,7 @@ fn draw_idle(ui: &mut Ui, st: &mut AppState, body: Rect) {
     }
 }
 
-/// Little animated equalizer (4 bars).
+/// Little equalizer (4 bars): animated while playing, low and static when paused.
 fn equalizer(ui: &mut Ui, r: Rect, color: Color, playing: bool, t: f64) {
     let n = 4;
     let gap = 2.5;
@@ -187,14 +288,16 @@ fn equalizer(ui: &mut Ui, r: Rect, color: Color, playing: bool, t: f64) {
     }
 }
 
-fn art_or_icon(ui: &mut Ui, st: &AppState, r: Rect) {
-    match st.media.as_ref().and_then(|m| m.art.clone()) {
-        Some(art) => ui.c.image(&art, r, 6.0),
+/// Album art (or a note glyph), dimmed while the player is paused.
+fn art_or_icon(ui: &mut Ui, st: &AppState, r: Rect, playing: bool) {
+    let art = st.media.as_ref().and_then(|m| m.art.as_ref());
+    ui.c.with_alpha(if playing { 1.0 } else { 0.55 }, |c| match art {
+        Some(art) => c.image(art, r, 6.0),
         None => {
-            ui.c.fill_rrect(r, 6.0, palette::SURFACE_HOVER);
-            ui.c.icon(Icon::Music, r.inset(4.0, 4.0), palette::TEXT_DIM);
+            c.fill_rrect(r, 6.0, palette::SURFACE_HOVER);
+            c.icon(Icon::Music, r.inset(4.0, 4.0), palette::TEXT_DIM);
         }
-    }
+    });
 }
 
 fn phase_color(p: Phase) -> Color {
@@ -204,33 +307,88 @@ fn phase_color(p: Phase) -> Color {
     }
 }
 
+fn countdown_style(col: Color, paused: bool) -> TextStyle {
+    TextStyle::body().weight(Weight::Semibold).tabular().color(if paused { palette::TEXT_DIM } else { col })
+}
+
+/// Alpha of the title peek: it grows with the pill (so the growing body
+/// never cuts the text) and only around a peek.
+fn peek_alpha(st: &AppState, w: f32) -> f32 {
+    let p = st.ui.peek_until;
+    if p <= 0.0 || st.now >= p + PEEK_TAIL {
+        return 0.0;
+    }
+    clamp01((w - MEDIA_W) / (MEDIA_PEEK_W - MEDIA_W))
+}
+
+/// "Title · artist" between `x0` and `x1`, title first; the artist only
+/// when there is room for more than an ellipsis.
+fn draw_peek(ui: &mut Ui, st: &AppState, x0: f32, x1: f32, body: Rect, alpha: f32) {
+    let Some(m) = st.media.as_ref() else { return };
+    let (main, rest) = if m.title.trim().is_empty() { (m.artist.trim(), "") } else { (m.title.trim(), m.artist.trim()) };
+    let avail = x1 - x0;
+    if main.is_empty() || avail < 20.0 {
+        return;
+    }
+    let title_st = TextStyle::body().weight(Weight::Semibold);
+    let artist_st = TextStyle::body().color(palette::TEXT_DIM);
+    ui.c.with_alpha(alpha, |c| {
+        let (tw, _) = c.measure(main, &title_st, 10_000.0);
+        if tw >= avail {
+            c.text(main, Rect::new(x0, body.y, avail, body.h), &title_st);
+            return;
+        }
+        c.text(main, Rect::new(x0, body.y, tw + 2.0, body.h), &title_st);
+        let room = avail - tw;
+        if !rest.is_empty() && room >= 32.0 {
+            c.text(&format!(" \u{b7} {rest}"), Rect::new(x0 + tw, body.y, room, body.h), &artist_st);
+        }
+    });
+}
+
 fn draw_activity(ui: &mut Ui, st: &mut AppState, a: Activity, body: Rect) {
     let cy = body.center().y;
-    let left = Rect::new(body.x + 12.0, cy - 11.0, 22.0, 22.0);
-    let accent = st.media_accent();
+    let art = Rect::new(body.x + 12.0, cy - 11.0, 22.0, 22.0);
     let playing = st.media.as_ref().is_some_and(|m| m.is_playing());
     match a {
         Activity::Media => {
-            art_or_icon(ui, st, left);
-            equalizer(ui, Rect::new(body.right() - 34.0, cy - 8.0, 20.0, 16.0), accent, playing, st.now);
+            art_or_icon(ui, st, art, playing);
+            let eq = Rect::new(body.right() - 34.0, cy - 8.0, 20.0, 16.0);
+            equalizer(ui, eq, st.media_accent(), playing, st.now);
+            let alpha = peek_alpha(st, body.w);
+            if alpha > 0.01 {
+                draw_peek(ui, st, art.right() + 10.0, eq.x - 10.0, body, alpha);
+            }
         }
-        Activity::Timer | Activity::MediaTimer => {
+        Activity::Timer => {
+            // Ring (with the phase glyph) on the left, digits right after it.
             let p = &st.pomodoro;
             let col = phase_color(p.phase);
-            if a == Activity::MediaTimer {
-                art_or_icon(ui, st, left);
-            } else {
-                let c = left.center();
-                ui.c.ring(c, 9.0, 2.4, p.progress(st.now), col.with_alpha(0.25), col);
+            let paused = !p.is_running();
+            let c = Point::new(body.x + 12.0 + 9.0, cy);
+            ui.c.ring(c, 9.0, 2.4, p.progress(st.now), RING_TRACK, col);
+            let glyph = Rect::from_center(c, 9.0, 9.0);
+            if paused {
+                ui.c.icon(Icon::Pause, glyph, palette::TEXT_DIM);
+            } else if p.phase != Phase::Focus {
+                ui.c.icon(Icon::Coffee, glyph, col);
             }
             let text = fmt_countdown(p.remaining(st.now));
+            ui.c.text(&text, Rect::new(body.x + 40.0, body.y, 64.0, body.h), &countdown_style(col, paused));
+        }
+        Activity::MediaTimer => {
+            // Art on the left; the ring sits right next to its countdown.
+            art_or_icon(ui, st, art, playing);
+            let p = &st.pomodoro;
+            let col = phase_color(p.phase);
             let paused = !p.is_running();
-            let ts = TextStyle::new(14.0).weight(Weight::Semibold).tabular().color(if paused { palette::TEXT_DIM } else { col }).right();
-            ui.c.text(&text, Rect::new(body.right() - 92.0, body.y, 78.0, body.h), &ts);
-            if a == Activity::MediaTimer {
-                let c = Point::new(body.right() - 104.0, cy);
-                ui.c.ring(c, 7.0, 2.2, p.progress(st.now), col.with_alpha(0.25), col);
-            }
+            let text = fmt_countdown(p.remaining(st.now));
+            let ts = countdown_style(col, paused);
+            let (tw, _) = ui.c.measure(&text, &ts, 200.0);
+            let right = body.right() - 14.0;
+            ui.c.text(&text, Rect::new(right - 64.0, body.y, 64.0, body.h), &ts.right());
+            let c = Point::new(right - tw - 6.0 - 7.0, cy);
+            ui.c.ring(c, 7.0, 2.2, p.progress(st.now), RING_TRACK, col);
         }
     }
 }
@@ -239,6 +397,7 @@ fn draw_hud(ui: &mut Ui, st: &mut AppState, body: Rect) {
     let Some(hud) = st.hud.clone() else { return };
     let cy = body.center().y;
     let icon_r = Rect::new(body.x + 16.0, cy - 10.0, 20.0, 20.0);
+    let label_st = TextStyle::body().weight(Weight::Semibold);
     match hud.kind {
         HudKind::Volume { level, muted } => {
             let icon = if muted || level <= 0.001 {
@@ -249,7 +408,8 @@ fn draw_hud(ui: &mut Ui, st: &mut AppState, body: Rect) {
                 Icon::Volume
             };
             ui.c.icon(icon, icon_r, palette::TEXT);
-            let bar = Rect::new(body.x + 48.0, cy - 3.0, body.w - 48.0 - 56.0, 6.0);
+            // The bar stops 62 DIPs short so "100%" and "Muted" keep a gap.
+            let bar = Rect::new(body.x + 48.0, cy - 3.0, body.w - 48.0 - 62.0, 6.0);
             // The bar glides to new levels; the number is exact immediately.
             let target = if muted { 0.0 } else { level };
             let cur = st.ui.hud_level;
@@ -264,57 +424,123 @@ fn draw_hud(ui: &mut Ui, st: &mut AppState, body: Rect) {
             if shown > 0.0 {
                 ui.c.fill_rrect(Rect::new(bar.x, bar.y, (bar.w * shown).max(6.0), bar.h), 3.0, Color::white(0.95));
             }
-            let pct = if muted { "Muted".to_string() } else { format!("{}", (level * 100.0).round() as i32) };
-            ui.c.text(&pct, Rect::new(body.right() - 52.0, body.y, 38.0, body.h), &TextStyle::new(13.0).weight(Weight::Semibold).tabular().right());
+            let pct = if muted { "Muted".to_string() } else { format!("{}%", (level * 100.0).round() as i32) };
+            ui.c.text(&pct, Rect::new(body.right() - HUD_PAD - 48.0, body.y, 48.0, body.h), &label_st.tabular().right());
         }
         HudKind::Charging { percent, plugged } => {
             let (icon, color, label) = if plugged { (Icon::Bolt, palette::GREEN, "Charging") } else { (Icon::Battery, palette::TEXT, "On battery") };
             ui.c.icon(icon, icon_r, color);
-            ui.c.text(label, Rect::new(body.x + 46.0, body.y, 140.0, body.h), &TextStyle::new(13.0).weight(Weight::Semibold));
-            battery_badge(ui, Point::new(body.right() - 58.0, cy), percent, color);
+            ui.c.text(label, Rect::new(body.x + 46.0, body.y, 140.0, body.h), &label_st);
+            battery_badge(ui, body.right() - HUD_PAD, cy, percent, color);
         }
         HudKind::LowBattery { percent } => {
             ui.c.icon(Icon::Battery, icon_r, palette::RED);
-            ui.c.text("Low battery", Rect::new(body.x + 46.0, body.y, 140.0, body.h), &TextStyle::new(13.0).weight(Weight::Semibold));
-            battery_badge(ui, Point::new(body.right() - 58.0, cy), percent, palette::RED);
+            ui.c.text("Low battery", Rect::new(body.x + 46.0, body.y, 140.0, body.h), &label_st);
+            battery_badge(ui, body.right() - HUD_PAD, cy, percent, palette::RED);
         }
         HudKind::Bluetooth { name, connected, battery, audio } => {
             let c = Point::new(body.x + 30.0, cy);
             ui.c.fill_circle(c, 15.0, if connected { palette::BLUE } else { Color::white(0.16) });
             ui.c.icon(if audio { Icon::Headphones } else { Icon::Bluetooth }, Rect::from_center(c, 17.0, 17.0), Color::white(1.0));
             let text_x = body.x + 54.0;
-            let right_w = if battery.is_some() { 80.0 } else { 16.0 };
-            let tw = body.right() - text_x - right_w;
-            ui.c.text(&name, Rect::new(text_x, cy - 17.0, tw, 18.0), &TextStyle::new(13.0).weight(Weight::Semibold));
+            let text_right = match battery {
+                Some(b) => battery_badge(ui, body.right() - HUD_PAD, cy, b, if b <= 20 { palette::RED } else { palette::GREEN }) - 12.0,
+                None => body.right() - HUD_PAD,
+            };
+            let tw = text_right - text_x;
+            ui.c.text(&name, Rect::new(text_x, cy - 17.0, tw, 18.0), &label_st);
             ui.c.text(
                 if connected { "Connected" } else { "Disconnected" },
                 Rect::new(text_x, cy + 1.0, tw, 16.0),
-                &TextStyle::new(11.5).color(palette::TEXT_DIM),
+                &TextStyle::footnote().color(palette::TEXT_DIM),
             );
-            if let Some(b) = battery {
-                battery_badge(ui, Point::new(body.right() - 58.0, cy), b, if b <= 20 { palette::RED } else { palette::GREEN });
-            }
         }
     }
 }
 
-/// Ring + percentage, ~56 DIPs wide, centred vertically on `left_center`.
-fn battery_badge(ui: &mut Ui, left_center: Point, percent: u8, color: Color) {
-    let c = Point::new(left_center.x + 8.0, left_center.y);
-    ui.c.ring(c, 7.5, 2.4, percent as f32 / 100.0, color.with_alpha(0.25), color);
-    ui.c.text(&format!("{percent}%"), Rect::new(c.x + 12.0, c.y - 10.0, 36.0, 20.0), &TextStyle::new(12.5).weight(Weight::Semibold).tabular());
+/// A small drawn battery and the percentage, right-aligned to `right` and
+/// centred on `cy`. Returns the badge's left edge.
+fn battery_badge(ui: &mut Ui, right: f32, cy: f32, percent: u8, color: Color) -> f32 {
+    let ts = TextStyle::body().weight(Weight::Semibold).tabular();
+    let label = format!("{percent}%");
+    let (tw, _) = ui.c.measure(&label, &ts, 100.0);
+    let tx = right - tw;
+    ui.c.text(&label, Rect::new(tx, cy - 10.0, tw + 2.0, 20.0), &ts);
+    // 20x10 outline, a 1.5x4 nub on the right, 6 DIPs before the number.
+    let x = snap(ui, tx - 6.0 - 1.5 - 20.0);
+    let y = snap(ui, cy - 5.0);
+    ui.c.stroke_rrect(Rect::new(x, y, 20.0, 10.0), 3.0, palette::TEXT_DIM, 1.3);
+    ui.c.fill_rrect(Rect::new(x + 20.0, y + 3.0, 1.5, 4.0), 0.75, palette::TEXT_DIM);
+    let p = (percent as f32 / 100.0).clamp(0.0, 1.0);
+    if p > 0.0 {
+        ui.c.fill_rrect(Rect::new(x + 2.0, y + 2.0, (16.0 * p).max(3.0), 6.0), 1.5, color);
+    }
+    x
+}
+
+/// "+250 ml", "+1 L", "+1.25 L": the same label as the Water page's cup button.
+fn fmt_cup(ml: u32) -> String {
+    if ml < 1000 {
+        return format!("+{ml} ml");
+    }
+    let cl = ml.saturating_add(5) / 10;
+    if cl.is_multiple_of(100) {
+        format!("+{} L", cl / 100)
+    } else if cl.is_multiple_of(10) {
+        format!("+{}.{} L", cl / 100, (cl / 10) % 10)
+    } else {
+        format!("+{}.{:02} L", cl / 100, cl % 100)
+    }
+}
+
+/// The inline action already happened: the pill shows a check until the
+/// notice leaves (the app gives it `INLINE_DONE` more seconds).
+fn inline_done(st: &AppState, n: &Notice, a: InlineAction) -> bool {
+    let window = INLINE_DONE + 0.05;
+    match a {
+        InlineAction::LogWater => {
+            let bumped = st.ui.water_bump > 0.0 && st.now - st.ui.water_bump < window;
+            let logged = n.until - st.now <= window && st.store.water.last_drink_unix().is_some_and(|t| t >= st.unix - 1);
+            bumped || logged
+        }
+        InlineAction::StartFocus => st.pomodoro.is_active(),
+    }
 }
 
 fn draw_notice(ui: &mut Ui, st: &mut AppState, body: Rect) {
     let Some(n) = st.notice.clone() else { return };
     let cy = body.center().y;
-    let c = Point::new(body.x + 34.0, cy);
-    ui.c.fill_circle(c, 18.0, n.color.with_alpha(0.22));
-    ui.c.icon(n.icon, Rect::from_center(c, 20.0, 20.0), n.color);
-    let tx = body.x + 62.0;
-    let tw = body.w - 62.0 - 22.0;
-    ui.c.text(&n.title, Rect::new(tx, cy - 19.0, tw, 20.0), &TextStyle::new(14.0).weight(Weight::Semibold));
-    ui.c.text(&n.subtitle, Rect::new(tx, cy + 1.0, tw, 18.0), &TextStyle::new(12.0).color(palette::TEXT_DIM));
-    // The whole notice is a button (handled on mouse-down by the app).
+    // Disc and inline pill keep the same 16 DIP inset from the ends.
+    let c = Point::new(body.x + 32.0, cy);
+    ui.c.fill_circle(c, 16.0, n.color.with_alpha(0.22));
+    ui.c.icon(n.icon, Rect::from_center(c, 18.0, 18.0), n.color);
+
+    let inline = n.inline.map(|a| {
+        let (label, icon, color) = match a {
+            InlineAction::LogWater => (fmt_cup(st.settings.water.cup_ml), Icon::DropFill, palette::CYAN),
+            // Orange for focus; a break starts in its own green.
+            InlineAction::StartFocus => ("Start".to_string(), Icon::Play, phase_color(st.pomodoro.phase)),
+        };
+        let w = ui.pill_width(&label, true, true).max(76.0);
+        let r = Rect::new(body.right() - 16.0 - w, cy - PILL_SMALL / 2.0, w, PILL_SMALL);
+        (a, label, icon, color, r)
+    });
+
+    let tx = c.x + 16.0 + 10.0;
+    let text_right = inline.as_ref().map_or(body.right() - 22.0, |(.., r)| r.x - 12.0);
+    let tw = (text_right - tx).max(0.0);
+    ui.c.text(&n.title, Rect::new(tx, cy - 18.0, tw, 20.0), &TextStyle::headline());
+    ui.c.text(&n.subtitle, Rect::new(tx, cy + 1.0, tw, 16.0), &TextStyle::footnote().color(palette::TEXT_DIM));
+
+    // The whole notice is a button (handled on mouse-down by the app); the
+    // inline pill is registered after it so it wins the hit test.
     ui.button(wid("notice"), body);
+    if let Some((a, label, icon, color, r)) = inline {
+        if inline_done(st, &n, a) {
+            ui.c.fill_rrect(r, r.h / 2.0, color.with_alpha(0.20));
+            ui.c.icon(Icon::Check, Rect::from_center(r.center(), 14.0, 14.0), color);
+        } else {
+            ui.pill(wid("notice.act"), r, &label, Some(icon), PillStyle::Primary(color));
+        }
+    }
 }
