@@ -82,14 +82,20 @@ pub fn hairline(scale: f32) -> f32 {
 ///
 /// The outline lands on whole pixels ([`snap`]), so its straight edges and
 /// the hairline are crisp at any scale; the hairline keeps the ink of a
-/// 1 DIP line however many pixels it is. The shadow fades with `fill` (the
-/// Hidden idle style's near-invisible body casts none) and lies under the
-/// opaque body, which covers it exactly: it only shows outside the outline.
+/// 1 DIP line however many pixels it is. The shadow fades with `fill` (a
+/// near-invisible body casts none) and lies under the opaque body, which
+/// covers it exactly: it only shows outside the outline.
+///
+/// The software renderer draws no shadow. Its layered window takes the
+/// mouse wherever a pixel isn't fully transparent, so a shadow there would
+/// swallow clicks meant for the app under it (a browser's tabs, beside and
+/// below the resting pill). It is also the renderer that pays for every
+/// pixel on the CPU. The GPU renderer, WARP included, and the Mac's draw it.
 pub fn draw_body(c: &mut Canvas, body: Rect, radius: f32, fill: Color, border: Option<Color>) {
     let s = c.scale();
     let body = snap(body, s);
     let r = radius.min(body.h / 2.0).min(body.w / 2.0).max(0.0);
-    if casts_shadow(fill) {
+    if c.on_gpu() && casts_shadow(fill) {
         c.rrect_shadow(body.offset(0.0, SHADOW_DROP), r, Color::black(fill.a), &SHADOW_RAMP);
     }
     c.path(&segments(body, r), Some(fill), None);
@@ -101,8 +107,9 @@ pub fn draw_body(c: &mut Canvas, body: Rect, radius: f32, fill: Color, border: O
 }
 
 /// Whether a body filled with `fill` casts its shadow (at `fill.a` times
-/// the ramp): not one that is all but invisible, like the Hidden idle
-/// style's 1/255 body, whose shadow would round to nothing.
+/// the ramp): not one that is all but invisible, like a 1/255 body (the
+/// Hidden idle style's, which the app no longer draws), whose shadow would
+/// round to nothing.
 fn casts_shadow(fill: Color) -> bool {
     fill.a * SHADOW_RAMP[0].1 * 255.0 >= 0.5
 }
