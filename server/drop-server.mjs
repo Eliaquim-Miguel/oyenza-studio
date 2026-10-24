@@ -914,4 +914,16 @@ async function main() {
   process.on('SIGTERM', stop);
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
+// Run when started as a program. Compare real paths: deployments start it
+// through a symlink (current/ -> releases/...), and Node resolves the module's
+// own URL to the real path.
+function startedAsProgram() {
+  if (!process.argv[1]) return false;
+  try {
+    return fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (startedAsProgram()) main();
