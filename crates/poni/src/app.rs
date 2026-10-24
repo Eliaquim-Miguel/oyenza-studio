@@ -337,6 +337,8 @@ pub struct App {
     sysmon: Option<services::sysmon::SysMon>,
     /// The System page is open (its readings come each second).
     sysmon_on: bool,
+    /// The Oyenza page is on screen: its day list stays live (`services::oyenza`).
+    oyenza_watch: bool,
     /// App icons the System page asked for and hasn't got yet (the Shelf's
     /// thumbnail worker answers both pages with the same event).
     icon_wait: HashSet<String>,
@@ -500,6 +502,7 @@ impl App {
             stats_on: false,
             sysmon: None,
             sysmon_on: false,
+            oyenza_watch: false,
             icon_wait: HashSet::new(),
             tray: None,
             taskbar_created_msg,
@@ -1168,7 +1171,15 @@ impl App {
     /// on) and the power source.
     fn oyenza_activity(&self) -> services::oyenza::Activity {
         let p = self.st.power;
-        services::oyenza::Activity { in_use: !self.locked && !self.display_off, on_ac: p.on_ac || !p.has_battery, saver: p.saver }
+        services::oyenza::Activity { in_use: !self.locked && !self.display_off, on_ac: p.on_ac || !p.has_battery, saver: p.saver, watching: self.oyenza_watch }
+    }
+
+    /// The Oyenza page came on screen or went: the worker keeps its list live only meanwhile.
+    fn set_oyenza_watch(&mut self, on: bool) {
+        if on != self.oyenza_watch {
+            self.oyenza_watch = on;
+            self.tell_oyenza_activity();
+        }
     }
 
     fn tell_oyenza_activity(&self) {
@@ -1213,19 +1224,26 @@ impl App {
                 self.end_sign_in();
                 self.st.oyenza.link = OyenzaLink::Off;
             }
-            OyenzaEvent::Money { arrived, today } => {
+            OyenzaEvent::Money { arrived } => {
                 let o = &mut self.st.oyenza;
-                if let Some(t) = today {
-                    o.today = t;
-                    o.today.truncate(oyenza::MAX_TODAY_ROWS);
-                }
-                oyenza::merge_today(&mut o.today, &arrived);
                 o.updated_unix = Some(self.st.unix);
                 let fresh = oyenza::unseen(&mut o.shown, &arrived);
                 if let Some(n) = oyenza::money_notice(&fresh) {
-                    self.oyenza_notice(Icon::MoneyIn, palette::GREEN, n.title, n.shown, Some(n.hidden));
+                    let (icon, color) = match n.flow {
+                        Some(oyenza::Flow::In) => (Icon::MoneyIn, palette::GREEN),
+                        Some(oyenza::Flow::Out) => (Icon::MoneyOut, palette::BLUE),
+                        _ => (Icon::Wallet, palette::BLUE),
+                    };
+                    self.oyenza_notice(icon, color, n.title, n.shown, Some(n.hidden));
                 }
             }
+            OyenzaEvent::Activity(a) => {
+                let o = &mut self.st.oyenza;
+                o.seen.note(&a.days, now);
+                o.activity = Some(a);
+                o.updated_unix = Some(self.st.unix);
+            }
+            OyenzaEvent::ActivityChecked => self.st.oyenza.updated_unix = Some(self.st.unix),
             OyenzaEvent::Bills { today, bills } => {
                 let day = if today.is_empty() { self.st.day_key() } else { today };
                 self.st.oyenza.bills = bills;
@@ -1761,8 +1779,10 @@ impl App {
             self.set_stats(false);
             self.set_sysmon(false);
             self.st.ui.clip_flash = None;
-            // Sums shown in the Oyenza tab hide again.
+            // Sums shown in the Oyenza tab hide again, and it opens on Today next time.
             self.st.oyenza.reveal = false;
+            self.st.oyenza.day = oyenza::DayPick::Today;
+            self.st.oyenza.scroll = 0.0;
             // Settings closes with the island: it opens again on the page it was opened from.
             if self.st.page == PageKind::Settings {
                 self.st.page = self.st.ui.before_settings.take().filter(|p| pages::tabs(&self.st).contains(p)).unwrap_or(PageKind::ALL[0]);
@@ -2126,6 +2146,7 @@ impl App {
         let dt = dt.clamp(0.0, 0.05) as f32;
         self.set_stats(self.mode == Mode::Expanded(PageKind::Today));
         self.set_sysmon(self.mode == Mode::Expanded(PageKind::System));
+        self.set_oyenza_watch(self.mode == Mode::Expanded(PageKind::Oyenza));
         self.island.step(dt, now);
         self.ensure_room();
         self.note_motion(retarget, rendered_at, period, dt as f64);

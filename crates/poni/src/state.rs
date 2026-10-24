@@ -13,7 +13,7 @@ use poni_core::datetime::LocalDateTime;
 use poni_core::geom::{palette, Color};
 use poni_core::health::HealthSnapshot;
 use poni_core::lrc::Lyrics;
-use poni_core::oyenza::{Arrival, Bill, Saved};
+use poni_core::oyenza::{Activity, Bill, DayPick, Saved, Seen};
 use poni_core::phonedrop::QrMatrix;
 use poni_core::pomodoro::Pomodoro;
 use poni_core::prayer::{Place, PlaceList, Site};
@@ -277,8 +277,14 @@ pub enum OyenzaLink {
 #[derive(Clone, Debug, Default)]
 pub struct OyenzaState {
     pub link: OyenzaLink,
-    /// Today's money in, newest first.
-    pub today: Vec<Arrival>,
+    /// The last 7 days of transactions (asked while the page is open).
+    pub activity: Option<Activity>,
+    /// When each row was first seen, so what lands while you look glows.
+    pub seen: Seen,
+    /// The day the page shows (Today when it opens).
+    pub day: DayPick,
+    /// How far that day's list is scrolled (DIPs).
+    pub scroll: f32,
     pub bills: Vec<Bill>,
     /// The server's today for `bills` (YYYY-MM-DD).
     pub bills_today: String,

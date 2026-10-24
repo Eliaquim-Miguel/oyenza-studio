@@ -6,7 +6,7 @@
 use crate::gfx::Image;
 use crate::state::{MediaSession, PowerState, SysStats};
 use poni_core::lrc::Lyrics;
-use poni_core::oyenza::{Arrival, Bill, Saved};
+use poni_core::oyenza::{Activity, Arrival, Bill, Saved};
 use poni_core::romanize::Ruby;
 use poni_core::timeline::Timeline;
 use std::sync::mpsc::Sender;
@@ -91,9 +91,13 @@ pub enum OyenzaEvent {
     /// Signing in stopped without a key: `expired`, `denied`, `offline` or `other`.
     ConnectFailed(String),
     ConnectCancelled,
-    /// Money that just arrived (oldest first), and today's when asked for.
-    Money { arrived: Vec<Arrival>, today: Option<Vec<Arrival>> },
-    /// Bills due in the next 7 days, and the server's today (YYYY-MM-DD).
+    /// Money that just arrived or went out by itself (oldest first).
+    Money { arrived: Vec<Arrival> },
+    /// The last 7 days of transactions, for the Oyenza page (while it's open).
+    Activity(Activity),
+    /// Asked again while the page is open: nothing changed.
+    ActivityChecked,
+    /// Bills due in the next 30 days, and the server's today (YYYY-MM-DD).
     Bills { today: String, bills: Vec<Bill> },
     NoteSaved(Vec<Saved>),
     /// The note wasn't saved; the island puts `text` back and says why (`code`).

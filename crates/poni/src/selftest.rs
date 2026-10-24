@@ -38,7 +38,7 @@ use poni_core::addons::{Status as AddonStatus, PRAYER_TIMES};
 use poni_core::geom::{palette, Color, Point, Rect};
 use poni_core::health::{HealthDay, HealthSnapshot, HealthSource};
 use poni_core::lrc::parse_lrc;
-use poni_core::oyenza::{Arrival, Bill, Saved, WalletRef};
+use poni_core::oyenza::{Activity, Bill, Day, DayPick, Saved, Seen, Txn, WalletRef};
 use poni_core::phonedrop::QrMatrix;
 use poni_core::prayer::PlaceList;
 use poni_core::pomodoro::{Phase as PomoPhase, RunState};
@@ -477,25 +477,83 @@ fn fake_stats() -> SysStats {
     }
 }
 
-/// Oyenza, signed in as an example account: two arrivals today, a
-/// subscription tomorrow and a card bill the day after (all made up).
+/// Oyenza, signed in as an example account (all made up): a week of
+/// transactions with today's newest just landed (it glows), and bills due
+/// tomorrow and later.
 fn fake_oyenza(st: &AppState, scene: Scene, now: f64) -> OyenzaState {
-    let at = |hours_ago: i64| {
-        let t = st.unix - hours_ago * 3600;
+    let iso = |t: i64| {
         let (y, m, d) = poni_core::datetime::civil_from_days(t.div_euclid(86_400));
         let s = t.rem_euclid(86_400);
         format!("{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z", s / 3600, s % 3600 / 60, s % 60)
     };
-    let arrival = |id: &str, amount: f64, text: &str, title: &str, wallet: &str, color: &str, hours_ago: i64| Arrival {
+    // Today's rows a few minutes to hours ago, or, early in the day, spread over the time since midnight
+    // (`share` of it), so their times stay apart and in order; earlier days at set times.
+    let since_midnight = st.local.hour as i64 * 3600 + st.local.minute as i64 * 60 + st.local.second as i64;
+    let midnight = st.unix - since_midnight;
+    let ago = |minutes: i64, share: f64| iso(st.unix - (minutes * 60).min((since_midnight as f64 * share) as i64));
+    let on = |days_ago: i64, h: i64, m: i64| iso(midnight - days_ago * 86_400 + h * 3600 + m * 60);
+    let txn = |id: &str, kind: &str, title: &str, text: &str, wallet: (&str, &str), at: String, auto: bool| Txn {
         id: id.into(),
-        amount,
-        currency: "IDR".into(),
-        text: text.into(),
+        kind: kind.into(),
         title: title.into(),
-        wallet: Some(WalletRef { name: wallet.into(), color: color.into() }),
-        at: at(hours_ago),
+        amount: 1.0,
+        text: text.into(),
+        category: None,
+        wallet: Some(WalletRef { name: wallet.0.into(), color: wallet.1.into() }),
+        to_wallet: None,
+        at,
+        auto,
     };
+    let (bca, gopay, ovo, cash) = (("BCA", "#0060AF"), ("GoPay", "#00AED6"), ("OVO", "#4C3494"), ("Cash", "#8E8E93"));
     let day = |n: i64| st.local.add_days(n).day_key();
+    let mut transfer = txn("t1", "transfer", "", "Rp 500.000", bca, ago(545, 0.9), false);
+    transfer.to_wallet = Some(WalletRef { name: gopay.0.into(), color: gopay.1.into() });
+    let today = Day {
+        date: day(0),
+        count: 5,
+        in_sum: 1_250_000.0,
+        out: 152_000.0,
+        in_text: "Rp 1.250.000".into(),
+        out_text: "Rp 152.000".into(),
+        rows: vec![
+            txn("t5", "income", "Gaji Oktober", "Rp 1.250.000", bca, ago(2, 0.04), true),
+            txn("t4", "expense", "Kopi susu", "Rp 25.000", gopay, ago(33, 0.25), false),
+            txn("t3", "expense", "Grab ke rumah", "Rp 38.000", ovo, ago(128, 0.5), false),
+            txn("t2", "expense", "Tokopedia · Kabel USB-C", "Rp 89.000", bca, ago(427, 0.75), true),
+            transfer,
+        ],
+    };
+    let yesterday = Day {
+        date: day(-1),
+        count: 4,
+        in_sum: 200_000.0,
+        out: 395_000.0,
+        in_text: "Rp 200.000".into(),
+        out_text: "Rp 395.000".into(),
+        rows: vec![
+            txn("y4", "expense", "Makan siang", "Rp 40.000", gopay, on(1, 12, 40), false),
+            txn("y3", "expense", "Listrik PLN", "Rp 350.000", bca, on(1, 10, 2), true),
+            txn("y2", "income", "Uang masuk", "Rp 200.000", gopay, on(1, 9, 15), true),
+            txn("y1", "expense", "Parkir", "Rp 5.000", cash, on(1, 8, 10), false),
+        ],
+    };
+    let thursday = Day {
+        date: day(-2),
+        count: 2,
+        in_sum: 0.0,
+        out: 172_000.0,
+        in_text: "Rp 0".into(),
+        out_text: "Rp 172.000".into(),
+        rows: vec![txn("w2", "expense", "Bensin", "Rp 150.000", bca, on(2, 18, 20), false), txn("w1", "expense", "Kopi", "Rp 22.000", gopay, on(2, 8, 45), false)],
+    };
+    let empty = |n: i64| Day { date: day(-n), count: 0, in_sum: 0.0, out: 0.0, in_text: "Rp 0".into(), out_text: "Rp 0".into(), rows: Vec::new() };
+    let days = vec![today.clone(), yesterday, thursday, empty(3), empty(4), empty(5), empty(6)];
+    // Everything was on the page a while ago except today's newest, which just landed.
+    let mut seen = Seen::default();
+    let mut before = days.clone();
+    before[0].rows.remove(0);
+    seen.note(&before, now - 120.0);
+    seen.note(&days, now - 12.0);
     let link = match scene {
         Scene::OyenzaSignIn | Scene::SettingsSigningIn => OyenzaLink::Connecting {
             code: "KPJX-TMNQ".into(),
@@ -505,18 +563,25 @@ fn fake_oyenza(st: &AppState, scene: Scene, now: f64) -> OyenzaState {
         },
         _ => OyenzaLink::Connected { account: "a•••@example.com".into() },
     };
+    let bill = |kind: &str, name: &str, due: String, text: Option<&str>| Bill { kind: kind.into(), name: name.into(), due, amount: text.map(|_| 1.0), text: text.map(Into::into) };
     OyenzaState {
         link,
-        today: vec![
-            arrival("t2", 50_000.0, "Rp 50.000", "Uang masuk", "GoPay", "#00AED6", 1),
-            arrival("t1", 1_250_000.0, "Rp 1.250.000", "Gaji Oktober", "BCA", "#0060AF", 3),
-        ],
+        activity: Some(Activity { cursor: "42".into(), today: day(0), days }),
+        seen,
+        day: match scene {
+            Scene::OyenzaYesterday => DayPick::Past(1),
+            Scene::OyenzaTomorrow => DayPick::Tomorrow,
+            _ => DayPick::Today,
+        },
         bills: vec![
-            Bill { kind: "subscription".into(), name: "Spotify".into(), due: day(1), amount: Some(54_990.0), text: Some("Rp 54.990".into()) },
-            Bill { kind: "card".into(), name: "Kartu Kredit BCA".into(), due: day(2), amount: None, text: None },
+            bill("subscription", "Spotify", day(1), Some("Rp 54.990")),
+            bill("card", "Kartu Kredit BCA", day(1), None),
+            bill("subscription", "Netflix", day(5), Some("Rp 54.000")),
+            bill("subscription", "Google One", day(8), Some("Rp 26.900")),
+            bill("card", "Kartu Kredit Mandiri", day(17), None),
         ],
         bills_today: st.day_key(),
-        updated_unix: Some(st.unix - 60),
+        updated_unix: Some(st.unix - 8),
         saved: (scene == Scene::OyenzaSaved).then(|| {
             let kopi = Saved { id: "s1".into(), title: "Kopi".into(), amount: 25_000.0, text: "Rp 25.000".into(), category: Some("Makan & Minum".into()), wallet: "GoPay".into() };
             (vec![kopi], now + 9.5)
@@ -666,9 +731,15 @@ enum Scene {
     PrayerCountdown,
     /// Prayer times: Ashar's time came, the adzan playing.
     PrayerNotice,
+    /// The Oyenza page on yesterday (a dot on Today: something new there).
+    OyenzaYesterday,
+    /// The Oyenza page on tomorrow's bills.
+    OyenzaTomorrow,
+    /// Oyenza: a card charge read from the bank's email, its sum hidden.
+    OyenzaMoneyOut,
 }
 
-const SCENES: [Scene; 54] = [
+const SCENES: [Scene; 57] = [
     Scene::IdleClock,
     Scene::IdleEyes,
     Scene::Media,
@@ -728,6 +799,9 @@ const SCENES: [Scene; 54] = [
     Scene::PrayerPicker,
     Scene::PrayerCountdown,
     Scene::PrayerNotice,
+    Scene::OyenzaYesterday,
+    Scene::OyenzaTomorrow,
+    Scene::OyenzaMoneyOut,
 ];
 
 impl Scene {
@@ -778,6 +852,9 @@ impl Scene {
             Scene::PrayerPicker => "page-prayer-picker".into(),
             Scene::PrayerCountdown => "prayer-countdown".into(),
             Scene::PrayerNotice => "prayer-notice".into(),
+            Scene::OyenzaYesterday => "page-oyenza-yesterday".into(),
+            Scene::OyenzaTomorrow => "page-oyenza-tomorrow".into(),
+            Scene::OyenzaMoneyOut => "oyenza-money-out".into(),
         }
     }
 
@@ -787,7 +864,7 @@ impl Scene {
             Scene::ShelfDrop | Scene::ShelfEmpty | Scene::ShelfPhone | Scene::ShelfPhoneAsk | Scene::ShelfPhoneReceive => Some(PageKind::Shelf),
             Scene::TabClick => Some(PageKind::ALL[0]),
             Scene::HealthSignedOut => Some(PageKind::Health),
-            Scene::OyenzaSignIn | Scene::OyenzaSaved => Some(PageKind::Oyenza),
+            Scene::OyenzaSignIn | Scene::OyenzaSaved | Scene::OyenzaYesterday | Scene::OyenzaTomorrow => Some(PageKind::Oyenza),
             Scene::HealthSignedIn => Some(PageKind::Health),
             Scene::GearClick | Scene::SettingsSigningIn | Scene::SettingsSignedIn | Scene::SettingsStayOnTop => Some(PageKind::Settings),
             Scene::SystemMemory | Scene::SystemDrives | Scene::SystemNetwork | Scene::SystemBattery | Scene::SystemWaiting | Scene::SystemGpu => {
@@ -810,6 +887,9 @@ impl Scene {
                 | Scene::OyenzaBill
                 | Scene::OyenzaSignIn
                 | Scene::OyenzaSaved
+                | Scene::OyenzaYesterday
+                | Scene::OyenzaTomorrow
+                | Scene::OyenzaMoneyOut
                 | Scene::Page(PageKind::Oyenza)
                 | Scene::HealthSignedIn
                 | Scene::SettingsSigningIn
@@ -1451,6 +1531,16 @@ impl SelfTest {
                 action: Some(NoticeAction::OpenPage(PageKind::Shelf)),
                 inline: None,
                 reveal: None,
+            }),
+            Scene::OyenzaMoneyOut => Some(Notice {
+                icon: Icon::MoneyOut,
+                color: palette::BLUE,
+                title: "Money out · BCA".into(),
+                subtitle: "Amount and payee hidden".into(),
+                until,
+                action: Some(NoticeAction::OpenPage(PageKind::Oyenza)),
+                inline: Some(InlineAction::ShowAmount),
+                reveal: Some("Rp 89.000 · Tokopedia".into()),
             }),
             Scene::OyenzaBill => Some(Notice {
                 icon: Icon::Calendar,
