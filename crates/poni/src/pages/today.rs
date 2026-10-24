@@ -2,7 +2,9 @@
 //!
 //! Left: the date (weekday, big day number, month/year, ISO week) and a
 //! compact Monday-first month calendar. Right: a 2×2 grid of stat tiles with
-//! rings (CPU, memory, disk, battery or uptime).
+//! rings (CPU, memory, disk, battery or uptime). The header leaves the date
+//! out on this page, so the page always shows it (the calendar title carries
+//! it when the big date block doesn't fit).
 //!
 //! Stats are sampled once a second by the app while this page is open; the
 //! page itself never asks for continuous frames.
@@ -14,10 +16,10 @@ use crate::ui::Ui;
 use poni_core::datetime::{civil_from_days, days_from_civil, fmt_clock, month_grid, weekday_from_days, LocalDateTime, MONTH_SHORT, WEEKDAY_SHORT};
 use poni_core::geom::{palette, Color, Point, Rect};
 
-const HEIGHT: f32 = 170.0;
+const HEIGHT: f32 = 164.0;
 
-/// Below this content width the big date block is dropped (the header
-/// already shows the date) so the tiles keep their room.
+/// Below this content width the big date block is dropped (the calendar
+/// title then names the day) so the tiles keep their room.
 const COMPACT_BELOW: f32 = 560.0;
 const DATE_W: f32 = 104.0;
 const DATE_GAP: f32 = 12.0;
@@ -31,6 +33,9 @@ const TILE_GAP: f32 = 8.0;
 const TILE_RADIUS: f32 = 16.0;
 const RING_R: f32 = 16.0;
 const RING_W: f32 = 4.0;
+/// Neutral track shared by every progress ring in the app.
+const RING_TRACK: Color = Color::white(0.14);
+const RING_ICON: f32 = 12.0;
 
 const WEEKDAY_LONG: [&str; 7] = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const MONTH_LONG: [&str; 12] = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -46,12 +51,15 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
     let area = Rect::new(area.x, area.y, area.w, HEIGHT);
     let compact = area.w < COMPACT_BELOW;
     let cal_w = CELL_W * 7.0;
+    // The date block and the calendar share one top edge, so the weekday
+    // name sits on the same line as the M–S initials.
+    let cal_top = area.y + ((area.h - calendar_block_h(&st.local, compact)) / 2.0).max(0.0);
     let mut x = area.x;
     if !compact {
-        draw_date(ui, st, Rect::new(x, area.y, DATE_W, area.h));
+        draw_date(ui, st, Rect::new(x, area.y, DATE_W, area.h), cal_top);
         x += DATE_W + DATE_GAP;
     }
-    draw_calendar(ui, st, Rect::new(x, area.y, cal_w, area.h), compact);
+    draw_calendar(ui, st, Rect::new(x, area.y, cal_w, area.h), cal_top, compact);
     x += cal_w + BLOCK_GAP;
     let tiles = Rect::new(x, area.y, (area.right() - x).max(0.0), area.h);
     draw_tiles(ui, st, tiles);
@@ -59,56 +67,67 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
 
 // ------------------------------------------------------------------ date
 
-fn draw_date(ui: &mut Ui, st: &AppState, r: Rect) {
+/// `top` = the calendar block's top edge. The weekday line uses the same
+/// 16-high band and 11 DIP caps as the initials row, so both share a baseline.
+fn draw_date(ui: &mut Ui, st: &AppState, r: Rect, top: f32) {
     let t = st.local;
     if !valid_date(&t) {
         return;
     }
     let wd = t.weekday() as usize % 7;
-    let group_h = 16.0 + 58.0 + 18.0 + 16.0;
-    let y = r.y + (r.h - group_h) / 2.0;
-    ui.c.text(
-        &WEEKDAY_LONG[wd].to_uppercase(),
-        Rect::new(r.x, y, r.w, 16.0),
-        &TextStyle::new(11.5).weight(Weight::Bold).color(st.accent),
-    );
-    ui.c.text(&t.day.to_string(), Rect::new(r.x - 2.0, y + 14.0, r.w + 2.0, 58.0), &TextStyle::new(50.0).weight(Weight::Semibold));
+    let y = top;
+    ui.c.text(&WEEKDAY_LONG[wd].to_uppercase(), Rect::new(r.x, y, r.w, INITIALS_H - 2.0), &TextStyle::caption().weight(Weight::Bold).color(st.accent));
+    ui.c.text(&t.day.to_string(), Rect::new(r.x - 2.0, y + 14.0, r.w + 2.0, 58.0), &TextStyle::hero().weight(Weight::Semibold));
     ui.c.text(
         &format!("{} {}", MONTH_LONG[(t.month - 1) as usize], t.year),
         Rect::new(r.x, y + 74.0, r.w, 18.0),
-        &TextStyle::new(13.0).color(palette::TEXT_DIM),
+        &TextStyle::body().color(palette::TEXT_DIM),
     );
-    ui.c.text(&format!("Week {}", iso_week(&t)), Rect::new(r.x, y + 92.0, r.w, 16.0), &TextStyle::new(11.5).color(palette::TEXT_FAINT));
+    ui.c.text(&format!("Week {}", iso_week(&t)), Rect::new(r.x, y + 92.0, r.w, 16.0), &TextStyle::footnote().color(palette::TEXT_FAINT));
 }
 
 // ------------------------------------------------------------------ calendar
 
-fn draw_calendar(ui: &mut Ui, st: &AppState, r: Rect, with_title: bool) {
+/// Rows with at least one day in them (4–6).
+fn week_rows(t: &LocalDateTime) -> usize {
+    month_grid(t.year, t.month).iter().filter(|w| w.iter().any(|d| d.is_some())).count().max(1)
+}
+
+/// Height of the calendar block: optional title, initials, week rows.
+fn calendar_block_h(t: &LocalDateTime, with_title: bool) -> f32 {
+    let rows = if valid_date(t) { week_rows(t) } else { 6 };
+    (if with_title { TITLE_H } else { 0.0 }) + INITIALS_H + rows as f32 * CELL_H
+}
+
+/// `top` = the block's top edge (shared with the date block).
+fn draw_calendar(ui: &mut Ui, st: &AppState, r: Rect, top: f32, with_title: bool) {
     let t = st.local;
     if !valid_date(&t) {
         return;
     }
     let grid = month_grid(t.year, t.month);
-    let rows = grid.iter().filter(|w| w.iter().any(|d| d.is_some())).count().max(1);
-    let title_h = if with_title { TITLE_H } else { 0.0 };
-    let block_h = title_h + INITIALS_H + rows as f32 * CELL_H;
-    let mut y = r.y + ((r.h - block_h) / 2.0).max(0.0);
+    let rows = week_rows(&t);
+    let mut y = top;
 
     if with_title {
-        let title = format!("{} {}", MONTH_LONG[(t.month - 1) as usize], t.year);
-        let st_title = TextStyle::new(12.5).weight(Weight::Semibold);
-        ui.c.text(&title, Rect::new(r.x + 4.0, y, r.w - 4.0, TITLE_H - 4.0), &st_title);
-        y += title_h;
+        // Without the big date block the title names the day as well.
+        let st_title = TextStyle::body().weight(Weight::Semibold);
+        let tr = Rect::new(r.x + 4.0, y, r.w - 4.0, TITLE_H - 4.0);
+        let day = format!("{} {} {}", WEEKDAY_SHORT[t.weekday() as usize % 7], t.day, MONTH_LONG[(t.month - 1) as usize]);
+        let full = format!("{day} {}", t.year);
+        let title = if ui.c.measure(&full, &st_title, 10_000.0).0 <= tr.w { full } else { day };
+        ui.c.text(&title, tr, &st_title);
+        y += TITLE_H;
     }
 
-    let initials_st = TextStyle::new(10.0).weight(Weight::Semibold).center();
+    // Every initial in one tone; weekend days are told apart by the dimmer numbers.
+    let initials_st = TextStyle::caption().weight(Weight::Semibold).color(palette::TEXT_FAINT).center();
     for (col, s) in INITIALS.iter().enumerate() {
-        let c = if col >= 5 { Color::white(0.28) } else { palette::TEXT_FAINT };
-        ui.c.text(s, Rect::new(r.x + col as f32 * CELL_W, y, CELL_W, INITIALS_H - 2.0), &initials_st.color(c));
+        ui.c.text(s, Rect::new(r.x + col as f32 * CELL_W, y, CELL_W, INITIALS_H - 2.0), &initials_st);
     }
     y += INITIALS_H;
 
-    let day_st = TextStyle::new(11.5).tabular().center();
+    let day_st = TextStyle::footnote().tabular().center();
     let today_ink = ink_on(st.accent);
     for week in grid.iter().take(rows) {
         for (col, day) in week.iter().enumerate() {
@@ -159,20 +178,20 @@ fn draw_tile(ui: &mut Ui, r: Rect, t: &Tile) {
     ui.c.fill_rrect(r, TILE_RADIUS, palette::SURFACE);
     let cy = r.center().y;
     let c = Point::new(r.x + 12.0 + RING_R, cy);
-    let track = Color::white(0.12);
     match t.frac {
-        Some(f) => ui.c.ring(c, RING_R, RING_W, f.clamp(0.0, 1.0), track, t.color),
-        None => ui.c.stroke_circle(c, RING_R, track, RING_W),
+        Some(f) => ui.c.ring(c, RING_R, RING_W, f.clamp(0.0, 1.0), RING_TRACK, t.color),
+        None => ui.c.stroke_circle(c, RING_R, RING_TRACK, RING_W),
     }
-    ui.c.icon(t.icon, Rect::from_center(c, 15.0, 15.0), Color::white(0.72));
+    ui.c.icon(t.icon, Rect::from_center(c, RING_ICON, RING_ICON), Color::white(0.72));
 
+    // Text sits on the tile's fill, so the faintest tone here is TEXT_DIM.
     let tx = c.x + RING_R + 11.0;
     let tw = (r.right() - 10.0 - tx).max(0.0);
-    ui.c.text(t.label, Rect::new(tx, cy - 26.0, tw, 15.0), &TextStyle::new(11.0).weight(Weight::Semibold).color(palette::TEXT_FAINT));
-    let value_col = if t.value == PLACEHOLDER { palette::TEXT_FAINT } else { palette::TEXT };
-    ui.c.text(&t.value, Rect::new(tx, cy - 12.0, tw, 24.0), &TextStyle::new(18.0).weight(Weight::Semibold).tabular().color(value_col));
+    ui.c.text(t.label, Rect::new(tx, cy - 26.0, tw, 15.0), &TextStyle::caption().weight(Weight::Semibold).color(palette::TEXT_DIM));
+    let value_col = if t.value == PLACEHOLDER { palette::TEXT_DIM } else { palette::TEXT };
+    ui.c.text(&t.value, Rect::new(tx, cy - 12.0, tw, 24.0), &TextStyle::value().tabular().color(value_col));
     if !t.detail.is_empty() {
-        let st = TextStyle::new(11.0).color(palette::TEXT_DIM);
+        let st = TextStyle::caption().color(palette::TEXT_DIM);
         let fits = ui.c.measure(&t.detail, &st, 10_000.0).0 <= tw;
         let detail = if fits || t.detail_short.is_empty() { &t.detail } else { &t.detail_short };
         ui.c.text(detail, Rect::new(tx, cy + 11.0, tw, 15.0), &st);

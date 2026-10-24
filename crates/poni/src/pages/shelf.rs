@@ -12,18 +12,17 @@ use crate::gfx::{Image, TextStyle, Weight};
 use crate::icons::Icon;
 use crate::services::imaging::{self, PathKind};
 use crate::state::AppState;
-use crate::ui::{wid, wid_n, Ui, WidgetId};
+use crate::ui::{wid, wid_n, PillStyle, Ui, WidgetId, PILL_GAP, PILL_SMALL};
 use poni_core::geom::{palette, Color, Point, Rect};
 use poni_core::shelf::{display_name, extension, ShelfItem, MAX_SHELF_ITEMS};
-use poni_core::svgpath::Seg;
 use std::cell::RefCell;
 use std::collections::HashMap;
 
 const PAGE_H: f32 = 150.0;
-/// Breathing room below the page tabs.
-const TOP: f32 = 4.0;
-/// Count + hint + buttons line.
-const HEAD_H: f32 = 28.0;
+/// Breathing room below the page tabs (the header already leaves the gap).
+const TOP: f32 = 0.0;
+/// Summary row: count, hover hint and the Small pills (same height).
+const HEAD_H: f32 = PILL_SMALL;
 const HEAD_GAP: f32 = 6.0;
 const TILE_W: f32 = 84.0;
 const TILE_GAP: f32 = 6.0;
@@ -40,6 +39,9 @@ const RECHECK_SHOWN_SECS: f64 = 15.0;
 const RECHECK_HOVER_SECS: f64 = 4.0;
 const APPEAR_SECS: f64 = 0.28;
 const GLOW_SECS: f32 = 0.14;
+/// Drop-zone outline: one solid hairline, the same idle and while dragging.
+const ZONE_STROKE: f32 = 1.5;
+const DROP_LABEL: &str = "Drop to add to Shelf";
 
 pub fn height(_st: &AppState) -> f32 {
     PAGE_H
@@ -310,7 +312,7 @@ fn draw_items(ui: &mut Ui, st: &mut AppState, l: &mut Local, area: Rect, items: 
 
         let base = ui.c.alpha();
         // Tiles step back while files hover, so the drop zone reads clearly.
-        ui.c.set_alpha(base * appear * (1.0 - 0.88 * glow));
+        ui.c.set_alpha(base * appear * (1.0 - glow));
         if resp.pressed {
             ui.c.fill_rrect(tile, TILE_R, palette::SURFACE_HOVER);
         } else if hot {
@@ -330,13 +332,13 @@ fn draw_items(ui: &mut Ui, st: &mut AppState, l: &mut Local, area: Rect, items: 
             }
         }
         let name_r = Rect::new(tile.x + 6.0, thumb.bottom() + 8.0, TILE_W - 12.0, 16.0);
-        ui.c.text(&display_name(&it.path), name_r, &TextStyle::new(11.5).weight(Weight::Medium).center());
+        ui.c.text(&display_name(&it.path), name_r, &TextStyle::footnote().weight(Weight::Medium).center());
         ui.c.set_alpha(tile_a);
         let cap_r = Rect::new(name_r.x, name_r.bottom(), name_r.w, 14.0);
         if missing {
-            ui.c.text("Missing", cap_r, &TextStyle::new(10.5).weight(Weight::Medium).color(palette::TEXT_DIM).center());
+            ui.c.text("Missing", cap_r, &TextStyle::caption().weight(Weight::Medium).color(palette::TEXT_DIM).center());
         } else {
-            ui.c.text(&caption(&it.path, kind), cap_r, &TextStyle::new(10.5).color(palette::TEXT_FAINT).center());
+            ui.c.text(&caption(&it.path, kind), cap_r, &TextStyle::caption().color(palette::TEXT_FAINT).center());
         }
 
         // Remove button on hover, tucked onto the thumbnail's corner.
@@ -405,35 +407,41 @@ fn draw_items(ui: &mut Ui, st: &mut AppState, l: &mut Local, area: Rect, items: 
 fn draw_header(ui: &mut Ui, st: &AppState, l: &Local, head: Rect, items: &[ShelfItem], hovered: Option<usize>, actions: &mut Vec<Action>) {
     let n = items.len();
     let count = format!("{n} {}", if n == 1 { "item" } else { "items" });
-    let cs = TextStyle::new(13.0).weight(Weight::Semibold);
+    let cs = TextStyle::body().weight(Weight::Semibold).color(palette::TEXT_DIM);
     let cw = ui.c.measure(&count, &cs, 200.0).0;
-    ui.c.text(&count, Rect::new(head.x + 2.0, head.y, cw + 4.0, head.h), &cs);
+    ui.c.text(&count, Rect::new(head.x, head.y, cw + 4.0, head.h), &cs);
 
-    let bw = 78.0;
-    let clear_r = Rect::new(head.right() - bw, head.center().y - 13.0, bw, 26.0);
-    if ui.pill_button(wid("shelf.clear"), clear_r, "Clear", Some(Icon::Trash), Color::white(0.1), palette::TEXT).clicked {
+    // Small utility pills on the right: Clear, plus Undo for a while after a removal.
+    let clear_w = ui.pill_width("Clear", true, true);
+    let clear_r = Rect::new(head.right() - clear_w, head.y, clear_w, PILL_SMALL);
+    if ui.pill(wid("shelf.clear"), clear_r, "Clear", Some(Icon::Trash), PillStyle::Utility).clicked {
         actions.push(Action::Clear);
     }
     let mut right = clear_r.x;
     if l.undo.as_ref().is_some_and(|(_, t)| st.now - t < UNDO_SECS) {
-        let undo_r = Rect::new(clear_r.x - 8.0 - bw, clear_r.y, bw, clear_r.h);
-        if ui.pill_button(wid("shelf.undo"), undo_r, "Undo", Some(Icon::Undo), Color::white(0.1), st.accent).clicked {
+        let undo_w = ui.pill_width("Undo", true, true);
+        let undo_r = Rect::new(clear_r.x - PILL_GAP - undo_w, head.y, undo_w, PILL_SMALL);
+        if ui.pill(wid("shelf.undo"), undo_r, "Undo", Some(Icon::Undo), PillStyle::Primary(st.accent)).clicked {
             actions.push(Action::Undo);
         }
         right = undo_r.x;
     }
 
-    let hx = head.x + 2.0 + cw + 12.0;
-    let hint_r = Rect::new(hx, head.y, (right - 14.0 - hx).max(0.0), head.h);
-    let (hint, color) = match hovered.and_then(|i| items.get(i)) {
+    // No instructions by default: the row only describes the hovered tile
+    // (where it lives) or a full shelf.
+    let hint = match hovered.and_then(|i| items.get(i)) {
         Some(it) if imaging::path_kind(&it.path) == Some(PathKind::Missing) => {
-            (format!("Moved or deleted · was in {}", parent_dir(&it.path)), palette::TEXT_DIM)
+            Some((format!("Moved or deleted · was in {}", parent_dir(&it.path)), palette::TEXT_DIM))
         }
-        Some(it) => (parent_dir(&it.path), palette::TEXT_DIM),
-        None if n >= MAX_SHELF_ITEMS => (format!("Holds {MAX_SHELF_ITEMS} items · the oldest make room"), palette::TEXT_FAINT),
-        None => ("Click to open · Right-click to reveal · Drag out".to_string(), palette::TEXT_FAINT),
+        Some(it) => Some((parent_dir(&it.path), palette::TEXT_DIM)),
+        None if n >= MAX_SHELF_ITEMS => Some(("Full · new files replace the oldest".to_string(), palette::TEXT_FAINT)),
+        None => None,
     };
-    ui.c.text(&hint, hint_r, &TextStyle::new(12.0).color(color));
+    if let Some((hint, color)) = hint {
+        let hx = head.x + cw;
+        let hint_r = Rect::new(hx, head.y, (right - 12.0 - hx).max(0.0), head.h);
+        ui.c.text(&format!(" · {hint}"), hint_r, &TextStyle::footnote().color(color));
+    }
 }
 
 /// "PDF", "Folder", "File" — the small line under a tile's name.
@@ -470,11 +478,15 @@ fn parent_dir(path: &str) -> String {
 fn draw_drop_overlay(ui: &mut Ui, st: &AppState, zone: Rect, glow: f32) {
     let base = ui.c.alpha();
     ui.c.set_alpha(base * glow);
-    ui.c.fill_rrect(zone, 16.0, st.accent.with_alpha(0.14));
-    dashed_rrect(ui, zone, 16.0, st.accent.with_alpha(0.9), 2.0, 7.0, 5.0);
+    drop_zone(ui, zone, 16.0, st.accent.with_alpha(0.10), st.accent.with_alpha(0.9));
+    // One centred group: Plus + label.
+    let ls = TextStyle::body().weight(Weight::Semibold);
+    let tw = ui.c.measure(DROP_LABEL, &ls, zone.w).0;
+    let (isz, gap) = (16.0, 6.0);
     let c = zone.center();
-    ui.c.icon(Icon::Plus, Rect::from_center(Point::new(c.x, c.y - 14.0), 22.0, 22.0), st.accent);
-    ui.c.text("Release to add", Rect::new(zone.x, c.y + 2.0, zone.w, 20.0), &TextStyle::new(14.0).weight(Weight::Semibold).center());
+    let x = c.x - (isz + gap + tw) / 2.0;
+    ui.c.icon(Icon::Plus, Rect::new(x, c.y - isz / 2.0, isz, isz), st.accent);
+    ui.c.text(DROP_LABEL, Rect::new(x + isz + gap, c.y - 10.0, tw + 2.0, 20.0), &ls);
     ui.c.set_alpha(base);
 }
 
@@ -483,29 +495,33 @@ fn draw_drop_overlay(ui: &mut Ui, st: &AppState, zone: Rect, glow: f32) {
 fn draw_empty(ui: &mut Ui, st: &AppState, l: &Local, area: Rect, actions: &mut Vec<Action>) {
     let g = l.glow;
     let accent = st.accent;
-    let zone = Rect::new(area.x, area.y + TOP + 2.0, area.w, (area.h - TOP - 4.0).max(0.0));
-    ui.c.fill_rrect(zone, 18.0, Color::lerp(Color::white(0.03), accent.with_alpha(0.14), g));
-    dashed_rrect(ui, zone, 18.0, Color::lerp(Color::white(0.2), accent.with_alpha(0.9), g), 1.5 + 0.5 * g, 7.0, 5.0);
+    // Same bottom edge as the drop overlay over a filled shelf.
+    let zone = Rect::new(area.x, area.y + TOP, area.w, (area.h - TOP - 4.0).max(0.0));
+    let fill = Color::lerp(Color::white(0.03), accent.with_alpha(0.10), g);
+    let stroke = Color::lerp(Color::white(0.12), accent.with_alpha(0.9), g);
+    drop_zone(ui, zone, 18.0, fill, stroke);
 
     let undo_live = g < 0.5 && l.undo.as_ref().is_some_and(|(_, t)| st.now - t < UNDO_SECS);
     let (icon, title, hint) = if g >= 0.5 {
-        (Icon::Plus, "Release to add", "Poni keeps a link — the files stay where they are")
+        (Icon::Plus, DROP_LABEL, "Poni keeps a link — the files stay where they are")
     } else if undo_live {
         (Icon::Tray, "Shelf cleared", "")
     } else {
         (Icon::Tray, "Drop files here", "Drag files or folders onto the island to keep them close")
     };
+    // Icon, title and hint (or the Undo pill) stacked around the zone centre.
     let c = zone.center();
     let icon_col = Color::lerp(Color::white(0.38), accent, g);
-    ui.c.icon(icon, Rect::from_center(Point::new(c.x, c.y - 26.0), 26.0, 26.0), icon_col);
-    ui.c.text(title, Rect::new(zone.x, c.y - 6.0, zone.w, 20.0), &TextStyle::new(14.0).weight(Weight::Semibold).center());
+    ui.c.icon(icon, Rect::from_center(Point::new(c.x, c.y - 22.0), 26.0, 26.0), icon_col);
+    ui.c.text(title, Rect::new(zone.x, c.y - 4.0, zone.w, 20.0), &TextStyle::headline().center());
     if undo_live {
-        let r = Rect::from_center(Point::new(c.x, c.y + 30.0), 84.0, 26.0);
-        if ui.pill_button(wid("shelf.undo"), r, "Undo", Some(Icon::Undo), Color::white(0.1), accent).clicked {
+        let w = ui.pill_width("Undo", true, true);
+        let r = Rect::new(c.x - w / 2.0, c.y + 18.0, w, PILL_SMALL);
+        if ui.pill(wid("shelf.undo"), r, "Undo", Some(Icon::Undo), PillStyle::Primary(accent)).clicked {
             actions.push(Action::Undo);
         }
     } else {
-        ui.c.text(hint, Rect::new(zone.x + 16.0, c.y + 16.0, zone.w - 32.0, 18.0), &TextStyle::new(12.0).color(palette::TEXT_DIM).center());
+        ui.c.text(hint, Rect::new(zone.x + 16.0, c.y + 16.0, zone.w - 32.0, 18.0), &TextStyle::footnote().color(palette::TEXT_DIM).center());
     }
 }
 
@@ -545,75 +561,9 @@ fn fade_edge(ui: &mut Ui, r: Rect, from_left: bool) {
     }
 }
 
-#[derive(Clone, Copy)]
-enum Piece {
-    Line(Point, Point),
-    /// Quarter circle: centre and start angle (radians, clockwise on screen).
-    Arc(Point, f32),
-}
-
-/// Dashed outline of a rounded rectangle (stroked inside `r`), with the dash
-/// pattern stretched so it closes evenly around the corners.
-fn dashed_rrect(ui: &mut Ui, r: Rect, radius: f32, color: Color, width: f32, dash: f32, gap: f32) {
-    use std::f32::consts::{FRAC_PI_2, PI};
-    let r = r.inset(width / 2.0, width / 2.0);
-    let rad = radius.min(r.w / 2.0).min(r.h / 2.0).max(0.0);
-    let (x0, y0, x1, y1) = (r.x, r.y, r.right(), r.bottom());
-    let pieces = [
-        Piece::Line(Point::new(x0 + rad, y0), Point::new(x1 - rad, y0)),
-        Piece::Arc(Point::new(x1 - rad, y0 + rad), -FRAC_PI_2),
-        Piece::Line(Point::new(x1, y0 + rad), Point::new(x1, y1 - rad)),
-        Piece::Arc(Point::new(x1 - rad, y1 - rad), 0.0),
-        Piece::Line(Point::new(x1 - rad, y1), Point::new(x0 + rad, y1)),
-        Piece::Arc(Point::new(x0 + rad, y1 - rad), FRAC_PI_2),
-        Piece::Line(Point::new(x0, y1 - rad), Point::new(x0, y0 + rad)),
-        Piece::Arc(Point::new(x0 + rad, y0 + rad), PI),
-    ];
-    let len = |p: &Piece| match *p {
-        Piece::Line(a, b) => a.dist(b),
-        Piece::Arc(..) => FRAC_PI_2 * rad,
-    };
-    let at = |p: &Piece, t: f32| match *p {
-        Piece::Line(a, b) => {
-            let l = a.dist(b);
-            let f = if l > 0.0 { t / l } else { 0.0 };
-            Point::new(a.x + (b.x - a.x) * f, a.y + (b.y - a.y) * f)
-        }
-        Piece::Arc(c, a0) => {
-            let ang = a0 + if rad > 0.0 { t / rad } else { 0.0 };
-            Point::new(c.x + rad * ang.cos(), c.y + rad * ang.sin())
-        }
-    };
-    let lens: Vec<f32> = pieces.iter().map(len).collect();
-    let total: f32 = lens.iter().sum();
-    if total <= 1.0 || dash + gap <= 0.0 {
-        return;
-    }
-    let n = (total / (dash + gap)).round().max(1.0) as usize;
-    let period = total / n as f32;
-    let d = period * dash / (dash + gap);
-    let mut segs = Vec::with_capacity(n * 3);
-    for k in 0..n {
-        let (a, b) = (k as f32 * period + (period - d) / 2.0, k as f32 * period + (period + d) / 2.0);
-        let mut start = 0.0;
-        let mut open = false;
-        for (p, &l) in pieces.iter().zip(&lens) {
-            let end = start + l;
-            if l > 0.0 && b > start && a < end {
-                let (t0, t1) = ((a - start).max(0.0), (b - start).min(l));
-                if !open {
-                    let s = at(p, t0);
-                    segs.push(Seg::MoveTo(s.x, s.y));
-                    open = true;
-                }
-                let e = at(p, t1);
-                segs.push(match p {
-                    Piece::Line(..) => Seg::LineTo(e.x, e.y),
-                    Piece::Arc(..) => Seg::ArcTo(rad, rad, 0.0, false, true, e.x, e.y),
-                });
-            }
-            start = end;
-        }
-    }
-    ui.c.path(&segs, None, Some((color, width)));
+/// Drop zone: a fill plus one solid hairline whose outer edge follows the
+/// fill's corners exactly (no fill peeking past the stroke).
+fn drop_zone(ui: &mut Ui, zone: Rect, radius: f32, fill: Color, stroke: Color) {
+    ui.c.fill_rrect(zone, radius, fill);
+    ui.c.stroke_rrect(zone, (radius - ZONE_STROKE / 2.0).max(0.0), stroke, ZONE_STROKE);
 }
