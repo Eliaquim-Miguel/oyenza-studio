@@ -596,6 +596,52 @@ impl HitMask {
         let c = self.pill.map(|(body, _)| body);
         [a, b, c].into_iter().flatten().reduce(union_rect)
     }
+
+    /// Whether `p` (DIPs) is inside the mask: the same shapes the mask is
+    /// filled with, so the app's own tests agree with where the window takes
+    /// the mouse.
+    pub fn contains(&self, p: Point) -> bool {
+        self.rect.is_some_and(|r| r.contains(p))
+            || self.pill.is_some_and(|(body, radius)| in_rounded_rect(body, radius, p))
+            || self.notch.is_some_and(|(body, radius, shoulder)| in_notch(body, radius, shoulder, p))
+    }
+}
+
+/// `p` inside `body` with every corner rounded by `radius` (clamped as
+/// `pill::shape::segments` clamps it, so a short body is a capsule).
+fn in_rounded_rect(body: Rect, radius: f32, p: Point) -> bool {
+    if !body.contains(p) {
+        return false;
+    }
+    let r = radius.min(body.h / 2.0).min(body.w / 2.0).max(0.0);
+    let cx = p.x.clamp(body.x + r, body.right() - r);
+    let cy = p.y.clamp(body.y + r, body.bottom() - r);
+    (p.x - cx).hypot(p.y - cy) <= r
+}
+
+/// `p` inside [`notch_segments`]' outline: from the top edge down, the body
+/// with rounded bottom corners, and the concave shoulders flaring into the
+/// edge beside it.
+fn in_notch(body: Rect, radius: f32, shoulder: f32, p: Point) -> bool {
+    if p.y < 0.0 || p.y >= body.bottom() {
+        return false;
+    }
+    if p.x >= body.x && p.x < body.right() {
+        let r = radius.min(body.h).min(body.w / 2.0).max(0.0);
+        let cx = p.x.clamp(body.x + r, body.right() - r);
+        let cy = p.y.min(body.bottom() - r);
+        return (p.x - cx).hypot(p.y - cy) <= r;
+    }
+    // A shoulder: the corner between the edge and the body's side, outside
+    // the arc from `shoulder` out along the edge to `shoulder` down the side
+    // (an ellipse when the body is shorter than that).
+    let (sw, sh) = (shoulder.max(0.0), shoulder.max(0.0).min(body.h));
+    let out = if p.x < body.x { body.x - p.x } else { p.x - body.right() };
+    if sw <= 0.0 || sh <= 0.0 || out > sw || p.y >= sh {
+        return false;
+    }
+    let (u, v) = ((sw - out) / sw, (sh - p.y) / sh);
+    u * u + v * v >= 1.0
 }
 
 /// Smallest rectangle holding both.
@@ -1906,4 +1952,63 @@ pub fn notch_segments(body: Rect, radius: f32, shoulder: f32) -> Vec<Seg> {
     }
     segs.push(Seg::Close);
     segs
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pt(x: f32, y: f32) -> Point {
+        Point::new(x, y)
+    }
+
+    #[test]
+    fn mask_bounds_cover_each_shape() {
+        let body = Rect::new(100.0, 0.0, 84.0, 30.0);
+        let notch = HitMask { rect: None, notch: Some((body, 14.0, 9.0)), pill: None };
+        assert_eq!(notch.bounds(), Some(Rect::new(91.0, 0.0, 102.0, 30.0)), "Classic: the body and both shoulders");
+
+        let floating = Rect::new(100.0, 8.0, 152.0, 32.0);
+        let gap = Rect::new(100.0, 0.0, 152.0, 24.0);
+        let pill = HitMask { rect: Some(gap), notch: None, pill: Some((floating, 16.0)) };
+        assert_eq!(pill.bounds(), Some(Rect::new(100.0, 0.0, 152.0, 40.0)), "Pill: from the top edge to the pill's bottom, no wider");
+
+        let open = Rect::new(80.0, 0.0, 660.0, 245.0);
+        assert_eq!(HitMask { rect: Some(open), notch: None, pill: None }.bounds(), Some(open));
+        assert_eq!(HitMask { rect: None, notch: None, pill: None }.bounds(), None);
+    }
+
+    #[test]
+    fn capsule_contains_its_shape_only() {
+        let body = Rect::new(100.0, 8.0, 152.0, 32.0);
+        let m = HitMask { rect: None, notch: None, pill: Some((body, 16.0)) };
+        assert!(m.contains(pt(176.0, 24.0)), "centre");
+        assert!(m.contains(pt(100.5, 24.0)), "the left end's middle");
+        assert!(m.contains(pt(251.5, 24.0)), "the right end's middle");
+        assert!(!m.contains(pt(100.5, 8.5)), "the top-left corner is round");
+        assert!(!m.contains(pt(251.5, 39.5)), "the bottom-right corner is round");
+        assert!(!m.contains(pt(99.5, 24.0)) && !m.contains(pt(252.0, 24.0)), "beside");
+        assert!(!m.contains(pt(176.0, 7.5)) && !m.contains(pt(176.0, 40.0)), "above and below");
+        // A radius past half the height still makes a capsule, not a lens.
+        let big = HitMask { rect: None, notch: None, pill: Some((body, 40.0)) };
+        assert!(big.contains(pt(130.0, 9.0)) && !big.contains(pt(101.0, 9.0)));
+    }
+
+    #[test]
+    fn notch_contains_body_and_shoulders() {
+        let body = Rect::new(100.0, 0.0, 84.0, 30.0);
+        let m = HitMask { rect: None, notch: Some((body, 14.0, 9.0)), pill: None };
+        assert!(m.contains(pt(142.0, 0.0)) && m.contains(pt(142.0, 29.5)), "the body from the top edge down");
+        assert!(m.contains(pt(100.5, 0.5)), "the body's flat top corner");
+        assert!(!m.contains(pt(100.5, 29.5)), "the bottom corners are round");
+        assert!(m.contains(pt(99.0, 0.5)) && m.contains(pt(185.0, 0.5)), "a shoulder next to the body at the edge");
+        assert!(!m.contains(pt(99.0, 8.5)), "the shoulder thins out down the side");
+        assert!(!m.contains(pt(91.5, 0.2)), "and out along the edge");
+        assert!(!m.contains(pt(90.0, 0.0)) && !m.contains(pt(194.5, 0.0)), "past the shoulders");
+        assert!(!m.contains(pt(142.0, 30.0)), "below");
+        // A body shorter than the shoulder (the Hidden style's strip): the shoulders shrink with it.
+        let strip = Rect::new(100.0, 0.0, 150.0, 5.0);
+        let h = HitMask { rect: None, notch: Some((strip, 2.5, 9.0)), pill: None };
+        assert!(h.contains(pt(99.0, 0.5)) && !h.contains(pt(99.0, 5.5)));
+    }
 }
