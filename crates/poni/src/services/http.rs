@@ -1,4 +1,4 @@
-//! Minimal HTTPS requests (GET, and POST/DELETE with a JSON body) over WinRT `Windows.Web.Http.HttpClient`.
+//! Minimal HTTPS requests (GET, POST/DELETE with a JSON body, and file downloads with progress) over WinRT `Windows.Web.Http.HttpClient`.
 //!
 //! Every call blocks until the response (headers and body) has arrived or the
 //! timeout has passed, so use it on worker threads only, never on the UI
@@ -13,9 +13,9 @@ use std::fmt;
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::{Duration, Instant};
 use windows::core::{h, RuntimeType, HSTRING};
-use windows::Foundation::{AsyncOperationWithProgressCompletedHandler, AsyncStatus, IAsyncOperationWithProgress, Uri};
+use windows::Foundation::{AsyncOperationProgressHandler, AsyncOperationWithProgressCompletedHandler, AsyncStatus, IAsyncOperationWithProgress, Uri};
 use windows::Storage::Streams::{DataReader, IBuffer, UnicodeEncoding};
-use windows::Web::Http::{HttpClient, HttpMethod, HttpRequestMessage, HttpResponseMessage, HttpStringContent, IHttpContent};
+use windows::Web::Http::{HttpClient, HttpMethod, HttpProgress, HttpRequestMessage, HttpResponseMessage, HttpStringContent, IHttpContent};
 use windows::Win32::Foundation::RPC_E_CHANGED_MODE;
 use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_MULTITHREADED};
 
@@ -172,6 +172,47 @@ impl Client {
     }
 }
 
+impl Client {
+    /// GET `url` as bytes (a file), up to `max_bytes`. `progress` hears the
+    /// bytes received so far, on a thread-pool thread, while they arrive.
+    pub fn get_bytes(
+        &self,
+        url: &str,
+        timeout: Duration,
+        max_bytes: u64,
+        mut progress: impl FnMut(u64) + Send + 'static,
+    ) -> Result<(u16, Vec<u8>), FetchError> {
+        let deadline = Instant::now() + timeout;
+        let uri = Uri::CreateUri(&HSTRING::from(url)).map_err(|e| other("invalid URL", &e))?;
+        let op = self.http.GetAsync(&uri).map_err(classify)?;
+        let report = AsyncOperationProgressHandler::<HttpResponseMessage, HttpProgress>::new(move |_, p| {
+            progress(p.BytesReceived);
+            Ok(())
+        });
+        let _ = op.SetProgress(&report);
+        let resp = wait(&op, deadline)?;
+        let out = (|| {
+            let status = resp.StatusCode().map_err(|e| other("response without a status", &e))?.0.clamp(0, u16::MAX as i32) as u16;
+            let content = resp.Content().map_err(|e| other("response without a body", &e))?;
+            if let Ok(len) = content.Headers().and_then(|h| h.ContentLength()).and_then(|r| r.Value()) {
+                if len > max_bytes {
+                    let _ = content.Close();
+                    return Err(FetchError::Other(format!("response too large ({len} bytes)")));
+                }
+            }
+            let buf = wait(&content.ReadAsBufferAsync().map_err(classify)?, deadline);
+            let _ = content.Close();
+            let buf = buf?;
+            if u64::from(buf.Length().unwrap_or(0)) > max_bytes {
+                return Err(FetchError::Other("response too large".into()));
+            }
+            Ok((status, buffer_bytes(&buf)?))
+        })();
+        let _ = resp.Close();
+        out
+    }
+}
+
 impl Drop for Client {
     fn drop(&mut self) {
         let _ = self.http.Close();
@@ -218,6 +259,10 @@ fn read_body(content: &IHttpContent, deadline: Instant) -> Result<String, FetchE
     }
     let op = content.ReadAsBufferAsync().map_err(classify)?;
     let buf = wait(&op, deadline)?;
+    let len = buf.Length().unwrap_or(0);
+    if u64::from(len) > MAX_BODY_BYTES {
+        return Err(FetchError::Other(format!("response too large ({len} bytes)")));
+    }
     let bytes = buffer_bytes(&buf)?;
     Ok(decode_body(&bytes))
 }
@@ -226,9 +271,6 @@ fn buffer_bytes(buf: &IBuffer) -> Result<Vec<u8>, FetchError> {
     let len = buf.Length().map_err(|e| other("unreadable response body", &e))?;
     if len == 0 {
         return Ok(Vec::new());
-    }
-    if u64::from(len) > MAX_BODY_BYTES {
-        return Err(FetchError::Other(format!("response too large ({len} bytes)")));
     }
     let reader = DataReader::FromBuffer(buf).map_err(|e| other("unreadable response body", &e))?;
     let mut bytes = vec![0u8; len as usize];

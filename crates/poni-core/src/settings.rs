@@ -2,6 +2,7 @@
 
 use crate::pomodoro::PomodoroConfig;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -82,6 +83,9 @@ pub struct Settings {
     /// Oyenza (once signed in): show sums and senders on the island straight
     /// away. Off: they wait for a click on Show, so a shared screen shows none.
     pub oyenza_show_amounts: bool,
+    /// Add-ons switched on, by id (`poni_core::addons`). Ids this version
+    /// doesn't know are kept, so a newer Poni's choices survive a save.
+    pub addons: BTreeMap<String, bool>,
 }
 
 impl Default for Settings {
@@ -109,11 +113,21 @@ impl Default for Settings {
             remember_page: true,
             pomodoro: PomodoroConfig::default(),
             oyenza_show_amounts: false,
+            addons: BTreeMap::new(),
         }
     }
 }
 
 impl Settings {
+    /// Is the add-on `id` switched on?
+    pub fn addon_on(&self, id: &str) -> bool {
+        self.addons.get(id).copied().unwrap_or(false)
+    }
+
+    pub fn set_addon(&mut self, id: &str, on: bool) {
+        self.addons.insert(id.to_string(), on);
+    }
+
     /// Clamp values a user may have hand-edited into nonsense.
     pub fn sanitized(mut self) -> Self {
         // Only untouched old defaults move.
@@ -154,6 +168,22 @@ mod tests {
         let s: Settings = serde_json::from_str(r#"{"idle_style":"eyes","water":{"goal_ml":1500}}"#).unwrap();
         assert_eq!(s.idle_style, IdleStyle::Eyes);
         assert_eq!(s.pomodoro.focus_min, 25);
+    }
+
+    #[test]
+    fn addons_are_off_until_switched_on_and_unknown_ones_survive() {
+        let mut s = Settings::default();
+        assert!(!s.addon_on("sholat"));
+        s.set_addon("sholat", true);
+        assert!(s.addon_on("sholat"));
+        // A newer Poni's add-on stays in the file when this one saves it.
+        let s: Settings = serde_json::from_str(r#"{"addons":{"sholat":true,"future":true}}"#).unwrap();
+        assert!(s.addon_on("sholat"));
+        let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert!(back.addon_on("future"));
+        // Files from before add-ons have none on.
+        let old: Settings = serde_json::from_str(r#"{"settings_version":3}"#).unwrap();
+        assert!(old.addons.is_empty());
     }
 
     #[test]

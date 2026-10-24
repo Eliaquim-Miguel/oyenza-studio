@@ -66,6 +66,10 @@ pub enum Icon {
     Network,
     /// An app whose own icon isn't known.
     App,
+    /// The Add-ons tab: three tiles and a plus where the fourth would be.
+    Addons,
+    /// A crescent moon: Prayer times.
+    Moon,
 }
 
 pub struct Part {
@@ -236,6 +240,15 @@ pub fn parts(icon: Icon) -> &'static [Part] {
             s("M10.25 5.22L10.43 2.63A9.5 9.5 0 0 1 13.57 2.63L13.75 5.22A7 7 0 0 1 15.55 5.97L17.52 4.27A9.5 9.5 0 0 1 19.73 6.48L18.03 8.45A7 7 0 0 1 18.78 10.25L21.37 10.43A9.5 9.5 0 0 1 21.37 13.57L18.78 13.75A7 7 0 0 1 18.03 15.55L19.73 17.52A9.5 9.5 0 0 1 17.52 19.73L15.55 18.03A7 7 0 0 1 13.75 18.78L13.57 21.37A9.5 9.5 0 0 1 10.43 21.37L10.25 18.78A7 7 0 0 1 8.45 18.03L6.48 19.73A9.5 9.5 0 0 1 4.27 17.52L5.97 15.55A7 7 0 0 1 5.22 13.75L2.63 13.57A9.5 9.5 0 0 1 2.63 10.43L5.22 10.25A7 7 0 0 1 5.97 8.45L4.27 6.48A9.5 9.5 0 0 1 6.48 4.27L8.45 5.97A7 7 0 0 1 10.25 5.22Z"),
             s("M9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0"),
         ],
+        Addons => p![
+            s("M5.5 4h3A1.5 1.5 0 0 1 10 5.5v3A1.5 1.5 0 0 1 8.5 10h-3A1.5 1.5 0 0 1 4 8.5v-3A1.5 1.5 0 0 1 5.5 4z"),
+            s("M15.5 4h3A1.5 1.5 0 0 1 20 5.5v3a1.5 1.5 0 0 1-1.5 1.5h-3A1.5 1.5 0 0 1 14 8.5v-3A1.5 1.5 0 0 1 15.5 4z"),
+            s("M5.5 14h3a1.5 1.5 0 0 1 1.5 1.5v3A1.5 1.5 0 0 1 8.5 20h-3A1.5 1.5 0 0 1 4 18.5v-3A1.5 1.5 0 0 1 5.5 14z"),
+            s("M17 13.5v7"),
+            s("M13.5 17h7"),
+        ],
+        // A circle (r 8) less a second one (r 7) up and to the right: both arcs meet where the circles cross.
+        Moon => p![s("M19.77 13.9A8 8 0 1 1 10.1 4.23A7 7 0 0 0 19.77 13.9Z")],
     }
 }
 
@@ -250,7 +263,7 @@ mod tests {
         Icon::Battery, Icon::Bolt, Icon::Bluetooth, Icon::Headphones, Icon::Volume, Icon::VolumeLow, Icon::VolumeMute,
         Icon::Pin, Icon::PinFill, Icon::Folder, Icon::File, Icon::Trash, Icon::Undo, Icon::Reset,
         Icon::Sliders, Icon::Open, Icon::Phone, Icon::Eye, Icon::MoneyIn, Icon::Card, Icon::Wallet, Icon::Unlink, Icon::Gear,
-        Icon::Gauge, Icon::Network, Icon::App,
+        Icon::Gauge, Icon::Network, Icon::App, Icon::Addons, Icon::Moon,
     ];
 
     #[test]

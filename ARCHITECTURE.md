@@ -10,7 +10,7 @@ small web page on the local network so a phone can send files to it.
 
 | Crate | What | Builds on |
 |---|---|---|
-| `crates/poni-core` | Pure logic + models: geometry/colour, springs, LRC parsing, LRCLIB URL/JSON, Apple Music lyrics (web-player token, API replies, TTML), romaji under Japanese, Korean and Chinese lyrics (`romanize/`; Japanese kanji come from Windows' reading analyzer, or from Oyen Poni's own dictionary, `romanize/ja_dict.rs` with `data/ja-readings.dic.zst`, built by `tools/make_ja_dict.py`), player metadata fix-ups, Pomodoro, the steps snapshot Oyenza sends (`health.rs`), tasks, shelf, clipboard history, settings, JSON store, SVG path parser, Oyen's face (`oyen/`, a port of the Oyenza app's built face, checked against its Swift port by `oyen/swift_check.rs`), Phone drop (`phonedrop/`: the LAN web server, the phone page, safe file names, QR codes), prayer times (`prayer/`: Adhan's sun math ported from adhan-js, with Kemenag RI's rules for Indonesia and Umm al-Qura for Saudi Arabia, checked against Kemenag's published 2026 schedule and Oyen Umroh's engine; the place list is `addons/sholat/places.json`), and the System page's arithmetic (`sysmon.rs`: CPU load, per-app usage from two process lists, the process list's binary layout, a minute of history, number formats). **No OS calls** beyond `std` file and socket I/O (`store`, `phonedrop`), so the server's tests run over real sockets anywhere. | any OS (`cargo test -p poni-core`) |
+| `crates/poni-core` | Pure logic + models: geometry/colour, springs, LRC parsing, LRCLIB URL/JSON, Apple Music lyrics (web-player token, API replies, TTML), romaji under Japanese, Korean and Chinese lyrics (`romanize/`; Japanese kanji come from Windows' reading analyzer, or from Oyen Poni's own dictionary, `romanize/ja_dict.rs` with `data/ja-readings.dic.zst`, built by `tools/make_ja_dict.py`), player metadata fix-ups, Pomodoro, the steps snapshot Oyenza sends (`health.rs`), tasks, shelf, clipboard history, settings, JSON store, SVG path parser, Oyen's face (`oyen/`, a port of the Oyenza app's built face, checked against its Swift port by `oyen/swift_check.rs`), Phone drop (`phonedrop/`: the LAN web server, the phone page, safe file names, QR codes), add-ons (`addons.rs`: each add-on's files with their size and SHA-256, and what the Add-ons page says; `sha256.rs` checks them), prayer times (`prayer/`: Adhan's sun math ported from adhan-js, with Kemenag RI's rules for Indonesia and Umm al-Qura for Saudi Arabia, checked against Kemenag's published 2026 schedule and Oyen Umroh's engine; the place list is `addons/sholat/places.json`), and the System page's arithmetic (`sysmon.rs`: CPU load, per-app usage from two process lists, the process list's binary layout, a minute of history, number formats). **No OS calls** beyond `std` file and socket I/O (`store`, `phonedrop`), so the server's tests run over real sockets anywhere. | any OS (`cargo test -p poni-core`) |
 | `crates/poni` | The Windows app (Win32 + Direct2D + WinRT via `windows` 0.58) | Windows only (`cargo wcheck` / `cargo wbuild` cross from macOS/Linux) |
 | `crates/poni/src/mac/` | The Mac app (AppKit + Core Graphics + Core Text via `objc2`): its own window, renderer, main loop, notch layouts and menu bar item around the same state, pages, activities and Oyen. See [The Mac app](#the-mac-app). | macOS 14+ (`cargo mcheck` type-checks it from Linux) |
 
@@ -99,6 +99,11 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect);  // draw + handle input
   the tabs opens it, and pressing it again goes back. It changes what the tray menu
   changes: settings through `Command::SaveSettings` (applied as a tray change is),
   Start with Windows through `Command::SetAutostart` (read and set off the UI thread).
+* Add-ons (`pages/addons.rs`) is the last tab, a "+" (tiles with a plus): one row
+  per add-on in `poni_core::addons::ALL` with a switch. Switching one flips
+  `settings.addons` through `Command::SaveSettings`; `App::settings_changed` tells
+  `services::addons`, which downloads the files (on) or deletes them (off) and
+  reports through `AppEvent::Addon` into `st.addons`.
 * Timed page changes (an Undo pill lapsing) report their deadline through
   `pages::next_wake` so the app wakes exactly then instead of polling.
   `st.accent` = Windows accent (lightened); `st.media_accent()` = album-art colour.
@@ -132,7 +137,7 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect);  // draw + handle input
 | `gfx.rs`, `icons.rs`, `ui.rs`, `island.rs`, `window.rs` | rendering/UI foundation |
 | `state.rs`, `events.rs`, `commands.rs` | shared contracts |
 | `pages/*.rs` | expanded pages |
-| `services/*.rs` | media, lyrics/http, audio, bluetooth, fullscreen, clipboard, imaging, oyenza, power, sound, sysstats, phonedrop (started and stopped by the Shelf's phone panel), sysmon (the System page's readings: its thread runs only while the page is open) |
+| `services/*.rs` | media, lyrics/http, audio, bluetooth, fullscreen, clipboard, imaging, oyenza, power, sound, sysstats, phonedrop (started and stopped by the Shelf's phone panel), sysmon (the System page's readings: its thread runs only while the page is open), addons (add-on files: downloaded from their GitHub pre-release when an add-on is switched on, checked against the size and SHA-256 in `poni_core::addons`, deleted when it is switched off; asleep otherwise) |
 | `dragdrop.rs`, `shell.rs`, `tray.rs`, `autostart.rs` | OS integration |
 | `selftest.rs` | `poni.exe --selftest <dir>` scripted screenshots for CI |
 

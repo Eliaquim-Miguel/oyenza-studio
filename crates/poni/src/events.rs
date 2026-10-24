@@ -139,6 +139,8 @@ pub enum AppEvent {
     /// Paired phones: pairing done, the list changed, files from a phone.
     Paired(poni_core::pairdrop::MeetEvent),
     Oyenza(OyenzaEvent),
+    /// Where an add-on's files stand (`services::addons`).
+    Addon { id: &'static str, status: poni_core::addons::Status },
     /// Start with Windows is on (true) or off, read for the Settings page.
     Autostart(bool),
     /// Free-form log line from a service thread.

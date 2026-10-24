@@ -7,6 +7,7 @@
 //! web server) and `pairdrop` (UDP sockets for the direct link to a paired
 //! phone), so the tests can drive them over real sockets.
 
+pub mod addons;
 pub mod applemusic;
 pub mod cliphist;
 pub mod datetime;
@@ -27,6 +28,7 @@ pub mod pomodoro;
 pub mod prayer;
 pub mod romanize;
 pub mod settings;
+pub mod sha256;
 pub mod shelf;
 pub mod spring;
 pub mod store;

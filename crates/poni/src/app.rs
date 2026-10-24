@@ -19,6 +19,7 @@ use crate::tray::{self, Tray};
 use crate::ui::{wid, CursorKind, Hit, Input, KeyInput, MouseButton, Ui};
 use crate::window::{self, FrameClock, FrameTick, MonitorInfo};
 use crate::{dragdrop, selftest, shell};
+use poni_core::addons::Status as AddonStatus;
 use poni_core::frametime::{ambient_divisor, MotionStats};
 use poni_core::geom::{palette, Color, Point, Rect};
 use poni_core::health::fmt_steps;
@@ -1368,6 +1369,17 @@ impl App {
         if let Some(s) = self.services.as_ref() {
             s.set_clipboard_history(self.st.settings.clipboard_history);
         }
+        // An add-on switched on downloads its files; off deletes them.
+        for a in poni_core::addons::ALL {
+            let on = self.st.settings.addon_on(a.id);
+            if before.addon_on(a.id) != on {
+                pinfo!("add-ons: {} switched {}", a.id, if on { "on" } else { "off" });
+                self.st.addons.insert(a.id, if on { AddonStatus::Checking } else { AddonStatus::Off });
+                if let Some(s) = self.services.as_ref() {
+                    s.set_addon(a.id, on);
+                }
+            }
+        }
     }
 
     fn on_menu(&mut self, cmd: tray::MenuCmd) {
@@ -1623,6 +1635,12 @@ impl App {
             AppEvent::Paired(e) => self.on_paired(e),
             AppEvent::Oyenza(ev) => self.on_oyenza(ev),
             AppEvent::Autostart(on) => self.st.ui.autostart = Some(on),
+            AppEvent::Addon { id, status } => {
+                // A late report from before a switch-off doesn't bring it back.
+                if self.st.settings.addon_on(id) || status == AddonStatus::Off {
+                    self.st.addons.insert(id, status);
+                }
+            }
             AppEvent::Log(s) => pinfo!("{s}"),
         }
         if let Some(before) = media_before {

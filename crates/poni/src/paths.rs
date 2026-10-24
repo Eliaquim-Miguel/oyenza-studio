@@ -80,6 +80,13 @@ pub fn oyenza_link_path() -> PathBuf {
     cache_dir().join("oyenza-link.bin")
 }
 
+/// Add-on files, one folder per add-on (`services::addons`). Local, never
+/// roaming: a PC that hasn't them downloads them again. Switching an add-on
+/// off or uninstalling removes them.
+pub fn addons_dir() -> PathBuf {
+    cache_dir().join("addons")
+}
+
 /// Paired phones (their pairing secrets and names), sealed with DPAPI.
 /// Removing every phone deletes the file.
 pub fn paired_phones_path() -> PathBuf {

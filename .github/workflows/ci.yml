@@ -44,6 +44,10 @@ jobs:
 
       - name: Self-test (scripted screenshots)
         shell: pwsh
+        env:
+          # Also download the Prayer times add-on's files from their release
+          # and check each one against the size and SHA-256 built in.
+          PONI_SELFTEST_ADDONS: download
         run: |
           # Park the cursor mid-screen so a hover can't change the scripted states.
           Add-Type -AssemblyName System.Windows.Forms
@@ -73,6 +77,39 @@ jobs:
             Get-Content selftest-out\home\cache\poni.log -Tail 80 -ErrorAction SilentlyContinue
             exit 1
           }
+
+      # Add-ons end to end: start the app with Prayer times switched on in
+      # settings; its worker must download the files from their release and
+      # report ready. Then start it with Prayer times off: the files must go.
+      - name: Add-on switched on, then off (Prayer times)
+        shell: pwsh
+        run: |
+          $dir = New-Item -ItemType Directory -Force -Path addon-home
+          $env:PONI_HOME = $dir.FullName
+          $files = Join-Path $dir.FullName "cache\addons\sholat\addon-sholat-1"
+          $log = Join-Path $dir.FullName "cache\poni.log"
+          function Run-Poni($on, $pattern) {
+            "{`"addons`":{`"sholat`":$on}}" | Set-Content (Join-Path $env:PONI_HOME "settings.json")
+            $p = Start-Process -FilePath target\release\poni.exe -PassThru
+            $seen = $false
+            for ($i = 0; $i -lt 90 -and -not $seen; $i++) {
+              Start-Sleep -Seconds 1
+              $seen = [bool](Select-String -Path $log -Pattern $pattern -Quiet -ErrorAction SilentlyContinue)
+            }
+            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 1
+            return $seen
+          }
+          $ready = Run-Poni "true" "add-ons: sholat: ready"
+          "---- files"
+          Get-ChildItem $files -ErrorAction SilentlyContinue | ForEach-Object { "  $($_.Name)  $($_.Length) bytes" }
+          $have = @(Get-ChildItem $files -ErrorAction SilentlyContinue).Count
+          $gone = Run-Poni "false" "add-ons: sholat: switched off, files deleted"
+          $left = Test-Path (Join-Path $dir.FullName "cache\addons\sholat")
+          "---- poni.log (add-ons)"
+          Select-String -Path $log -Pattern 'add-ons' -ErrorAction SilentlyContinue | ForEach-Object { $_.Line }
+          "ready: $ready, files: $have, deleted when off: $gone, folder left: $left"
+          if (-not $ready -or $have -ne 3 -or -not $gone -or $left) { exit 1 }
 
       # The Oyen theme (cream look, embedded Outfit font) with the sample song in
       # Japanese: its pronunciation line comes from Windows' own reading

@@ -7,6 +7,7 @@ use crate::commands::{Command, MediaCmd, Sound};
 use crate::gfx::Image;
 use crate::icons::Icon;
 use crate::pages::PageKind;
+use poni_core::addons::Status as AddonStatus;
 use poni_core::cliphist::ClipHistory;
 use poni_core::datetime::LocalDateTime;
 use poni_core::geom::{palette, Color};
@@ -19,7 +20,7 @@ use poni_core::romanize::Ruby;
 use poni_core::settings::Settings;
 use poni_core::store::Store;
 use poni_core::timeline::Timeline;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 #[derive(Clone, Debug)]
 pub struct MediaSession {
@@ -345,6 +346,8 @@ pub struct AppState {
     /// Whether the meeting server answers (None = not asked yet: no pairs).
     pub pair_server: Option<bool>,
     pub oyenza: OyenzaState,
+    /// Where each add-on stands, by id (every one in `poni_core::addons::ALL`).
+    pub addons: BTreeMap<&'static str, AddonStatus>,
     /// Side effects requested during the frame.
     pub cmds: Vec<Command>,
 }
@@ -363,7 +366,7 @@ impl AppState {
         } else {
             &settings.start_page
         });
-        Self {
+        let mut st = Self {
             settings,
             store,
             now: 0.0,
@@ -392,8 +395,20 @@ impl AppState {
             paired: Vec::new(),
             pair_server: None,
             oyenza: OyenzaState::default(),
+            addons: BTreeMap::new(),
             cmds: Vec::new(),
+        };
+        // On ones start by checking their files (the worker reports back).
+        for a in poni_core::addons::ALL {
+            let on = st.settings.addon_on(a.id);
+            st.addons.insert(a.id, if on { AddonStatus::Checking } else { AddonStatus::Off });
         }
+        st
+    }
+
+    /// Where the add-on `id` stands (`Off` for one this version doesn't know).
+    pub fn addon(&self, id: &str) -> AddonStatus {
+        self.addons.get(id).copied().unwrap_or(AddonStatus::Off)
     }
 
     pub fn cmd(&mut self, c: Command) {

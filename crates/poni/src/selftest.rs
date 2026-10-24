@@ -17,6 +17,10 @@
 //! light browser page, Windows in light mode), dark (a dark video page, dark
 //! mode) or flip (the dark page in light mode: small glass turns dark, the
 //! open island stays light). Its screenshots are composited over that page.
+//!
+//! PONI_SELFTEST_ADDONS=download also downloads the Prayer times add-on's
+//! files from their release while the scenes run and checks each one
+//! (`addon-download`; Windows CI only, it needs github.com).
 
 use crate::app::App;
 use crate::clock;
@@ -30,6 +34,7 @@ use crate::state::{
     PairedPhone, PhoneDrop, PhoneTransfer, PhoneView, PowerState, SysStats, VolumeState,
 };
 use crate::ui::wid;
+use poni_core::addons::{Status as AddonStatus, PRAYER_TIMES};
 use poni_core::geom::{palette, Color, Point, Rect};
 use poni_core::health::{HealthDay, HealthSnapshot, HealthSource};
 use poni_core::lrc::parse_lrc;
@@ -471,9 +476,17 @@ enum Scene {
     ShelfPairedPhones,
     /// Files from a paired phone landed while the island was closed.
     PairedNotice,
+    /// Add-ons: Prayer times downloading.
+    AddonsDownloading,
+    /// Add-ons: Prayer times on, its files in place.
+    AddonsOn,
+    /// Add-ons: switched on without internet.
+    AddonsOffline,
+    /// Add-ons: a file came back wrong.
+    AddonsFailed,
 }
 
-const SCENES: [Scene; 44] = [
+const SCENES: [Scene; 49] = [
     Scene::IdleClock,
     Scene::IdleEyes,
     Scene::Media,
@@ -521,6 +534,12 @@ const SCENES: [Scene; 44] = [
     Scene::ShelfPaired,
     Scene::ShelfPairedPhones,
     Scene::PairedNotice,
+    // The Add-ons page: off (the "+" tab), then each state of a download.
+    Scene::Page(PageKind::Addons),
+    Scene::AddonsDownloading,
+    Scene::AddonsOn,
+    Scene::AddonsOffline,
+    Scene::AddonsFailed,
 ];
 
 impl Scene {
@@ -563,6 +582,10 @@ impl Scene {
             Scene::ShelfPaired => "page-shelf-paired".into(),
             Scene::ShelfPairedPhones => "page-shelf-paired-phones".into(),
             Scene::PairedNotice => "paired-received-notice".into(),
+            Scene::AddonsDownloading => "page-addons-downloading".into(),
+            Scene::AddonsOn => "page-addons-on".into(),
+            Scene::AddonsOffline => "page-addons-offline".into(),
+            Scene::AddonsFailed => "page-addons-failed".into(),
         }
     }
 
@@ -577,6 +600,7 @@ impl Scene {
             Scene::GearClick | Scene::SettingsSigningIn | Scene::SettingsSignedIn | Scene::SettingsStayOnTop => Some(PageKind::Settings),
             Scene::SystemMemory | Scene::SystemDrives | Scene::SystemNetwork | Scene::SystemBattery | Scene::SystemWaiting => Some(PageKind::System),
             Scene::ShelfPairing | Scene::ShelfPaired | Scene::ShelfPairedPhones => Some(PageKind::Shelf),
+            Scene::AddonsDownloading | Scene::AddonsOn | Scene::AddonsOffline | Scene::AddonsFailed => Some(PageKind::Addons),
             _ => None,
         }
     }
@@ -745,6 +769,8 @@ pub struct SelfTest {
     /// them, and the page forgets thumbnails of items that left).
     shelf_items: Vec<ShelfItem>,
     shelf_thumbs: Vec<(String, Option<Image>)>,
+    /// The real add-on download (PONI_SELFTEST_ADDONS=download), running beside the scenes.
+    addon_fetch: Option<std::sync::mpsc::Receiver<(bool, String)>>,
 }
 
 /// Transitions recorded in animation mode: (name, from, to).
@@ -798,6 +824,7 @@ impl SelfTest {
             renderer: "software",
             shelf_items: Vec::new(),
             shelf_thumbs: Vec::new(),
+            addon_fetch: None,
         }
     }
 
@@ -915,6 +942,17 @@ impl SelfTest {
             Err(d) => (false, d),
         };
         self.checks.push(check("start-with-windows", ok, detail));
+
+        // PONI_SELFTEST_ADDONS=download (Windows CI): fetch Prayer times' files from
+        // their release and check each against the size and SHA-256 built in.
+        if std::env::var("PONI_SELFTEST_ADDONS").is_ok_and(|v| v.trim() == "download") {
+            let (tx, rx) = std::sync::mpsc::channel();
+            let dir = paths::addons_dir().join("selftest-download");
+            let _ = std::thread::Builder::new().name("selftest-addon".into()).spawn(move || {
+                let _ = tx.send(crate::services::addons::fetch_for_selftest(&PRAYER_TIMES, &dir));
+            });
+            self.addon_fetch = Some(rx);
+        }
     }
 
     /// Called every ~50 ms; returns Some(exit code) when finished.
@@ -1229,6 +1267,15 @@ impl SelfTest {
             _ => None,
         };
         st.oyenza = if scene.oyenza() { fake_oyenza(st, scene, now) } else { OyenzaState::default() };
+        // Add-ons: what the page shows (settings stay as they are, so the worker downloads nothing).
+        let addon = match scene {
+            Scene::AddonsDownloading => AddonStatus::Downloading { done: 1_300_000, total: PRAYER_TIMES.size() },
+            Scene::AddonsOn => AddonStatus::Ready,
+            Scene::AddonsOffline => AddonStatus::Waiting,
+            Scene::AddonsFailed => AddonStatus::Failed,
+            _ => AddonStatus::Off,
+        };
+        st.addons.insert(PRAYER_TIMES.id, addon);
         st.system = fake_system(scene);
         st.ui.system_module = match scene {
             Scene::SystemMemory => Module::Memory,
@@ -1543,6 +1590,10 @@ impl SelfTest {
             write_errors.join("; ")
         };
         self.checks.push(check("png-files", writers_done && write_errors.is_empty(), detail));
+        if let Some(rx) = self.addon_fetch.take() {
+            let (ok, detail) = rx.recv_timeout(std::time::Duration::from_secs(60)).unwrap_or((false, "still downloading 60 s after the scenes".into()));
+            self.checks.push(check("addon-download", ok, detail));
+        }
         if self.states.len() < SCENES.len() {
             self.checks.push(check("states-visited", false, format!("{} of {} states captured", self.states.len(), SCENES.len())));
         }

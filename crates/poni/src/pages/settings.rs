@@ -304,7 +304,8 @@ fn switch_row(ui: &mut Ui, id: u64, r: Rect, label: &str, on: Option<bool>, acce
     resp.clicked
 }
 
-fn draw_switch(c: &mut crate::gfx::Canvas, r: Rect, on: bool, accent: Color) {
+/// A switch's track and knob (also the Add-ons page's).
+pub(crate) fn draw_switch(c: &mut crate::gfx::Canvas, r: Rect, on: bool, accent: Color) {
     c.fill_rrect(r, r.h / 2.0, if on { accent } else { palette::TRACK });
     let d = r.h - 2.0 * KNOB_INSET;
     let x = if on { r.right() - KNOB_INSET - d / 2.0 } else { r.x + KNOB_INSET + d / 2.0 };
