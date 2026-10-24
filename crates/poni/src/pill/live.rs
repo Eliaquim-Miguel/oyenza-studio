@@ -14,7 +14,7 @@
 //! when a reading arrives.
 
 use crate::activities::{prayer_countdown, Activity};
-use crate::gfx::{TextStyle, Weight};
+use crate::gfx::{Align, TextStyle, Weight};
 use crate::icons::Icon;
 use crate::island::Geom;
 use crate::state::{AppState, FpsAccess};
@@ -60,9 +60,10 @@ const MARK_GAP: f32 = 7.0;
 const MOON: f32 = 14.0;
 const MOON_GAP: f32 = 8.0;
 /// The readout over games: the frame rate, the GPU and the CPU between thin
-/// dividers, each label 4 from its value.
+/// dividers, each label 3 from its value.
 const GAME_GAP: f32 = 10.0;
-const LABEL_GAP: f32 = 4.0;
+const LABEL_GAP: f32 = 3.0;
+const DOT_R: f32 = 1.25;
 const DIVIDER: Color = Color::white(0.18);
 const DIVIDER_H: f32 = 14.0;
 /// How far a vertically centred line's baseline sits below its centre, per
@@ -249,14 +250,15 @@ fn draw_prayer(ui: &mut Ui, st: &AppState, body: Rect) {
     let (slot, _) = ui.c.measure(&prayer_slot_text(prayer), &ts, 400.0);
     let w = (GLYPH_INSET + MOON + MOON_GAP + slot + TEXT_INSET).ceil();
     PRAYER_FIT.with(|f| f.set(Some((prayer, w))));
-    // The moon and the line as one group, centred (at rest the pill fits
-    // it exactly; the hover lift widens both ends alike). A single minute
-    // digit leaves its slot's room at the end, so nothing moves.
-    let content = MOON + MOON_GAP + slot;
+    // The pill keeps the two-digit width; the moon and the line centre in
+    // it as one group, so "8 min" doesn't leave a gap at the end. They
+    // shift half a digit once, at "10 min" to "9 min", as the text changes.
+    let text = format!("{} {left} min", prayer.name());
+    let (tw, _) = ui.c.measure(&text, &ts, 400.0);
+    let content = MOON + MOON_GAP + tw;
     let x0 = (body.center().x - content / 2.0).max(body.x + GLYPH_INSET);
     moon(ui, Point::new(x0 + MOON / 2.0, body.center().y), MOON, col);
-    let text = format!("{} {left} min", prayer.name());
-    ui.c.text(&text, Rect::new(x0 + MOON + MOON_GAP, body.y, slot + 2.0, body.h), &ts);
+    ui.c.text(&text, Rect::new(x0 + MOON + MOON_GAP, body.y, tw + 2.0, body.h), &ts);
 }
 
 // --------------------------------------------------------------------- game
@@ -294,12 +296,23 @@ fn game_w(st: &AppState) -> f32 {
     (2.0 * TEXT_INSET + fps + 160.0 + temp).ceil()
 }
 
-/// One run of text in the readout: what it says, how, and the room it
-/// takes (a number's widest value, right-aligned in it).
-struct Piece {
-    text: String,
-    style: TextStyle,
-    slot: f32,
+/// One piece of the readout and the room it takes: a number sits
+/// right-aligned in its widest value's slot (a dash for a missing one
+/// centred in it), a label in its own width; the dot between the GPU's load
+/// and its temperature is drawn, since fonts put a middle dot at different
+/// heights.
+enum Piece {
+    Text { text: String, style: TextStyle, slot: f32, align: Align },
+    Dot,
+}
+
+impl Piece {
+    fn slot(&self) -> f32 {
+        match self {
+            Piece::Text { slot, .. } => *slot,
+            Piece::Dot => DOT_R * 2.0,
+        }
+    }
 }
 
 /// "144 fps | GPU 97% · 71° | CPU 38%" along one baseline, centred: the
@@ -319,27 +332,33 @@ fn draw_game(ui: &mut Ui, st: &AppState, body: Rect) {
     let gpu = reading.and_then(|r| r.gpu.as_ref());
     let cpu = reading.and_then(|r| r.cpu.as_ref());
 
-    let mut slot = |t: &str, ts: &TextStyle| ui.c.measure(t, ts, 400.0).0;
-    let pct_slot = slot("100%", &value);
-    let piece = |text: String, style: TextStyle, slot: f32| Piece { text, style, slot };
-    let fps = piece(st.game.rate.map_or_else(dash, |r| fmt_fps(r.fps)), fps_style, slot(if key.fps4 { "0000" } else { "000" }, &big));
-    let fps_unit = piece("fps".into(), fps_label, slot("fps", &label));
-    let gpu_label = piece("GPU".into(), label, slot("GPU", &label));
-    let gpu_pct = piece(gpu.map_or_else(dash, |g| fmt_pct(g.util)), value, pct_slot);
-    let cpu_label = piece("CPU".into(), label, slot("CPU", &label));
-    let cpu_pct = piece(cpu.map_or_else(dash, |c| fmt_pct(c.load)), value, pct_slot);
-    let mut gpu_group = vec![gpu_label, gpu_pct];
-    if let Some((t, hot)) = gpu.and_then(|g| g.temp_c).zip(key.temp) {
-        gpu_group.push(piece("\u{b7}".into(), label, slot("\u{b7}", &label)));
-        gpu_group.push(piece(format!("{t:.0}\u{b0}"), value, slot(if hot { "000\u{b0}" } else { "00\u{b0}" }, &value)));
+    let mut width = |t: &str, ts: &TextStyle| ui.c.measure(t, ts, 400.0).0;
+    // A number in the slot of `widest`, or a dash centred there.
+    let mut number = |v: Option<String>, style: TextStyle, widest: &str| {
+        let slot = width(widest, &style);
+        match v {
+            Some(text) => Piece::Text { text, style, slot, align: Align::Right },
+            None => Piece::Text { text: dash(), style, slot, align: Align::Center },
+        }
+    };
+    let fps = number(st.game.rate.map(|r| fmt_fps(r.fps)), fps_style, if key.fps4 { "0000" } else { "000" });
+    let gpu_pct = number(gpu.map(|g| fmt_pct(g.util)), value, "100%");
+    let cpu_pct = number(cpu.map(|c| fmt_pct(c.load)), value, "100%");
+    let temp = gpu.and_then(|g| g.temp_c).zip(key.temp).map(|(t, hot)| number(Some(format!("{t:.0}\u{b0}")), value, if hot { "000\u{b0}" } else { "00\u{b0}" }));
+    let mut word = |text: &str, style: TextStyle| Piece::Text { text: text.into(), slot: ui.c.measure(text, &style, 400.0).0, style, align: Align::Left };
+    let mut gpu_group = vec![word("GPU", label), gpu_pct];
+    if let Some(t) = temp {
+        gpu_group.extend([Piece::Dot, t]);
     }
-    let groups = [vec![fps, fps_unit], gpu_group, vec![cpu_label, cpu_pct]];
+    let groups = [vec![fps, word("fps", fps_label)], gpu_group, vec![word("CPU", label), cpu_pct]];
 
-    let run: f32 = groups.iter().map(|g| g.iter().map(|p| p.slot).sum::<f32>() + (g.len() - 1) as f32 * LABEL_GAP).sum::<f32>()
+    let run: f32 = groups.iter().map(|g| g.iter().map(Piece::slot).sum::<f32>() + (g.len() - 1) as f32 * LABEL_GAP).sum::<f32>()
         + (groups.len() - 1) as f32 * (2.0 * GAME_GAP + 1.0);
     GAME_FIT.with(|f| f.set(Some((key, (run + 2.0 * TEXT_INSET).ceil()))));
 
     let cy = body.center().y;
+    // Every piece sits on the frame rate's baseline.
+    let baseline = cy + BASELINE_K * big.size;
     let mut x = (body.center().x - run / 2.0).max(body.x + TEXT_INSET);
     for (i, group) in groups.iter().enumerate() {
         if i > 0 {
@@ -351,10 +370,22 @@ fn draw_game(ui: &mut Ui, st: &AppState, body: Rect) {
             if j > 0 {
                 x += LABEL_GAP;
             }
-            let dy = BASELINE_K * (big.size - p.style.size);
-            // A hair of spare room on the left, so rounding never ellipsizes.
-            ui.c.text(&p.text, Rect::new(x - 1.0, body.y + dy, p.slot + 1.0, body.h), &p.style.right());
-            x += p.slot;
+            match p {
+                Piece::Text { text, style, slot, align } => {
+                    let y = body.y + BASELINE_K * (big.size - style.size);
+                    // Two DIPs of spare room, on the side the text doesn't
+                    // align to, so rounding never ellipsizes it.
+                    let x0 = match align {
+                        Align::Left => x,
+                        Align::Center => x - 1.0,
+                        Align::Right => x - 2.0,
+                    };
+                    ui.c.text(text, Rect::new(x0, y, slot + 2.0, body.h), &style.align(*align));
+                }
+                // At the middle of the digits' height.
+                Piece::Dot => ui.c.fill_circle(Point::new(x + DOT_R, baseline - 0.35 * value.size), DOT_R, palette::TEXT_DIM),
+            }
+            x += p.slot();
         }
     }
 }
