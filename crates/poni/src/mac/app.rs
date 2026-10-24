@@ -2269,7 +2269,8 @@ impl App {
                 let bar_free = !at(self.cx - n.w / 2.0 - 24.0, n.h / 2.0);
                 let ok = self.island.floating() && (self.island.top() - n.h - pill::TOP_GAP).abs() < 0.01 && gap_takes && notch_takes && bar_free;
                 let place = format!(
-                    "floating {:.0} DIP below the top edge ({:.0} below a {:.0}x{:.0} notch); the gap takes the mouse: {gap_takes}, the notch: {notch_takes}, the menu bar beside it stays clickable: {bar_free}",
+                    "floating {:.0} DIP below the top edge ({:.0} below a {:.0}x{:.0} notch); the gap takes the mouse: {gap_takes}, \
+                     the notch: {notch_takes}, the menu bar beside it stays clickable: {bar_free}",
                     self.island.top(),
                     self.island.top() - n.h,
                     n.w,
