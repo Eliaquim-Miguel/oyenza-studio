@@ -119,12 +119,13 @@ pub struct Ui<'a, 'g> {
     pub now: f64,
     repaint: bool,
     animating: bool,
+    live: bool,
     wants_focus: Option<bool>,
 }
 
 impl<'a, 'g> Ui<'a, 'g> {
     pub fn new(c: &'a mut Canvas<'g>, input: &'a mut Input, hits: &'a mut Vec<Hit>, now: f64) -> Self {
-        Self { c, input, hits, now, repaint: false, animating: false, wants_focus: None }
+        Self { c, input, hits, now, repaint: false, animating: false, live: false, wants_focus: None }
     }
 
     /// Ask for one more frame (e.g. after a state change).
@@ -135,6 +136,16 @@ impl<'a, 'g> Ui<'a, 'g> {
     /// Ask for continuous frames while something moves (e.g. a lyric scroll).
     pub fn request_anim(&mut self) {
         self.animating = true;
+    }
+
+    /// Ask for slow ambient frames (~30 fps) while something drifts steadily,
+    /// e.g. a progress bar while music plays. Paused when the screen is off.
+    pub fn request_live(&mut self) {
+        self.live = true;
+    }
+
+    pub fn live_requested(&self) -> bool {
+        self.live
     }
 
     pub fn repaint_requested(&self) -> bool {

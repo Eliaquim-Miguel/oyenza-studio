@@ -19,7 +19,9 @@ EXE="$ROOT/target/x86_64-pc-windows-gnu/release/poni.exe"
 
 mkdir -p "$ROOT/dist"
 cp "$EXE" "$ROOT/dist/poni.exe"
-( cd "$ROOT/dist" && rm -f "Poni-$VERSION-portable.zip" && zip -q "Poni-$VERSION-portable.zip" poni.exe )
+# Portable build inside its own folder, so poni.exe never sits loose next to
+# other downloads (Windows looks for some DLLs in the exe's folder first).
+( cd "$ROOT/dist" && rm -rf Poni "Poni-$VERSION-portable.zip" && mkdir Poni && cp poni.exe Poni/ && zip -qr "Poni-$VERSION-portable.zip" Poni && rm -rf Poni )
 
 if [[ -n "${NSIS_HOST:-}" ]]; then
   REMOTE_DIR="poni-pkg"

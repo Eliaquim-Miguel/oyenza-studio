@@ -118,6 +118,8 @@ pub struct Hud {
 #[derive(Clone, Debug, PartialEq)]
 pub enum NoticeAction {
     OpenPage(PageKind),
+    /// Open Focus and start the (idle) timer.
+    StartFocus,
 }
 
 #[derive(Clone, Debug, PartialEq)]

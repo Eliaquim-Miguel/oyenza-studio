@@ -367,12 +367,13 @@ fn draw_session(ui: &mut Ui, st: &mut AppState, area: Rect, a: &mut Anim, fr: &F
         open_credit = out.open_credit;
     }
 
-    // Keep the progress and the lyrics moving while music plays.
-    if playing && (has_dur || synced_shown) {
-        anim = true;
-    }
+    // Real transitions (a lyric scroll catching up, a press) get full-rate
+    // frames; the steady drift of the progress bar and lyrics while music
+    // plays only needs ambient ~30 fps.
     if anim {
         ui.request_anim();
+    } else if playing && (has_dur || synced_shown) {
+        ui.request_live();
     }
     ui.c.unclip();
 

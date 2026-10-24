@@ -37,6 +37,28 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 VIAddVersionKey "LegalCopyright" "Copyright (C) 2026 ${PUBLISHER}"
 
 !include "MUI2.nsh"
+!include "LogicLib.nsh"
+!include "WinMessages.nsh"
+
+; Ask a running Poni to quit (it saves its data on WM_CLOSE), wait up to 3 s,
+; then force-close with the fully qualified system taskkill.
+!macro StopPoni
+  FindWindow $0 "Poni.Island"
+  ${If} $0 <> 0
+    SendMessage $0 ${WM_CLOSE} 0 0 /TIMEOUT=2000
+    StrCpy $1 0
+    ${DoWhile} $0 <> 0
+      ${If} $1 >= 30
+        ${Break}
+      ${EndIf}
+      Sleep 100
+      FindWindow $0 "Poni.Island"
+      IntOp $1 $1 + 1
+    ${Loop}
+  ${EndIf}
+  nsExec::Exec '"$SYSDIR\taskkill.exe" /IM poni.exe /F'
+  Sleep 200
+!macroend
 !define MUI_ICON "../crates/poni/res/poni.ico"
 !define MUI_UNICON "../crates/poni/res/poni.ico"
 !define MUI_ABORTWARNING
@@ -57,8 +79,7 @@ VIAddVersionKey "LegalCopyright" "Copyright (C) 2026 ${PUBLISHER}"
 Section "Poni" SecMain
   SectionIn RO
   ; Close a running copy so the exe can be replaced.
-  nsExec::Exec 'taskkill /IM poni.exe /F'
-  Sleep 300
+  !insertmacro StopPoni
   SetOutPath "$INSTDIR"
   File "/oname=poni.exe" "${EXE}"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
@@ -87,8 +108,7 @@ SectionEnd
 !insertmacro MUI_FUNCTION_DESCRIPTION_END
 
 Section "Uninstall"
-  nsExec::Exec 'taskkill /IM poni.exe /F'
-  Sleep 300
+  !insertmacro StopPoni
   Delete "$INSTDIR\poni.exe"
   Delete "$INSTDIR\Uninstall.exe"
   RMDir "$INSTDIR"
@@ -96,5 +116,7 @@ Section "Uninstall"
   DeleteRegValue HKCU "${RUN_KEY}" "Poni"
   DeleteRegKey HKCU "${UNINST_KEY}"
   DeleteRegKey HKCU "Software\Poni"
-  ; Settings and data in %APPDATA%\Poni are kept on purpose.
+  ; Cache and log (lyrics lookups name the songs you played) go too.
+  RMDir /r "$LOCALAPPDATA\Poni"
+  ; Your settings and data (tasks, water log, shelf) in %APPDATA%\Poni are kept.
 SectionEnd

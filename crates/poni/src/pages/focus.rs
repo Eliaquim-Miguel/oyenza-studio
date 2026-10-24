@@ -205,8 +205,8 @@ fn draw_chips(ui: &mut Ui, st: &mut AppState, x0: f32, y: f32, active: bool) {
         x = r.right() + 6.0;
     }
     if let Some(ph) = picked {
-        st.pomodoro.phase = ph;
-        st.pomodoro.reset();
+        // set_phase also closes a finished cycle (like ending a long break does).
+        st.pomodoro.set_phase(ph);
     }
 }
 
@@ -295,6 +295,8 @@ pub fn on_phase_ended(st: &mut AppState, e: PhaseEnded) {
             (Icon::Coffee, palette::GREEN, title, format!("{} today · {action}", sessions_text(today)))
         }
     };
-    st.notify(icon, color, title, subtitle, 6.0, Some(NoticeAction::OpenPage(super::PageKind::Focus)));
+    // When the next phase didn't start by itself, tapping the notice starts it.
+    let action = if e.auto_started { NoticeAction::OpenPage(super::PageKind::Focus) } else { NoticeAction::StartFocus };
+    st.notify(icon, color, title, subtitle, 6.0, Some(action));
     st.chime();
 }

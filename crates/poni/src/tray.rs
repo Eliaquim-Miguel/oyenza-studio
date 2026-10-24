@@ -132,16 +132,19 @@ pub fn show_menu(owner: HWND, pt: POINT, items: &[MenuItem]) -> Option<MenuCmd> 
         let menu = CreatePopupMenu().ok()?;
         let mut cmds = Vec::new();
         build(menu, items, &mut cmds);
-        // Required so the menu closes when clicking elsewhere.
+        // Required so the menu closes when clicking elsewhere; afterwards the
+        // previous app gets its focus back.
+        let prev = GetForegroundWindow();
         let _ = SetForegroundWindow(owner);
         let chosen = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_NONOTIFY, pt.x, pt.y, 0, owner, None);
         let _ = PostMessageW(owner, WM_NULL, WPARAM(0), LPARAM(0));
         let _ = DestroyMenu(menu);
         let idx = chosen.0 as usize;
-        if idx == 0 {
-            None
-        } else {
-            cmds.get(idx - 1).copied()
+        let cmd = if idx == 0 { None } else { cmds.get(idx - 1).copied() };
+        let launches = matches!(cmd, Some(MenuCmd::OpenSettings | MenuCmd::OpenDataFolder | MenuCmd::About));
+        if !launches && !prev.is_invalid() && prev != owner && IsWindow(prev).as_bool() && GetForegroundWindow() == owner {
+            let _ = SetForegroundWindow(prev);
         }
+        cmd
     }
 }

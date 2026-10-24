@@ -17,8 +17,9 @@ use crate::window::{self, FrameClock, MonitorInfo};
 use crate::{dragdrop, selftest, shell};
 use poni_core::geom::{palette, Color, Point, Rect};
 use poni_core::settings::{IdleStyle, Settings};
-use poni_core::store::{load_json, save_json_atomic, Store};
-use std::cell::RefCell;
+use poni_core::settings::MonitorChoice;
+use poni_core::store::{load_json, parse_json, save_json_atomic, LoadOutcome, Store};
+use std::cell::{Cell, RefCell};
 use std::sync::mpsc::{self, Receiver};
 use windows::core::{w, Result};
 use windows::Win32::Foundation::*;
@@ -38,9 +39,21 @@ const TIMER_SAVE: usize = 4;
 const TIMER_STATS: usize = 5;
 const TIMER_MINUTE: usize = 6;
 pub const TIMER_SELFTEST: usize = 7;
+const TIMER_TRAY: usize = 8;
+const TIMER_WATER: usize = 9;
+
+const WM_CAPTURECHANGED_: u32 = 0x0215;
+const WM_WTSSESSION_CHANGE_: u32 = 0x02B1;
+const WTS_SESSION_LOCK_: usize = 7;
+const WTS_SESSION_UNLOCK_: usize = 8;
 
 thread_local! {
     static APP: RefCell<Option<App>> = const { RefCell::new(None) };
+    /// Posted messages that arrived while the app was borrowed (a nested
+    /// message loop ran inside a handler). Replayed when the borrow ends.
+    static MISSED: RefCell<Vec<(u32, WPARAM, LPARAM)>> = const { RefCell::new(Vec::new()) };
+    /// A WM_APP_FRAME was swallowed: re-arm the frame clock.
+    static FRAME_MISSED: Cell<bool> = const { Cell::new(false) };
 }
 
 /// Modal work that must run without the App borrowed (it pumps messages).
@@ -95,22 +108,22 @@ fn run(selftest_dir: Option<String>) -> Result<i32> {
     let helper = window::create_helper_window()?;
     pinfo!("windows created");
 
-    let (settings, err): (Settings, _) = load_json(&paths::settings_path());
-    if let Some(e) = err {
-        pwarn!("{e}");
+    let (settings, s_out): (Settings, _) = load_json(&paths::settings_path());
+    if let Some(m) = s_out.message() {
+        pwarn!("settings: {m}");
     }
     let settings = settings.sanitized();
-    if !paths::settings_path().exists() {
+    if s_out == LoadOutcome::Missing {
         let _ = save_json_atomic(&paths::settings_path(), &settings);
     }
-    let (store, err): (Store, _) = load_json(&paths::store_path());
-    if let Some(e) = err {
-        pwarn!("{e}");
+    let (store, d_out): (Store, _) = load_json(&paths::store_path());
+    if let Some(m) = d_out.message() {
+        pwarn!("data: {m}");
     }
 
     let (tx, rx) = mpsc::channel();
     let sink = EventSink::new(tx, SendHwnd::new(hwnd));
-    let app = App::new(hwnd, helper, sink, rx, settings, store, selftest_dir)?;
+    let app = App::new(hwnd, helper, sink, rx, settings, store, selftest_dir, s_out.writable(), d_out.writable())?;
     APP.with(|c| *c.borrow_mut() = Some(app));
     with_app(|app| app.start());
     pinfo!("started; entering message loop");
@@ -128,32 +141,81 @@ fn run(selftest_dir: Option<String>) -> Result<i32> {
 
 /// Run `f` with the app if it isn't already borrowed (re-entrancy safe).
 pub fn with_app<R>(f: impl FnOnce(&mut App) -> R) -> Option<R> {
-    APP.with(|c| match c.try_borrow_mut() {
-        Ok(mut g) => g.as_mut().map(f),
-        Err(_) => None,
-    })
+    let (r, hwnd) = APP.with(|c| match c.try_borrow_mut() {
+        Ok(mut g) => match g.as_mut() {
+            Some(app) => {
+                let r = f(app);
+                if FRAME_MISSED.with(|m| m.replace(false)) {
+                    app.clock.frame_handled();
+                    app.request_frame();
+                }
+                (Some(r), Some(app.hwnd))
+            }
+            None => (None, None),
+        },
+        Err(_) => (None, None),
+    });
+    // Re-post messages a nested loop swallowed while we were borrowed.
+    if let Some(hwnd) = hwnd {
+        let missed = MISSED.with(|m| std::mem::take(&mut *m.borrow_mut()));
+        for (msg, wp, lp) in missed {
+            unsafe {
+                let _ = PostMessageW(hwnd, msg, wp, lp);
+            }
+        }
+    }
+    r
+}
+
+/// Remember a message that couldn't be handled because the app was borrowed.
+fn note_missed(msg: u32, wp: WPARAM, lp: LPARAM) -> bool {
+    match msg {
+        WM_APP_FRAME => {
+            FRAME_MISSED.with(|f| f.set(true));
+            true
+        }
+        WM_APP_EVENT | WM_MOUSELEAVE | WM_TIMER | WM_LBUTTONUP | WM_APP_TRAY | WM_APP_APPBAR => {
+            MISSED.with(|m| {
+                let mut v = m.borrow_mut();
+                if v.len() < 64 && !(msg != WM_TIMER && v.iter().any(|x| x.0 == msg && x.1 == wp)) {
+                    v.push((msg, wp, lp));
+                }
+            });
+            true
+        }
+        _ => false,
+    }
 }
 
 unsafe extern "system" fn island_wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     let mut deferred = Vec::new();
-    let res = with_app(|app| app.handle_island(msg, wp, lp, &mut deferred)).flatten();
+    let res = with_app(|app| app.handle_island(msg, wp, lp, &mut deferred));
     for d in deferred {
         run_deferred(d);
     }
     match res {
-        Some(r) => r,
+        Some(Some(r)) => r,
+        Some(None) => DefWindowProcW(hwnd, msg, wp, lp),
+        None if note_missed(msg, wp, lp) => LRESULT(0),
         None => DefWindowProcW(hwnd, msg, wp, lp),
     }
 }
 
 unsafe extern "system" fn helper_wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     let mut deferred = Vec::new();
-    let res = with_app(|app| app.handle_helper(msg, wp, lp, &mut deferred)).flatten();
+    let res = with_app(|app| app.handle_helper(msg, wp, lp, &mut deferred));
     for d in deferred {
         run_deferred(d);
     }
     match res {
-        Some(r) => r,
+        Some(Some(r)) => r,
+        Some(None) => DefWindowProcW(hwnd, msg, wp, lp),
+        // Helper messages are re-posted to the island window, which forwards
+        // tray/appbar ids back to the helper handler.
+        None if matches!(msg, WM_APP_TRAY | WM_APP_APPBAR) => {
+            let _ = note_missed(msg, wp, lp);
+            LRESULT(0)
+        }
         None => DefWindowProcW(hwnd, msg, wp, lp),
     }
 }
@@ -208,10 +270,36 @@ pub struct App {
     exit_code: i32,
     /// Settings as last written to disk (to diff page-made changes).
     saved_settings: Settings,
+    /// False when the file existed but couldn't be read: never overwrite it.
+    settings_writable: bool,
+    store_writable: bool,
+    /// The current press started as a double-click (its click is ignored).
+    dbl_press: bool,
+    /// Pending high surrogate from WM_CHAR.
+    high_surrogate: Option<u16>,
+    /// Unconsumed wheel notches accumulated for page switching.
+    wheel_acc: f32,
+    wheel_t: f64,
+    page_switch_t: f64,
+    /// Session locked / display off: pause ambient animation.
+    locked: bool,
+    display_off: bool,
+    tray_retries: u32,
 }
 
 impl App {
-    fn new(hwnd: HWND, helper: HWND, sink: EventSink, rx: Receiver<AppEvent>, settings: Settings, store: Store, selftest_dir: Option<String>) -> Result<Self> {
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        hwnd: HWND,
+        helper: HWND,
+        sink: EventSink,
+        rx: Receiver<AppEvent>,
+        settings: Settings,
+        store: Store,
+        selftest_dir: Option<String>,
+        settings_writable: bool,
+        store_writable: bool,
+    ) -> Result<Self> {
         let monitor = window::pick_monitor(settings.monitor);
         let gfx = Gfx::new(monitor.dpi as f32)?;
         let mut st = AppState::new(settings, store);
@@ -255,6 +343,16 @@ impl App {
             last_present: (i32::MIN, i32::MIN),
             exit_code: 0,
             saved_settings,
+            settings_writable,
+            store_writable,
+            dbl_press: false,
+            high_surrogate: None,
+            wheel_acc: 0.0,
+            wheel_t: 0.0,
+            page_switch_t: 0.0,
+            locked: false,
+            display_off: false,
+            tray_retries: 0,
         })
     }
 
@@ -264,10 +362,8 @@ impl App {
         services::power::register(self.helper);
         if !fake {
             self.services = Some(Services::start(&self.sink, self.hwnd, self.helper, &self.st.settings));
-            match Tray::add(self.helper) {
-                Ok(t) => self.tray = Some(t),
-                Err(e) => pwarn!("tray icon failed: {e}"),
-            }
+            self.try_add_tray();
+            services::power::register_session(self.helper);
         }
         if let Err(e) = dragdrop::register(self.hwnd, self.sink.clone()) {
             pwarn!("drop target registration failed: {e}");
@@ -278,7 +374,7 @@ impl App {
         }
         self.schedule_minute_timer();
         unsafe {
-            SetTimer(self.hwnd, TIMER_STATS + 100, 60_000, None); // water reminder check
+            SetTimer(self.hwnd, TIMER_WATER, 60_000, None); // water reminder check
         }
         if let Some(t) = self.selftest.as_mut() {
             t.begin(&mut self.st);
@@ -315,6 +411,45 @@ impl App {
         self.clock.set_active(true);
     }
 
+    /// Add the tray icon; Explorer can be busy at logon, so retry a few times.
+    fn try_add_tray(&mut self) {
+        if self.tray.is_some() {
+            return;
+        }
+        match Tray::add(self.helper) {
+            Ok(t) => {
+                self.tray = Some(t);
+                self.tray_retries = 0;
+            }
+            Err(e) => {
+                self.tray_retries += 1;
+                if self.tray_retries <= 15 {
+                    pwarn!("tray icon failed ({e}); retry {} in 2 s", self.tray_retries);
+                    unsafe {
+                        SetTimer(self.hwnd, TIMER_TRAY, 2000, None);
+                    }
+                } else {
+                    pwarn!("tray icon failed ({e}); giving up");
+                }
+            }
+        }
+    }
+
+    /// Write settings only when they changed and the file is safe to overwrite.
+    fn save_settings(&mut self) {
+        if self.st.settings == self.saved_settings {
+            return;
+        }
+        if !self.settings_writable {
+            pwarn!("settings.json couldn't be read at start; not overwriting it");
+            return;
+        }
+        match save_json_atomic(&paths::settings_path(), &self.st.settings) {
+            Ok(()) => self.saved_settings = self.st.settings.clone(),
+            Err(e) => pwarn!("saving settings failed: {e}"),
+        }
+    }
+
     fn release_mouse(&mut self) {
         self.input.down = false;
         self.input.pressed_id = None;
@@ -328,8 +463,10 @@ impl App {
     fn handle_island(&mut self, msg: u32, wp: WPARAM, lp: LPARAM, deferred: &mut Vec<Deferred>) -> Option<LRESULT> {
         match msg {
             WM_APP_FRAME => {
-                self.clock.frame_handled();
+                // Clear `pending` after the frame so a slow frame can't keep the
+                // queue permanently non-empty (which starves WM_TIMER).
                 self.frame(deferred);
+                self.clock.frame_handled();
                 Some(LRESULT(0))
             }
             WM_APP_EVENT => {
@@ -371,6 +508,7 @@ impl App {
                 Some(LRESULT(0))
             }
             WM_LBUTTONDOWN | WM_LBUTTONDBLCLK => {
+                self.dbl_press = msg == WM_LBUTTONDBLCLK;
                 let p = self.mouse_dip(lp);
                 self.input.mouse = Some(p);
                 self.input.down = true;
@@ -380,8 +518,15 @@ impl App {
                 if !self.expanded {
                     // Tapping a notice jumps to its page.
                     if let Some(n) = self.st.notice.take() {
-                        if let Some(NoticeAction::OpenPage(p)) = n.action {
-                            self.st.page = p;
+                        match n.action {
+                            Some(NoticeAction::OpenPage(p)) => self.st.page = p,
+                            Some(NoticeAction::StartFocus) => {
+                                self.st.page = PageKind::Focus;
+                                if !self.st.pomodoro.is_active() {
+                                    self.st.pomodoro.start(self.st.now);
+                                }
+                            }
+                            None => {}
                         }
                     }
                     self.st.hud = None;
@@ -397,15 +542,39 @@ impl App {
                 self.input.mouse = Some(p);
                 let hit = self.hit_at(p).map(|h| h.id);
                 if let (Some(pid), Some(h)) = (self.input.pressed_id, hit) {
-                    if pid == h {
+                    // The second press of a double-click doesn't click again
+                    // (no double toggles / double opens).
+                    if pid == h && !self.dbl_press {
                         self.input.clicked = Some((h, MouseButton::Left));
                     }
                 }
+                self.dbl_press = false;
                 self.release_mouse();
                 if !self.hovering_inside(p) {
                     self.input.mouse = None;
                 }
+                if !self.hovering {
+                    self.maybe_schedule_collapse();
+                }
                 self.request_frame();
+                Some(LRESULT(0))
+            }
+            WM_CAPTURECHANGED_ => {
+                // Capture taken by someone else mid-press: drop the stale press.
+                if lp.0 != self.hwnd.0 as isize && (self.input.down || self.input.pressed_id.is_some()) {
+                    self.input.down = false;
+                    self.input.pressed_id = None;
+                    if !self.hovering {
+                        self.maybe_schedule_collapse();
+                    }
+                    self.request_frame();
+                }
+                Some(LRESULT(0))
+            }
+            WM_SYSCOMMAND if (wp.0 & 0xFFF0) == SC_CLOSE as usize => {
+                // Alt+F4 while typing in a field just closes the island, not the app.
+                self.blur_text();
+                self.collapse();
                 Some(LRESULT(0))
             }
             WM_RBUTTONUP => {
@@ -446,11 +615,19 @@ impl App {
             WM_MOUSEACTIVATE => Some(LRESULT(if self.text_focus { MA_ACTIVATE as isize } else { MA_NOACTIVATE as isize })),
             WM_CHAR => {
                 if self.text_focus {
-                    if let Some(c) = char::from_u32(wp.0 as u32) {
-                        if !c.is_control() {
-                            self.input.keys.push(KeyInput::Char(c));
-                            self.request_frame();
-                        }
+                    let u = wp.0 as u32;
+                    let c = if (0xD800..0xDC00).contains(&u) {
+                        self.high_surrogate = Some(u as u16);
+                        None
+                    } else if (0xDC00..0xE000).contains(&u) {
+                        self.high_surrogate.take().and_then(|h| char::decode_utf16([h, u as u16]).next().and_then(|r| r.ok()))
+                    } else {
+                        self.high_surrogate = None;
+                        char::from_u32(u)
+                    };
+                    if let Some(c) = c.filter(|c| !c.is_control()) {
+                        self.input.keys.push(KeyInput::Char(c));
+                        self.request_frame();
                     }
                 }
                 Some(LRESULT(0))
@@ -516,7 +693,8 @@ impl App {
             if let Some(t) = self.tray.take() {
                 t.remove();
             }
-            self.tray = Tray::add(self.helper).ok();
+            self.tray_retries = 0;
+            self.try_add_tray();
             if let Some(s) = self.services.as_ref() {
                 s.on_taskbar_created();
             }
@@ -554,17 +732,21 @@ impl App {
                 Some(LRESULT(0))
             }
             WM_POWERBROADCAST => {
+                if let Some(on) = services::power::display_state_change(wp, lp) {
+                    self.display_off = !on;
+                }
                 let p = services::power::query();
                 self.on_event(AppEvent::Power(p));
                 self.request_frame();
                 Some(LRESULT(1))
             }
-            WM_CLIPBOARDUPDATE => {
-                if self.st.settings.clipboard_history {
-                    if let Some(t) = services::clipboard::read_text_for_history(self.helper) {
-                        self.on_event(AppEvent::ClipboardText(t));
-                    }
+            WM_WTSSESSION_CHANGE_ => {
+                match wp.0 {
+                    WTS_SESSION_LOCK_ => self.locked = true,
+                    WTS_SESSION_UNLOCK_ => self.locked = false,
+                    _ => {}
                 }
+                self.request_frame();
                 Some(LRESULT(0))
             }
             WM_QUERYENDSESSION => Some(LRESULT(1)),
@@ -613,7 +795,13 @@ impl App {
             TIMER_MINUTE => {
                 self.schedule_minute_timer();
             }
-            x if x == TIMER_STATS + 100 => self.check_water_reminder(),
+            TIMER_WATER => self.check_water_reminder(),
+            TIMER_TRAY => {
+                unsafe {
+                    let _ = KillTimer(self.hwnd, TIMER_TRAY);
+                }
+                self.try_add_tray();
+            }
             TIMER_SELFTEST => {
                 if let Some(mut t) = self.selftest.take() {
                     let done = t.step(self);
@@ -652,6 +840,9 @@ impl App {
             }
         }
         self.st.pomodoro.cfg = self.st.settings.pomodoro.clone();
+        if let Some(s) = self.services.as_ref() {
+            s.set_clipboard_history(self.st.settings.clipboard_history);
+        }
     }
 
     fn on_menu(&mut self, cmd: tray::MenuCmd) {
@@ -673,16 +864,33 @@ impl App {
                 }
             }
             OpenSettings => {
-                let _ = save_json_atomic(&paths::settings_path(), &self.st.settings);
+                if !paths::settings_path().exists() {
+                    let _ = save_json_atomic(&paths::settings_path(), &self.st.settings);
+                }
                 shell::open(&paths::settings_path().to_string_lossy());
             }
             ReloadSettings => {
-                let (s2, err): (Settings, _) = load_json(&paths::settings_path());
-                if let Some(e) = err {
-                    pwarn!("{e}");
+                // Never move the user's file aside or reset on a typo: keep the
+                // current settings and say what's wrong.
+                let path = paths::settings_path();
+                match std::fs::read_to_string(&path).map_err(|e| e.to_string()).and_then(|t| parse_json::<Settings>(&t)) {
+                    Ok(s2) => {
+                        let s2 = s2.sanitized();
+                        let monitor_changed = s2.monitor != self.st.settings.monitor;
+                        self.st.settings = s2.clone();
+                        self.saved_settings = s2;
+                        self.settings_writable = true;
+                        if monitor_changed {
+                            self.monitor = window::pick_monitor(self.st.settings.monitor);
+                            self.gfx.set_dpi(self.monitor.dpi as f32);
+                        }
+                        self.refresh_monitor();
+                    }
+                    Err(e) => {
+                        pwarn!("settings.json not reloaded: {e}");
+                        self.st.notify(crate::icons::Icon::Sliders, palette::ORANGE, "Settings not reloaded", "settings.json has an error; see poni.log", 5.0, None);
+                    }
                 }
-                self.st.settings = s2.sanitized();
-                self.refresh_monitor();
             }
             OpenDataFolder => shell::open(&paths::data_dir().to_string_lossy()),
             About => shell::open("https://lrclib.net"),
@@ -692,8 +900,7 @@ impl App {
             }
         }
         self.settings_changed(&before);
-        let _ = save_json_atomic(&paths::settings_path(), &self.st.settings);
-        self.saved_settings = self.st.settings.clone();
+        self.save_settings();
         self.request_frame();
     }
 
@@ -794,7 +1001,13 @@ impl App {
                         let _ = ShowWindow(self.hwnd, if hide { SW_HIDE } else { SW_SHOWNOACTIVATE });
                     }
                     if hide {
-                        self.expanded = false;
+                        self.collapse();
+                        unsafe {
+                            let _ = KillTimer(self.hwnd, TIMER_HOVER);
+                            let _ = KillTimer(self.hwnd, TIMER_COLLAPSE);
+                        }
+                        self.hovering = false;
+                        self.input.mouse = None;
                     }
                     pinfo!("fullscreen app {}: island {}", if on { "detected" } else { "gone" }, if hide { "hidden" } else { "shown" });
                 }
@@ -845,9 +1058,6 @@ impl App {
             unsafe {
                 let _ = KillTimer(self.hwnd, TIMER_HOVER);
             }
-            if self.st.page == PageKind::Today {
-                self.set_stats(true);
-            }
         }
         self.request_frame();
     }
@@ -859,8 +1069,12 @@ impl App {
                 self.blur_text();
             }
             self.set_stats(false);
-            // Tapping a notice consumes it.
             self.st.ui.clip_flash = None;
+            // A notice that arrived while expanded gets its full time now.
+            let min_until = self.st.now + 4.0;
+            if let Some(n) = self.st.notice.as_mut() {
+                n.until = n.until.max(min_until);
+            }
         }
         self.request_frame();
     }
@@ -928,7 +1142,13 @@ impl App {
     }
 
     fn refresh_monitor(&mut self) {
-        let m = window::pick_monitor(self.st.settings.monitor);
+        let m = match self.st.settings.monitor {
+            MonitorChoice::Cursor => {
+                window::monitor_info(windows::Win32::Graphics::Gdi::HMONITOR(self.monitor.handle as *mut core::ffi::c_void))
+                    .unwrap_or_else(|| window::pick_monitor(MonitorChoice::Primary))
+            }
+            c => window::pick_monitor(c),
+        };
         if m != self.monitor {
             pinfo!("monitor: {:?} dpi {}", m.rect, m.dpi);
             self.monitor = m;
@@ -977,7 +1197,7 @@ impl App {
             }
         }
         if let Some(n) = &self.st.notice {
-            if now >= n.until {
+            if !self.expanded && now >= n.until {
                 self.st.notice = None;
             }
         }
@@ -988,7 +1208,12 @@ impl App {
 
     fn frame(&mut self, deferred: &mut Vec<Deferred>) {
         if self.fullscreen_hidden {
+            // Nothing is drawn, but timers, chimes and commands keep working.
+            self.refresh_time();
+            self.tick();
+            self.run_commands(deferred);
             self.clock.set_active(false);
+            self.schedule_wake();
             return;
         }
         self.refresh_time();
@@ -1001,11 +1226,6 @@ impl App {
         if target != self.mode {
             let new_content = activities::content_key(&target) != activities::content_key(&self.mode);
             self.island.set_target(activities::geom(&target, &self.st), now, new_content);
-            if let (Mode::Expanded(a), Mode::Expanded(b)) = (&self.mode, &target) {
-                if a != b && *b == PageKind::Today {
-                    self.set_stats(true);
-                }
-            }
             self.mode = target;
         } else {
             // Size can change within a mode (e.g. a page's height); follow it.
@@ -1014,6 +1234,7 @@ impl App {
                 self.island.set_target(g, now, false);
             }
         }
+        self.set_stats(self.mode == Mode::Expanded(PageKind::Today));
         self.island.step(dt, now);
 
         let scale = self.gfx.scale();
@@ -1028,7 +1249,7 @@ impl App {
 
         let hidden_idle = self.mode == Mode::Idle && self.st.settings.idle_style == IdleStyle::Hidden;
         let mut wheel_left = 0.0;
-        let (repaint, anim, focus) = match self.gfx.begin(wpx, hpx) {
+        let (repaint, anim, focus, ui_live) = match self.gfx.begin(wpx, hpx) {
             Ok(mut canvas) => {
                 // Near-invisible hit margin around the island.
                 canvas.fill_rect(Rect::new(0.0, 0.0, cw, ch), Color::black(1.0 / 255.0));
@@ -1041,7 +1262,7 @@ impl App {
                     Mode::Expanded(page) => pages::draw_expanded(&mut ui, &mut self.st, body, page),
                     _ => activities::draw(&mut ui, &mut self.st, &self.mode, body),
                 }
-                let out = (ui.repaint_requested(), ui.anim_requested(), ui.focus_request());
+                let out = (ui.repaint_requested(), ui.anim_requested(), ui.focus_request(), ui.live_requested());
                 wheel_left = self.input.wheel;
                 drop(canvas);
                 if let Err(e) = self.gfx.end() {
@@ -1051,16 +1272,26 @@ impl App {
             }
             Err(e) => {
                 pwarn!("begin frame failed: {e}");
-                (false, false, None)
+                (false, false, None, false)
             }
         };
         self.hits = hits;
 
-        // Unconsumed wheel over the expanded island switches pages.
-        if wheel_left != 0.0 {
-            if let Mode::Expanded(p) = self.mode {
-                let next = if wheel_left < 0.0 { p.next() } else { p.prev() };
-                self.st.cmds.push(Command::SetPage(next));
+        // Unconsumed wheel over the expanded island switches pages: one page per
+        // whole notch, with a short cooldown so touchpads don't race through.
+        if let Mode::Expanded(p) = self.mode {
+            if wheel_left != 0.0 {
+                if now - self.wheel_t > 0.25 || wheel_left.signum() != self.wheel_acc.signum() {
+                    self.wheel_acc = 0.0;
+                }
+                self.wheel_t = now;
+                self.wheel_acc += wheel_left;
+                if self.wheel_acc.abs() >= 1.0 && now - self.page_switch_t > 0.3 {
+                    let next = if self.wheel_acc < 0.0 { p.next() } else { p.prev() };
+                    self.st.cmds.push(Command::SetPage(next));
+                    self.wheel_acc = 0.0;
+                    self.page_switch_t = now;
+                }
             }
         }
         self.input.end_frame();
@@ -1087,8 +1318,11 @@ impl App {
         }
         self.run_commands(deferred);
 
-        // Decide whether to keep the frame clock running.
-        let live = activities::is_live(&self.mode, &self.st);
+        // Decide whether to keep the frame clock running. Ambient motion
+        // (equalizer, a playing progress bar) runs at 30 fps and pauses while
+        // the session is locked or the display is off.
+        let ambient_ok = !self.locked && !self.display_off;
+        let live = ambient_ok && (activities::is_live(&self.mode, &self.st) || ui_live);
         let moving = !self.island.settled() || anim || repaint || !self.st.cmds.is_empty();
         self.clock.set_min_interval_ms(if moving { 0 } else if live { 33 } else { 0 });
         self.clock.set_active(moving || live);
@@ -1110,13 +1344,15 @@ impl App {
         if let Some(n) = &self.st.notice {
             consider(n.until);
         }
-        if let Some(b) = self.st.pomodoro.next_second_boundary(now) {
+        // While hidden for a full-screen app only the phase end matters.
+        let visible = !self.fullscreen_hidden;
+        if let Some(b) = self.st.pomodoro.next_second_boundary(now).filter(|_| visible) {
             consider(now + b + 0.005);
         }
         if let poni_core::pomodoro::RunState::Running { ends_at } = self.st.pomodoro.run {
             consider(ends_at + 0.005);
         }
-        if let Some(t) = activities::next_wake(&self.mode, &self.st) {
+        if let Some(t) = activities::next_wake(&self.mode, &self.st).filter(|_| visible) {
             consider(t);
         }
         if let Some(t) = next {
@@ -1194,10 +1430,7 @@ impl App {
                 Command::SaveSettings => {
                     let before = self.saved_settings.clone();
                     self.settings_changed(&before);
-                    self.saved_settings = self.st.settings.clone();
-                    if let Err(e) = save_json_atomic(&paths::settings_path(), &self.st.settings) {
-                        pwarn!("saving settings failed: {e}");
-                    }
+                    self.save_settings();
                 }
                 Command::SaveStore => unsafe {
                     SetTimer(self.hwnd, TIMER_SAVE, 800, None);
@@ -1230,6 +1463,10 @@ impl App {
     }
 
     fn save_now(&mut self) {
+        if !self.store_writable {
+            pwarn!("data.json couldn't be read at start; not overwriting it");
+            return;
+        }
         if let Err(e) = save_json_atomic(&paths::store_path(), &self.st.store) {
             pwarn!("saving data failed: {e}");
         }
