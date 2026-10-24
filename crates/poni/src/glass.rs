@@ -426,7 +426,7 @@ use crate::events::EventSink;
 use crate::gfx::Gfx;
 use crate::services::backdrop::{Backdrop, Frame, Status};
 use crate::window;
-use poni_core::glass::{shadow_alpha, thickness, tint_for_contrast, Flip};
+use poni_core::glass::{shadow_alpha, thickness, tint_for_contrast, Flip, TEXT_CONTRAST};
 use poni_core::look::{GLASS_DARK, GLASS_LIGHT};
 use std::sync::Arc;
 use windows::Win32::Foundation::HWND;
@@ -664,11 +664,14 @@ impl Glass {
         let (tint_dark, tint_light, busy) = match under {
             Some(u) => {
                 // The material as the shader makes it: frosted, then saturated.
-                let l = 0.2126 * u.mean[0] + 0.7152 * u.mean[1] + 0.0722 * u.mean[2];
-                let m = u.mean.map(|c| (l + (c - l) * SATURATION).clamp(0.0, 1.0));
+                // From the median colour, which is what most of the glass shows:
+                // the mean of a dark page with bright icons and text is too light
+                // to tint for (the shortest page came out at 4.34:1).
+                let l = 0.2126 * u.median[0] + 0.7152 * u.median[1] + 0.0722 * u.median[2];
+                let m = u.median.map(|c| (l + (c - l) * SATURATION).clamp(0.0, 1.0));
                 (
-                    tint_for_contrast(m, [1.0; 3], [0.0; 3], 0.34, 0.85, 4.5),
-                    tint_for_contrast(m, ink_dark, [0.985; 3], 0.42, 0.88, 4.5),
+                    tint_for_contrast(m, [1.0; 3], [0.0; 3], 0.34, 0.85, TEXT_CONTRAST),
+                    tint_for_contrast(m, ink_dark, [0.985; 3], 0.42, 0.88, TEXT_CONTRAST),
                     u.busy,
                 )
             }
