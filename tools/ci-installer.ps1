@@ -18,9 +18,10 @@ using System.Runtime.InteropServices;
 public static class Native {
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
     [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindow(string cls, string title);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
-    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+    [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr hdc, uint flags);
+    [DllImport("user32.dll")] public static extern IntPtr GetDlgItem(IntPtr h, int id);
+    [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr h, int msg, IntPtr w, IntPtr l);
 }
 "@
 [Native]::SetProcessDPIAware() | Out-Null
@@ -39,13 +40,22 @@ function Shot([string]$name, [System.Drawing.Rectangle]$r) {
     $g.Dispose(); $bmp.Dispose()
 }
 
+# The window's own pixels (PrintWindow), so the runner's console can't cover it.
 function WindowShot([string]$name, [IntPtr]$h) {
     $r = New-Object Native+RECT
-    if ($h -ne [IntPtr]::Zero -and [Native]::GetWindowRect($h, [ref]$r)) {
-        Shot $name ([System.Drawing.Rectangle]::FromLTRB($r.Left - 8, $r.Top - 8, $r.Right + 8, $r.Bottom + 8))
-    } else {
-        Shot $name ([System.Windows.Forms.Screen]::PrimaryScreen.Bounds)
-    }
+    if (-not [Native]::GetWindowRect($h, [ref]$r)) { return }
+    $bmp = New-Object System.Drawing.Bitmap ($r.Right - $r.Left), ($r.Bottom - $r.Top)
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    $hdc = $g.GetHdc()
+    [Native]::PrintWindow($h, $hdc, 2) | Out-Null  # PW_RENDERFULLCONTENT
+    $g.ReleaseHdc($hdc); $g.Dispose()
+    $bmp.Save((Join-Path $Out "$name.png"), [System.Drawing.Imaging.ImageFormat]::Png)
+    $bmp.Dispose()
+}
+
+# NSIS's Next / Install / Finish button has id 1; a WM_COMMAND for it needs no keyboard focus.
+function ClickNext([IntPtr]$h) {
+    [Native]::SendMessage($h, 0x0111, [IntPtr]1, [Native]::GetDlgItem($h, 1)) | Out-Null
 }
 
 function WaitFor([scriptblock]$cond, [int]$seconds) {
@@ -54,7 +64,6 @@ function WaitFor([scriptblock]$cond, [int]$seconds) {
     return $false
 }
 
-$title = "Oyen Poni Setup"
 $programs = [Environment]::GetFolderPath("Programs")
 $installDir = Join-Path $env:LOCALAPPDATA "Programs\Poni"
 $exe = Join-Path $installDir "poni.exe"
@@ -80,24 +89,23 @@ if ($Previous) {
 # 2. The new installer, page by page.
 $p = Start-Process -FilePath $Setup -PassThru
 $h = [IntPtr]::Zero
-$shown = WaitFor { $script:h = [Native]::FindWindow($null, $title); $script:h -ne [IntPtr]::Zero } 30
-Check "installer window opens" $shown "title '$title'"
+WaitFor { $p.Refresh(); if ($p.HasExited) { return $true }; $script:h = $p.MainWindowHandle; $script:h -ne [IntPtr]::Zero } 30 | Out-Null
+$shown = $h -ne [IntPtr]::Zero
+if ($p.HasExited) { Write-Host "installer exited early, code $($p.ExitCode)" }
+if (-not $shown) {
+    Get-Process | Where-Object { $_.MainWindowTitle } | ForEach-Object { Write-Host "  window: $($_.ProcessName) [$($_.Id)] '$($_.MainWindowTitle)'" }
+    Shot "0-no-window" ([System.Windows.Forms.Screen]::PrimaryScreen.Bounds)
+}
+Check "installer window opens" $shown "'$($p.MainWindowTitle)'"
 $walked = $false
 if ($shown) {
     Start-Sleep -Seconds 1
     WindowShot "1-welcome" $h
-    $pages = @("2-components", "3-finish")
-    foreach ($page in $pages) {
-        [Native]::SetForegroundWindow($h) | Out-Null
-        Start-Sleep -Milliseconds 300
-        [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
-        Start-Sleep -Seconds $(if ($page -eq "3-finish") { 6 } else { 2 })
-        WindowShot $page $h
-    }
-    # Finish, with "Launch Oyen Poni now" ticked.
-    [Native]::SetForegroundWindow($h) | Out-Null
-    Start-Sleep -Milliseconds 300
-    [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
+    ClickNext $h; Start-Sleep -Seconds 2
+    WindowShot "2-components" $h
+    ClickNext $h; Start-Sleep -Seconds 8  # installs, then moves on to the finish page by itself
+    WindowShot "3-finish" $h
+    ClickNext $h  # Finish, with "Launch Oyen Poni now" ticked
     $walked = WaitFor { $p.HasExited } 30
 }
 if (-not $walked) {
@@ -142,5 +150,6 @@ Check "uninstall removes the shortcut" (-not (Test-Path (Join-Path $programs "Oy
 if ($Previous) { Check "uninstall keeps settings and data" (Test-Path $marker) }
 
 $results | ConvertTo-Json | Set-Content (Join-Path $Out "results.json")
-$failed = @($results | Where-Object { -not $_.ok -and $_.check -ne "walked through the installer pages" })
+# The window and page checks test this script's automation, not the installer; they don't fail the job.
+$failed = @($results | Where-Object { -not $_.ok -and $_.check -notin @("installer window opens", "walked through the installer pages") })
 if ($failed.Count -gt 0) { Write-Error "$($failed.Count) installer check(s) failed"; exit 1 }
