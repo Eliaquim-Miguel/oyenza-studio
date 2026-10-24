@@ -1440,7 +1440,6 @@ impl App {
                 Command::LoadAppIcon(p) => {
                     self.st.app_icons.entry(p).or_insert(None);
                 }
-                Command::OpenTaskManager => services::open("/System/Applications/Utilities/Activity Monitor.app"),
                 Command::SetPinned(b) => {
                     self.st.pinned = b;
                     if !b {

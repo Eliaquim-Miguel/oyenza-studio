@@ -327,8 +327,10 @@ pub struct App {
     covered_by: HashSet<String>,
     shown: bool,
     stats_on: bool,
-    /// The System page's sampler thread (started the first time the page opens).
+    /// The System page's sampler thread: from the start while its history is
+    /// kept (`Settings::system_history`), else from the first time the page opens.
     sysmon: Option<services::sysmon::SysMon>,
+    /// The System page is open (its readings come each second).
     sysmon_on: bool,
     /// App icons the System page asked for and hasn't got yet (the Shelf's
     /// thumbnail worker answers both pages with the same event).
@@ -529,6 +531,9 @@ impl App {
             self.services = Some(Services::start(&self.sink, self.hwnd, self.helper, &self.st.settings, self.oyenza_activity()));
             self.st.paired = self.services.as_ref().map(|s| paired_phones(s.pairs())).unwrap_or_default();
             self.sync_pair_offer();
+            if self.st.settings.system_history {
+                self.start_sysmon();
+            }
             self.try_add_tray();
             services::power::register_session(self.helper);
         }
@@ -1371,6 +1376,18 @@ impl App {
         if let Some(s) = self.services.as_ref() {
             s.set_clipboard_history(self.st.settings.clipboard_history);
         }
+        let history = self.st.settings.system_history;
+        if before.system_history != history && self.selftest.is_none() {
+            match &self.sysmon {
+                Some(s) => s.background(history),
+                None if history => self.start_sysmon(),
+                None => {}
+            }
+            // Off while the page is closed: the kept minute goes, so the next opening starts fresh.
+            if !history && !self.sysmon_on {
+                self.st.system.clear();
+            }
+        }
     }
 
     fn on_menu(&mut self, cmd: tray::MenuCmd) {
@@ -1381,6 +1398,7 @@ impl App {
             ToggleIdleStyle(style) => s.idle_style = style,
             SetTheme(theme) => s.theme = theme,
             ToggleClipboard => s.clipboard_history = !s.clipboard_history,
+            ToggleSystemHistory => s.system_history = !s.system_history,
             ToggleLyrics => s.lyrics = !s.lyrics,
             TogglePronunciation => s.lyrics_pronunciation = !s.lyrics_pronunciation,
             SetHideFullscreen(hide) => s.hide_in_fullscreen = hide,
@@ -1608,10 +1626,10 @@ impl App {
                 }
             }
             AppEvent::Stats(s) => self.st.stats = s,
-            AppEvent::System(r) => {
+            AppEvent::System(m) => {
                 // A reading still on its way when the page closed is dropped.
                 if self.sysmon_on {
-                    self.st.system.push(*r);
+                    self.st.system = *m;
                 }
             }
             AppEvent::ClipboardText(t) => {
@@ -1762,8 +1780,9 @@ impl App {
         }
     }
 
-    /// Readings for the System page run only while it is open; each opening
-    /// starts a fresh minute of history.
+    /// The System page opened or closed. Open, its readings arrive each
+    /// second; with the history kept the minute behind them arrives at once,
+    /// else each opening starts a fresh minute.
     fn set_sysmon(&mut self, on: bool) {
         if on == self.sysmon_on {
             return;
@@ -1773,17 +1792,21 @@ impl App {
         if self.selftest.is_some() {
             return;
         }
-        if on {
-            self.st.system.clear();
-            if self.sysmon.is_none() {
-                match services::sysmon::SysMon::start(self.sink.clone()) {
-                    Ok(s) => self.sysmon = Some(s),
-                    Err(e) => pwarn!("sysmon: couldn't start ({e})"),
-                }
-            }
+        if on && self.sysmon.is_none() {
+            self.start_sysmon();
         }
         if let Some(s) = &self.sysmon {
-            s.run(on);
+            s.open(on);
+        }
+        if !on && !self.st.settings.system_history {
+            self.st.system.clear();
+        }
+    }
+
+    fn start_sysmon(&mut self) {
+        match services::sysmon::SysMon::start(self.sink.clone(), self.st.settings.system_history) {
+            Ok(s) => self.sysmon = Some(s),
+            Err(e) => pwarn!("sysmon: couldn't start ({e})"),
         }
     }
 
@@ -2527,7 +2550,6 @@ impl App {
                         services::imaging::load_thumb_async(path, self.sink.clone());
                     }
                 }
-                Command::OpenTaskManager => shell::open_task_manager(),
                 Command::SetPinned(b) => {
                     self.st.pinned = b;
                     if !b {

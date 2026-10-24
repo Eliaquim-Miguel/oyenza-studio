@@ -862,6 +862,19 @@ impl<'a> Canvas<'a> {
         }
     }
 
+    /// Fill a path with `c` fading from `alpha0` at height `y0` to `alpha1`
+    /// at `y1` (a vertical gradient, as under Stats' charts), in thin bands.
+    pub fn fill_path_fade(&mut self, segs: &[Seg], c: Color, y0: f32, y1: f32, alpha0: f32, alpha1: f32) {
+        const BANDS: usize = 8;
+        for b in 0..BANDS {
+            let (ya, yb) = (y0 + (y1 - y0) * b as f32 / BANDS as f32, y0 + (y1 - y0) * (b + 1) as f32 / BANDS as f32);
+            let t = (b as f32 + 0.5) / BANDS as f32;
+            self.clip(Rect::new(-1.0e5, ya.min(yb), 2.0e5, (yb - ya).abs()));
+            self.path(segs, Some(c.mul_alpha(alpha0 + (alpha1 - alpha0) * t)), None);
+            self.unclip();
+        }
+    }
+
     /// The island silhouette: flat top flush with the screen edge, concave
     /// "shoulders" flaring into the top edge and rounded bottom corners.
     /// `body` is the main rectangle; shoulders extend `shoulder` DIPs outside it.
