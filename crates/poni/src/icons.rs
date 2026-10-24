@@ -52,6 +52,10 @@ pub enum Icon {
     Eye,
     /// Oyenza: money that arrived.
     MoneyIn,
+    /// Oyenza: money that went out.
+    MoneyOut,
+    /// Oyenza: money moved between the person's own wallets.
+    Transfer,
     /// Oyenza: a credit card bill.
     Card,
     /// Oyenza: the tab.
@@ -215,6 +219,8 @@ pub fn parts(icon: Icon) -> &'static [Part] {
         Phone => p![s("M9 2.5h6A2.5 2.5 0 0 1 17.5 5v14a2.5 2.5 0 0 1-2.5 2.5H9A2.5 2.5 0 0 1 6.5 19V5A2.5 2.5 0 0 1 9 2.5z"), s("M11 18.5h2")],
         Eye => p![s("M2.5 12s3.5-6.5 9.5-6.5 9.5 6.5 9.5 6.5-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"), s("M9.2 12a2.8 2.8 0 1 0 5.6 0a2.8 2.8 0 1 0-5.6 0")],
         MoneyIn => p![s("M12 4v10.5"), s("M7.5 10.5L12 15l4.5-4.5"), s("M5 19.5h14")],
+        MoneyOut => p![s("M12 20V9.5"), s("M7.5 13.5L12 9l4.5 4.5"), s("M5 4.5h14")],
+        Transfer => p![s("M5 9h12.5"), s("M14.5 6l3 3-3 3"), s("M19 15H6.5"), s("M9.5 12l-3 3 3 3")],
         Card => p![
             s("M4.5 6.5h15A1.5 1.5 0 0 1 21 8v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 16V8a1.5 1.5 0 0 1 1.5-1.5z"),
             s("M3 10h18"),
@@ -265,7 +271,8 @@ mod tests {
         Icon::Close, Icon::Clipboard, Icon::Copy, Icon::Calendar, Icon::Clock, Icon::Cpu, Icon::Memory, Icon::Disk,
         Icon::Battery, Icon::Bolt, Icon::Bluetooth, Icon::Headphones, Icon::Volume, Icon::VolumeLow, Icon::VolumeMute,
         Icon::Pin, Icon::PinFill, Icon::Folder, Icon::File, Icon::Trash, Icon::Undo, Icon::Reset,
-        Icon::Sliders, Icon::Open, Icon::Phone, Icon::Eye, Icon::MoneyIn, Icon::Card, Icon::Wallet, Icon::Unlink, Icon::Gear,
+        Icon::Sliders, Icon::Open, Icon::Phone, Icon::Eye, Icon::MoneyIn, Icon::MoneyOut, Icon::Transfer, Icon::Card, Icon::Wallet,
+        Icon::Unlink, Icon::Gear,
         Icon::Gauge, Icon::App, Icon::Windows, Icon::Addons, Icon::Moon, Icon::Stop,
     ];
 

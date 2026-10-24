@@ -1,6 +1,7 @@
 //! Oyenza (oyenza.app), optional: signing in with a code, then asking for
-//! money that arrived and bills due soon, and saving the spends typed in the
-//! island. Words, URLs and parsing live in `poni_core::oyenza`; this file
+//! money that arrived or went out by itself, the last 7 days of transactions
+//! while the Oyenza page is open, and bills due soon, and saving the spends
+//! typed in the island. Words, URLs and parsing live in `poni_core::oyenza`; this file
 //! does the HTTP on one worker thread and keeps the key sealed with DPAPI
 //! (`services::secret`) at `paths::oyenza_link_path()`.
 //!
@@ -8,7 +9,9 @@
 //! - money every minute while the PC is in use on mains power, every 3
 //!   minutes on battery or battery saver, and not at all while the session is
 //!   locked or the display is off (one call as soon as it's back);
-//! - bills every half hour, and both again when the Oyenza tab opens;
+//! - the day list every 15 seconds while the Oyenza page is on screen, and
+//!   never otherwise; an answer with nothing new is a few bytes;
+//! - bills every half hour, and all three again when the Oyenza tab opens;
 //! - failures back off to 1, 2, 4 … 15 minutes, honouring `Retry-After`;
 //! - a 401 means the key was disconnected in oyenza.app (or ran out): the key
 //!   is deleted and the island says so once.
@@ -80,6 +83,8 @@ pub struct Activity {
     pub in_use: bool,
     pub on_ac: bool,
     pub saver: bool,
+    /// The Oyenza page is on screen: its day list stays live.
+    pub watching: bool,
 }
 
 #[derive(Default)]
@@ -128,9 +133,13 @@ struct Worker {
     link: Option<Link>,
     pending: Option<Pending>,
     cursor: Option<String>,
-    want_today: bool,
     next_money: Instant,
     next_bills: Instant,
+    /// The day list's change number, and the server's today it was read on.
+    activity_cursor: Option<String>,
+    activity_today: String,
+    next_activity: Instant,
+    was_watching: bool,
     last_refresh: Option<Instant>,
     fails: u32,
     /// A key whose disconnect couldn't reach the server yet.
@@ -148,9 +157,12 @@ fn worker_main(shared: Arc<Shared>, sink: EventSink) {
         link: None,
         pending: None,
         cursor: None,
-        want_today: true,
         next_money: now,
         next_bills: now,
+        activity_cursor: None,
+        activity_today: String::new(),
+        next_activity: now,
+        was_watching: false,
         last_refresh: None,
         fails: 0,
         revoke: None,
@@ -220,6 +232,11 @@ impl Worker {
             self.next_money = now;
         }
         self.was_in_use = a.in_use;
+        if a.watching && !self.was_watching {
+            // The page just opened: its list now.
+            self.next_activity = now;
+        }
+        self.was_watching = a.watching;
         let mut next: Option<Instant> = None;
         let mut consider = |t: Instant| next = Some(next.map_or(t, |n| n.min(t)));
         if let Some(p) = &self.pending {
@@ -228,6 +245,9 @@ impl Worker {
         if self.link.is_some() && a.in_use {
             consider(self.next_money);
             consider(self.next_bills);
+            if a.watching {
+                consider(self.next_activity);
+            }
         }
         if self.revoke.is_some() && a.in_use {
             consider(self.next_revoke);
@@ -251,10 +271,10 @@ impl Worker {
                 let now = Instant::now();
                 if self.link.is_some() && self.last_refresh.is_none_or(|t| now - t >= REFRESH_GAP) {
                     self.last_refresh = Some(now);
-                    self.want_today = true;
                     self.next_money = now;
                     self.next_bills = now;
                 }
+                self.next_activity = now;
             }
         }
     }
@@ -273,6 +293,9 @@ impl Worker {
             }
             if self.link.is_some() && Instant::now() >= self.next_bills {
                 self.poll_bills();
+            }
+            if self.link.is_some() && a.watching && Instant::now() >= self.next_activity {
+                self.poll_activity();
             }
         }
         if self.revoke.is_some() && a.in_use && Instant::now() >= self.next_revoke {
@@ -332,10 +355,11 @@ impl Worker {
                 self.send(OyenzaEvent::Connected { account: link.account.clone() });
                 self.link = Some(link);
                 self.cursor = None;
-                self.want_today = true;
+                self.activity_cursor = None;
                 self.fails = 0;
                 self.next_money = now;
                 self.next_bills = now;
+                self.next_activity = now;
             }
             Some(Claim::Waiting) => self.ask_again(now, false),
             Some(Claim::SlowDown) => self.ask_again(now, true),
@@ -397,7 +421,8 @@ impl Worker {
     fn forget(&mut self) {
         self.link = None;
         self.cursor = None;
-        self.want_today = true;
+        self.activity_cursor = None;
+        self.activity_today.clear();
         self.fails = 0;
         if let Err(e) = crate::services::secret::delete(&crate::paths::oyenza_link_path()) {
             crate::pwarn!("oyenza: cannot remove the saved sign-in ({e})");
@@ -426,22 +451,57 @@ impl Worker {
 
     fn poll_money(&mut self, a: Activity) {
         let Some(key) = self.link.as_ref().map(|l| l.key.clone()) else { return };
-        let today = self.want_today;
-        let url = oyenza::money_url(self.cursor.as_deref(), &tz_now(), today);
+        let url = oyenza::money_url(self.cursor.as_deref(), &tz_now());
         match self.call(Method::Get, &url, Some(&key), None, TIMEOUT) {
             Ok(r) if r.status == 200 => match oyenza::parse_money(&r.body) {
                 Some(feed) => {
                     self.fails = 0;
                     self.cursor = Some(feed.cursor);
-                    self.want_today = false;
                     self.next_money = Instant::now() + Duration::from_secs(oyenza::money_every_s(a.on_ac, a.saver));
-                    self.send(OyenzaEvent::Money { arrived: feed.arrived, today: feed.today });
+                    self.send(OyenzaEvent::Money { arrived: feed.arrived });
                 }
                 None => self.next_money = self.failed("money check", "unreadable answer".into(), None),
             },
             Ok(r) if r.status == 401 => self.signed_out_by_server(),
             Ok(r) => self.next_money = self.failed("money check", format!("HTTP {}", r.status), r.retry_after_s),
             Err(e) => self.next_money = self.failed("money check", e.to_string(), None),
+        }
+    }
+
+    /// The page's day list: in full the first time and whenever the space
+    /// changed, else only "nothing new". A new day (the PC's midnight) asks
+    /// in full again.
+    fn poll_activity(&mut self) {
+        let Some(key) = self.link.as_ref().map(|l| l.key.clone()) else { return };
+        let today = local_day_now();
+        let since = if self.activity_today == today { self.activity_cursor.clone() } else { None };
+        let every = Duration::from_secs(oyenza::ACTIVITY_EVERY_S);
+        match self.call(Method::Get, &oyenza::activity_url(&tz_now(), since.as_deref()), Some(&key), None, TIMEOUT) {
+            Ok(r) if r.status == 200 => match oyenza::parse_activity(&r.body) {
+                Some(oyenza::ActivityAnswer::Unchanged { cursor, today }) => {
+                    self.fails = 0;
+                    self.activity_cursor = Some(cursor);
+                    if today != self.activity_today {
+                        // The server's day moved on: the list needs its new day.
+                        self.activity_cursor = None;
+                        self.next_activity = Instant::now();
+                    } else {
+                        self.next_activity = Instant::now() + every;
+                    }
+                    self.send(OyenzaEvent::ActivityChecked);
+                }
+                Some(oyenza::ActivityAnswer::Full(a)) => {
+                    self.fails = 0;
+                    self.activity_cursor = Some(a.cursor.clone());
+                    self.activity_today = a.today.clone();
+                    self.next_activity = Instant::now() + every;
+                    self.send(OyenzaEvent::Activity(a));
+                }
+                None => self.next_activity = self.failed("day list", "unreadable answer".into(), None),
+            },
+            Ok(r) if r.status == 401 => self.signed_out_by_server(),
+            Ok(r) => self.next_activity = self.failed("day list", format!("HTTP {}", r.status), r.retry_after_s),
+            Err(e) => self.next_activity = self.failed("day list", e.to_string(), None),
         }
     }
 
@@ -474,6 +534,8 @@ impl Worker {
                 Some(saved) => {
                     crate::pinfo!("oyenza: {} spend(s) saved", saved.len());
                     self.send(OyenzaEvent::NoteSaved(saved));
+                    // The page's list shows it at once.
+                    self.next_activity = Instant::now();
                 }
                 None => self.send(OyenzaEvent::NoteFailed { text, code: "other".into() }),
             },
@@ -496,7 +558,10 @@ impl Worker {
     fn undo(&mut self, id: String) {
         let Some(key) = self.link.as_ref().map(|l| l.key.clone()) else { return };
         match self.call(Method::Delete, &oyenza::undo_url(&id), Some(&key), None, TIMEOUT) {
-            Ok(r) if r.status == 200 => self.send(OyenzaEvent::Undone),
+            Ok(r) if r.status == 200 => {
+                self.send(OyenzaEvent::Undone);
+                self.next_activity = Instant::now();
+            }
             Ok(r) if r.status == 401 => self.signed_out_by_server(),
             Ok(r) => self.send(OyenzaEvent::UndoFailed(oyenza::error_code(&r.body).unwrap_or_else(|| "other".into()))),
             Err(_) => self.send(OyenzaEvent::UndoFailed("offline".into())),
@@ -507,4 +572,10 @@ impl Worker {
 /// The local zone as the server reads days in it ("+07:00").
 fn tz_now() -> String {
     oyenza::tz_param(oyenza::offset_minutes(&crate::clock::local_now(), crate::clock::unix_now()))
+}
+
+/// The PC's date (YYYY-MM-DD), to notice midnight between two looks.
+fn local_day_now() -> String {
+    let l = crate::clock::local_now();
+    format!("{:04}-{:02}-{:02}", l.year, l.month, l.day)
 }

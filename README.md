@@ -36,7 +36,7 @@ Native Rust, no web view, no runtime, around 1.7 MB, and **zero CPU while nothin
 - Album art and an equalizer while music plays. The title peeks for a moment when the song changes.
 - A focus-timer countdown.
 - Pop-ups for volume, charging and Bluetooth headsets, with battery level.
-- Signed in to [Oyenza](#oyenza-optional), a notice when money arrives and a reminder the day before a bill is due.
+- Signed in to [Oyenza](#oyenza-optional), a notice when money comes in or goes out and a reminder the day before a bill is due.
 - With the [Prayer times](#add-ons) add-on on, the minutes before each prayer and a notice when it's time.
 - Once Oyenza can send the steps from your phone (coming soon), a notice when they reach the daily goal.
 
@@ -150,11 +150,12 @@ If you keep your money in [Oyenza](https://oyenza.app), the island can show it. 
 
 Then the island shows:
 
-- **Money as it arrives**: money Oyenza logged by itself from your bank's emails or notifications. The sum and sender stay hidden until you click **Show**, so a shared screen shows only "Money in · BCA".
+- **Your Oyenza, live, by day**: the **Oyenza** tab lists every transaction of the last 7 days, newest first, with each day's money in and out: pick Sun to Thu, Yesterday or Today on the strip of days. Something logged while you look glows for a minute. **Tomorrow** and **Later** list the subscriptions and card bills due in the next 30 days.
+- **Money in and out as it happens**: a notice when Oyenza logs money by itself from your bank's emails or notifications, "Money in · BCA" or "Money out · BCA". Sums and who stay hidden until you click **Show**, there and in the tab, so a shared screen shows only that much.
 - **Bills before they're due**: a reminder the day before a subscription renews or a card bill is due.
 - **Note a spend**: type it in the **Oyenza** tab ("kopi 25rb") and press Enter; it goes straight to Oyenza, with Undo for 10 seconds.
 
-This PC gets a key of its own that can do only these things: it can't read your history, change or delete anything else, or touch your account. It is stored encrypted for your Windows account (`%LOCALAPPDATA%\Poni\oyenza-link.bin`). Oyen Poni asks Oyenza once a minute while you use the PC (every 3 minutes on battery, never while it's locked or asleep). **Disconnect** in Settings (or **Oyenza › Disconnect** in the menu) signs this PC out; you can also disconnect it in oyenza.app under Connected apps.
+This PC gets a key of its own that can do only these things: it reads the last 7 days of transactions in the space where Oyenza logs your bank's emails and notifications, never balances, account numbers, notes or receipts, and it can't change or delete anything else or touch your account. It is stored encrypted for your Windows account (`%LOCALAPPDATA%\Poni\oyenza-link.bin`). Oyen Poni asks Oyenza once a minute while you use the PC (every 3 minutes on battery, never while it's locked or asleep), and every 15 seconds while the Oyenza tab is open. **Disconnect** in Settings (or **Oyenza › Disconnect** in the menu) signs this PC out; you can also disconnect it in oyenza.app under Connected apps.
 
 ## Add-ons
 

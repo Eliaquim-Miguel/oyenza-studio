@@ -4,11 +4,16 @@
 //! oyenza.app" (the browser opens oyenza.app/connect with the code filled
 //! in), Cancel, and how long the code still works.
 //!
-//! Signed in: a row to note a spend ("kopi 25rb", Enter saves it straight
-//! into Oyenza; Undo for 10 seconds), today's money in and the bills due in
-//! the next 7 days, two rows each, and when Oyenza last answered. Sums stay
-//! "Rp •••" until "Show amounts" (until the island closes), unless the tray's
-//! "Show amounts on the island" is on: the island may be on a shared screen.
+//! Signed in, a live view of Oyenza by day: a row to note a spend ("kopi
+//! 25rb", Enter saves it straight into Oyenza; Undo for 10 seconds), a strip
+//! of days (the five before yesterday by weekday, Yesterday, Today, Tomorrow,
+//! Later), and the chosen day's list. A past day or Today lists everything
+//! logged in the space, newest first, with the day's money in and out; a row
+//! that lands while the page is open glows for a minute. Tomorrow and Later
+//! list the subscriptions and card bills due. The list scrolls; it opens on
+//! Today. Sums stay "Rp •••" until "Show amounts" (until the island closes),
+//! unless "Show amounts on the island" is on: the island may be on a shared
+//! screen.
 //!
 //! Oyen's moods never read anything here.
 
@@ -16,30 +21,49 @@ use crate::commands::{Command, OyenzaCmd};
 use crate::gfx::{TextStyle, Weight};
 use crate::icons::Icon;
 use crate::state::{AppState, OyenzaLink};
-use crate::ui::{wid, PillStyle, Ui, PILL_GAP, PILL_SMALL};
+use crate::ui::{wid, wid_n, PillStyle, Ui, PILL_GAP, PILL_SMALL};
 use poni_core::datetime::fmt_clock;
 use poni_core::geom::{palette, Color, Point, Rect};
-use poni_core::oyenza::{self, Arrival, Bill};
+use poni_core::oyenza::{self, Bill, DayPick, Flow, Txn};
+use std::cell::Cell;
 
-/// Signed in: input, status line, two labelled lists of two rows, footer.
+/// Signed in: input, status line, the day strip, the day's heading, its list, footer.
 const HEIGHT: f32 = 262.0;
 /// Signing in: title, line, code box, buttons.
 const CODE_HEIGHT: f32 = 156.0;
 const INPUT_H: f32 = 34.0;
-const STATUS_Y: f32 = 36.0;
-const LABEL1_Y: f32 = 54.0;
-const MONEY_Y: f32 = 84.0;
-const LABEL2_Y: f32 = 146.0;
-const BILLS_Y: f32 = 168.0;
+const STATUS_Y: f32 = 34.0;
+const STRIP_Y: f32 = 49.0;
+const STRIP_H: f32 = 26.0;
+const HEAD_Y: f32 = 80.0;
+const LIST_Y: f32 = 112.0;
+const LIST_BOTTOM: f32 = 230.0;
 const FOOTER_Y: f32 = 234.0;
-const ROW_H: f32 = 28.0;
-const ROWS: usize = 2;
+/// A little under a pill, so half a row peeks out under the fade when a day has more.
+const ROW_H: f32 = 26.0;
+/// The strip's track inset and each day's padding (it narrows when a wide
+/// font needs the room).
+const SEG_INSET: f32 = 2.0;
+const SEG_PAD: f32 = 10.0;
+const SEG_PAD_MIN: f32 = 5.0;
+/// The fades where the list is cut off, and how far a wheel notch scrolls.
+const FADE_H: f32 = 14.0;
+const WHEEL_STEP: f32 = ROW_H * 1.5;
 /// Disc and text columns, as the Tasks page's checkbox and text.
 const MARK_X: f32 = 18.0;
 const TEXT_X: f32 = 36.0;
 const DISC_R: f32 = 11.0;
+/// Rows bleed this far into the page padding for the glow.
+const ROW_BLEED: f32 = 8.0;
 const ACCENT: Color = palette::ORANGE;
 const PLACEHOLDER: &str = "Note a spend, like kopi 25rb · Enter to save";
+/// "Live" while the last answer is this fresh (two missed checks).
+const LIVE_S: i64 = 2 * oyenza::ACTIVITY_EVERY_S as i64 + 5;
+
+thread_local! {
+    /// The list's drawn scroll and when it was drawn (it eases towards `OyenzaState.scroll`).
+    static SCROLL_ANIM: Cell<(f32, f64)> = const { Cell::new((0.0, 0.0)) };
+}
 
 /// Signed out there is no tab, so nothing to make room for: the window stays
 /// the size it was before Oyenza (the app lays it out again on signing in).
@@ -52,7 +76,7 @@ pub fn height(st: &AppState) -> f32 {
 }
 
 /// When the page changes on its own: the code's countdown each second, the
-/// Undo lapsing, a short line going.
+/// Undo lapsing, a short line going, a new row's glow fading.
 pub fn next_wake(st: &AppState) -> Option<f64> {
     let o = &st.oyenza;
     let mut next: Option<f64> = None;
@@ -69,6 +93,12 @@ pub fn next_wake(st: &AppState) -> Option<f64> {
     }
     if let Some((_, until)) = &o.flash {
         consider(*until);
+    }
+    // A glow fades in steps of a second: no frame clock for a minute.
+    if let Some(a) = &o.activity {
+        if a.days.iter().any(|d| o.seen.glowing_until(d, st.now).is_some()) {
+            consider(st.now.floor() + 1.0);
+        }
     }
     next
 }
@@ -148,54 +178,195 @@ fn draw_connected(ui: &mut Ui, st: &mut AppState, area: Rect) {
         ui.c.text(&f, status, &TextStyle::footnote().color(palette::TEXT_DIM));
     }
 
-    // ---- Money in today.
-    let label1 = Rect::new(area.x, area.y + LABEL1_Y, area.w, PILL_SMALL);
-    let today = st.oyenza.today.clone();
-    label(ui, label1, "MONEY IN TODAY", today.len());
-    if !st.settings.oyenza_show_amounts {
+    // ---- The strip of days.
+    let today = today_of(st);
+    if let Some(p) = draw_strip(ui, st, Rect::new(area.x, area.y + STRIP_Y, area.w, STRIP_H), &today) {
+        st.oyenza.day = p;
+        st.oyenza.scroll = 0.0;
+    }
+    let pick = st.oyenza.day;
+
+    // ---- The chosen day: its rows, heading and sums.
+    let activity = st.oyenza.activity.clone();
+    let day = oyenza::pick_date(pick, &today).and_then(|d| activity.as_ref().and_then(|a| a.day(&d).cloned()));
+    let bills: Vec<Bill> = oyenza::bills_for(&st.oyenza.bills, &today, pick).into_iter().cloned().collect();
+    let mut rows: Vec<Line> = bills.iter().map(|b| Line::Bill(b.clone())).collect();
+    if let Some(d) = &day {
+        rows.extend(d.rows.iter().map(|t| Line::Txn(t.clone())));
+        if d.count > d.rows.len() {
+            rows.push(Line::More(d.count - d.rows.len()));
+        }
+    }
+    let count = match pick {
+        DayPick::Today | DayPick::Past(_) => day.as_ref().map_or(0, |d| d.count),
+        DayPick::Tomorrow | DayPick::Later => bills.len(),
+    };
+    let head = Rect::new(area.x, area.y + HEAD_Y, area.w, PILL_SMALL);
+    let pill_x = if st.settings.oyenza_show_amounts {
+        head.right()
+    } else {
         let text = if st.oyenza.reveal { "Hide amounts" } else { "Show amounts" };
         let w = ui.pill_width(text, true, true);
-        let r = Rect::new(label1.right() - w, label1.y, w, PILL_SMALL);
+        let r = Rect::new(head.right() - w, head.y, w, PILL_SMALL);
         if ui.pill(wid("oyenza.reveal"), r, text, Some(Icon::Eye), PillStyle::Utility).clicked {
             st.oyenza.reveal = !st.oyenza.reveal;
         }
-    }
-    if today.is_empty() {
-        empty_row(ui, Rect::new(area.x, area.y + MONEY_Y, area.w, ROW_H), "Nothing yet today");
-    }
-    let offset = oyenza::offset_minutes(&st.local, st.unix);
-    for (i, a) in today.iter().take(ROWS).enumerate() {
-        let r = Rect::new(area.x, area.y + MONEY_Y + i as f32 * ROW_H, area.w, ROW_H);
-        money_row(ui, st, r, a, show, offset);
-    }
-
-    // ---- Bills in the next 7 days.
-    let bills = st.oyenza.bills.clone();
-    label(ui, Rect::new(area.x, area.y + LABEL2_Y, area.w, 20.0), "DUE IN THE NEXT 7 DAYS", bills.len());
-    if bills.is_empty() {
-        empty_row(ui, Rect::new(area.x, area.y + BILLS_Y, area.w, ROW_H), "Nothing due in the next 7 days");
-    }
-    let day = if st.oyenza.bills_today.is_empty() { st.day_key() } else { st.oyenza.bills_today.clone() };
-    for (i, b) in bills.iter().take(ROWS).enumerate() {
-        let r = Rect::new(area.x, area.y + BILLS_Y + i as f32 * ROW_H, area.w, ROW_H);
-        bill_row(ui, r, b, &day, show);
+        r.x
+    };
+    let heading = oyenza::day_heading(pick, &today, count);
+    let heading_st = TextStyle::caption().weight(Weight::Semibold).color(palette::TEXT_FAINT);
+    let room = (pill_x - 12.0 - head.x).max(0.0);
+    let (hw, _) = ui.c.measure(&heading, &heading_st, 10_000.0);
+    ui.c.text(&heading, Rect::new(head.x, head.y, hw.min(room) + 2.0, head.h), &heading_st);
+    let totals = day.as_ref().map(|d| oyenza::day_totals(d, show)).unwrap_or_default();
+    let tx = head.x + hw + 12.0;
+    if !totals.is_empty() && pill_x - 12.0 - tx > 60.0 {
+        ui.c.text(&totals, Rect::new(tx, head.y, pill_x - 12.0 - tx, head.h), &TextStyle::footnote().color(palette::TEXT_DIM));
     }
 
-    // ---- Footer: when Oyenza last answered, and the app itself.
+    // ---- The list.
+    let list = Rect::new(area.x, area.y + LIST_Y, area.w, LIST_BOTTOM - LIST_Y);
+    if rows.is_empty() {
+        let text = match (&activity, pick) {
+            (None, DayPick::Today | DayPick::Past(_)) => "Checking Oyenza…",
+            _ => oyenza::empty_day_text(pick),
+        };
+        empty_row(ui, Rect::new(list.x, list.y, list.w, ROW_H), text);
+    } else {
+        draw_list(ui, st, list, &rows, &today, show);
+    }
+
+    // ---- Footer: live while the page keeps asking, and the app itself.
     let footer = Rect::new(area.x, area.y + FOOTER_Y, area.w, PILL_SMALL);
-    let updated = match st.oyenza.updated_unix {
+    let offset = oyenza::offset_minutes(&st.local, st.unix);
+    let (live, updated) = match st.oyenza.updated_unix {
         Some(t) => {
             let local = oyenza::local_clock(&iso_of(t), offset).unwrap_or(st.local);
-            format!("Updated {}", fmt_clock(&local, st.settings.use_24h))
+            let clock = fmt_clock(&local, st.settings.use_24h);
+            let live = st.unix - t <= LIVE_S;
+            (live, if live { format!("Live · updated {clock}") } else { format!("Updated {clock}") })
         }
-        None => "Checking Oyenza…".into(),
+        None => (false, "Checking Oyenza…".into()),
     };
     let open_w = ui.pill_width("Open oyenza.app", true, true);
     let open = Rect::new(footer.right() - open_w, footer.y, open_w, PILL_SMALL);
-    ui.c.text(&updated, Rect::new(footer.x, footer.y, (open.x - footer.x - 12.0).max(0.0), footer.h), &TextStyle::footnote().color(palette::TEXT_FAINT));
+    let mut text_x = footer.x;
+    if live {
+        ui.c.fill_circle(Point::new(footer.x + 4.0, footer.center().y), 3.5, palette::GREEN);
+        text_x += 14.0;
+    }
+    ui.c.text(&updated, Rect::new(text_x, footer.y, (open.x - text_x - 12.0).max(0.0), footer.h), &TextStyle::footnote().color(palette::TEXT_FAINT));
     if ui.pill(wid("oyenza.open"), open, "Open oyenza.app", Some(Icon::Open), PillStyle::Utility).clicked {
         st.cmd(Command::OpenUrl(oyenza::WEB.to_string()));
     }
+}
+
+/// The day the page counts from: the server's, else the PC's.
+fn today_of(st: &AppState) -> String {
+    let o = &st.oyenza;
+    match &o.activity {
+        Some(a) if !a.today.is_empty() => a.today.clone(),
+        _ if !o.bills_today.is_empty() => o.bills_today.clone(),
+        _ => st.day_key(),
+    }
+}
+
+/// The strip: the days side by side in one track, the chosen one lifted (as
+/// the Settings page's pickers), a dot on Today while something new glows
+/// there. A wide font first narrows the padding, then lets the oldest days
+/// go. Returns the day clicked, if any.
+fn draw_strip(ui: &mut Ui, st: &AppState, r: Rect, today: &str) -> Option<DayPick> {
+    let text_st = TextStyle::footnote().weight(Weight::Semibold);
+    let mut days = oyenza::strip(today);
+    let widths = |ui: &mut Ui, days: &[(DayPick, String)], pad: f32| days.iter().map(|(_, l)| (ui.c.measure(l, &text_st, 300.0).0 + 2.0 * pad).ceil()).collect::<Vec<f32>>();
+    let mut pad = SEG_PAD;
+    let mut w = widths(ui, &days, pad);
+    while w.iter().sum::<f32>() + 2.0 * SEG_INSET > r.w && pad > SEG_PAD_MIN {
+        pad -= 1.0;
+        w = widths(ui, &days, pad);
+    }
+    while w.iter().sum::<f32>() + 2.0 * SEG_INSET > r.w && days.len() > 5 {
+        days.remove(0);
+        w.remove(0);
+    }
+    let inner_h = r.h - 2.0 * SEG_INSET;
+    let track_w = w.iter().sum::<f32>() + 2.0 * SEG_INSET;
+    ui.c.fill_rrect(Rect::new(r.x, r.y, track_w, r.h), r.h / 2.0, palette::SURFACE);
+    let today_glows = st.oyenza.day != DayPick::Today
+        && st.oyenza.activity.as_ref().and_then(|a| a.day(today)).is_some_and(|d| st.oyenza.seen.glowing_until(d, st.now).is_some());
+    let mut x = r.x + SEG_INSET;
+    let mut picked = None;
+    for (i, ((pick, label), cw)) in days.iter().zip(&w).enumerate() {
+        let cell = Rect::new(x, r.y + SEG_INSET, *cw, inner_h);
+        x += cw;
+        let color = if *pick == st.oyenza.day {
+            ui.c.fill_rrect(cell, inner_h / 2.0, Color::white(0.16));
+            palette::TEXT
+        } else {
+            let resp = ui.button(wid_n("oyenza.day", i as u64), Rect::new(cell.x, r.y, cell.w, r.h));
+            if resp.clicked {
+                picked = Some(*pick);
+            }
+            if resp.pressed || resp.hovered {
+                ui.c.fill_rrect(cell, inner_h / 2.0, Color::white(if resp.pressed { 0.10 } else { 0.06 }));
+                palette::TEXT
+            } else {
+                palette::TEXT_DIM
+            }
+        };
+        ui.c.text(label, cell, &text_st.color(color).center());
+        if *pick == DayPick::Today && today_glows {
+            ui.c.fill_circle(Point::new(cell.right() - 6.0, cell.y + 5.0), 3.0, palette::GREEN);
+        }
+    }
+    picked
+}
+
+/// One line of a day's list.
+#[derive(Clone)]
+enum Line {
+    Bill(Bill),
+    Txn(Txn),
+    /// The server sent the day's newest rows only: how many more there are.
+    More(usize),
+}
+
+fn draw_list(ui: &mut Ui, st: &mut AppState, list: Rect, rows: &[Line], today: &str, show: bool) {
+    let content_h = rows.len() as f32 * ROW_H;
+    let max_scroll = (content_h - list.h).max(0.0);
+    // Only claim the wheel when there is something to scroll; otherwise the
+    // app uses it to switch pages.
+    if max_scroll > 0.0 {
+        let w = ui.wheel_in(list);
+        if w != 0.0 {
+            st.oyenza.scroll -= w * WHEEL_STEP;
+        }
+    }
+    st.oyenza.scroll = st.oyenza.scroll.clamp(0.0, max_scroll);
+    let scroll = smooth_scroll(ui, st.oyenza.scroll, max_scroll);
+    let offset = oyenza::offset_minutes(&st.local, st.unix);
+    let wide = Rect::new(list.x - ROW_BLEED, list.y, list.w + 2.0 * ROW_BLEED, list.h);
+    ui.c.clip(wide);
+    let first = (scroll / ROW_H).floor().max(0.0) as usize;
+    let last = (((scroll + list.h) / ROW_H).ceil().max(0.0) as usize).min(rows.len());
+    for (i, line) in rows.iter().enumerate().take(last).skip(first) {
+        let r = Rect::new(list.x, list.y + i as f32 * ROW_H - scroll, list.w, ROW_H);
+        match line {
+            Line::Bill(b) => bill_row(ui, r, b, today, st.oyenza.day, show),
+            Line::Txn(t) => {
+                let glow = st.oyenza.seen.glow(&t.id, st.now);
+                if glow > 0.0 {
+                    ui.c.fill_rrect(Rect::new(r.x - ROW_BLEED, r.y + 1.0, r.w + 2.0 * ROW_BLEED, r.h - 2.0), 10.0, palette::GREEN.with_alpha(0.14 * glow));
+                }
+                let time = oyenza::local_clock(&t.at, offset).map(|l| fmt_clock(&l, st.settings.use_24h)).unwrap_or_default();
+                txn_row(ui, r, t, &time, show);
+            }
+            Line::More(n) => empty_row(ui, r, &format!("and {n} more in oyenza.app")),
+        }
+    }
+    fade_edge(ui, Rect::new(wide.x, wide.y, wide.w, FADE_H), true, (scroll / FADE_H).min(1.0));
+    fade_edge(ui, Rect::new(wide.x, wide.bottom() - FADE_H, wide.w, FADE_H), false, ((max_scroll - scroll) / FADE_H).min(1.0));
+    ui.c.unclip();
 }
 
 fn submit(ui: &mut Ui, st: &mut AppState) {
@@ -252,12 +423,6 @@ fn mark(ui: &mut Ui, row: Rect, icon: Icon, color: Color, disc: bool) {
     }
 }
 
-/// A list label in small caps, with how many there are when more than fit.
-fn label(ui: &mut Ui, r: Rect, text: &str, count: usize) {
-    let text = if count > ROWS { format!("{text} · {count}") } else { text.to_string() };
-    ui.c.text(&text, Rect::new(r.x, r.y, r.w * 0.6, r.h), &TextStyle::caption().weight(Weight::Semibold).color(palette::TEXT_FAINT));
-}
-
 fn empty_row(ui: &mut Ui, r: Rect, text: &str) {
     ui.c.text(text, Rect::new(r.x + TEXT_X, r.y, r.w - TEXT_X, r.h), &TextStyle::footnote().color(palette::TEXT_FAINT));
 }
@@ -268,54 +433,115 @@ struct Row<'a> {
     icon: Icon,
     title: &'a str,
     detail: &'a str,
+    /// The detail's last part (the time): kept when the rest doesn't fit.
+    detail_tail: &'a str,
     sum: &'a str,
+    sum_color: Option<Color>,
     sum_dim: bool,
 }
 
-/// Title and a dim detail on the left, the sum on the right.
+/// Title and a dim detail on the left, the sum on the right. A long title
+/// gives way first: the detail keeps its room, or at least its time.
 fn row(ui: &mut Ui, r: Rect, row: Row) {
-    let Row { color, icon, title, detail, sum, sum_dim } = row;
+    let Row { color, icon, title, detail, detail_tail, sum, sum_color, sum_dim } = row;
     mark(ui, r, icon, color, true);
-    let sum_st = if sum_dim { TextStyle::footnote().color(palette::TEXT_DIM).right() } else { TextStyle::body().weight(Weight::Semibold).tabular().right() };
+    let sum_st = if sum_dim {
+        TextStyle::footnote().color(palette::TEXT_DIM).right()
+    } else {
+        let st = TextStyle::body().weight(Weight::Semibold).tabular().right();
+        match sum_color {
+            Some(c) => st.color(c),
+            None => st,
+        }
+    };
     let (sw, _) = ui.c.measure(sum, &sum_st, 300.0);
     let sum_r = Rect::new(r.right() - sw - 2.0, r.y, sw + 2.0, r.h);
     ui.c.text(sum, sum_r, &sum_st);
     let x = r.x + TEXT_X;
     let avail = (sum_r.x - 12.0 - x).max(0.0);
     let title_st = TextStyle::body();
+    let detail_st = TextStyle::footnote().color(palette::TEXT_DIM);
     let (tw, _) = ui.c.measure(title, &title_st, 10_000.0);
-    ui.c.text(title, Rect::new(x, r.y, tw.min(avail) + 2.0, r.h), &title_st);
-    let dx = x + tw + 8.0;
-    if !detail.is_empty() && avail - tw > 40.0 {
-        ui.c.text(detail, Rect::new(dx, r.y, (sum_r.x - 12.0 - dx).max(0.0), r.h), &TextStyle::footnote().color(palette::TEXT_DIM));
+    let (dw, _) = ui.c.measure(detail, &detail_st, 10_000.0);
+    let (tailw, _) = ui.c.measure(detail_tail, &detail_st, 10_000.0);
+    // The detail, or just its time, keeps its room unless the title is short.
+    let (shown_detail, detail_w) = if detail.is_empty() {
+        ("", 0.0)
+    } else if tw + 8.0 + dw <= avail || dw <= avail * 0.45 {
+        (detail, dw)
+    } else {
+        (detail_tail, tailw)
+    };
+    let title_w = if shown_detail.is_empty() { avail } else { (avail - detail_w - 8.0).max(avail * 0.3) };
+    ui.c.text(title, Rect::new(x, r.y, tw.min(title_w) + 2.0, r.h), &title_st);
+    if !shown_detail.is_empty() {
+        let dx = x + tw.min(title_w) + 8.0;
+        ui.c.text(shown_detail, Rect::new(dx, r.y, (sum_r.x - 12.0 - dx).max(0.0), r.h), &detail_st);
     }
 }
 
-fn money_row(ui: &mut Ui, st: &AppState, r: Rect, a: &Arrival, show: bool, offset: i32) {
-    // The wallet's own colour, lifted a little more than an accent: a bank's navy
-    // must still read as a disc on black.
-    let color = a
-        .wallet
-        .as_ref()
-        .and_then(|w| oyenza::hex_color(&w.color))
-        .map(|(r, g, b)| Color::lerp(Color::hex(((r as u32) << 16) | ((g as u32) << 8) | b as u32).for_island_accent(), Color::white(1.0), 0.25))
-        .unwrap_or(palette::GREEN);
-    let wallet = a.wallet.as_ref().map(|w| w.name.trim()).unwrap_or("");
-    let at = oyenza::local_clock(&a.at, offset).map(|t| fmt_clock(&t, st.settings.use_24h)).unwrap_or_default();
-    let detail = [wallet, at.as_str()].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(" · ");
-    let title = if a.title.trim().is_empty() { "Money in" } else { a.title.trim() };
-    let sum = if show { a.text.clone() } else { oyenza::masked(&a.text) };
-    row(ui, r, Row { color, icon: Icon::MoneyIn, title, detail: &detail, sum: &sum, sum_dim: false });
+fn txn_row(ui: &mut Ui, r: Rect, t: &Txn, time: &str, show: bool) {
+    let (icon, color, sum_color) = match t.flow() {
+        Flow::In => (Icon::MoneyIn, palette::GREEN, Some(palette::GREEN)),
+        Flow::Out => (Icon::MoneyOut, palette::BLUE, None),
+        Flow::Move => (Icon::Transfer, palette::CYAN, Some(palette::TEXT_DIM)),
+    };
+    let title = oyenza::txn_title(t);
+    let detail = oyenza::txn_detail(t, time);
+    let sum = oyenza::signed_sum(t, show);
+    row(ui, r, Row { color, icon, title: &title, detail: &detail, detail_tail: time, sum: &sum, sum_color, sum_dim: false });
 }
 
-fn bill_row(ui: &mut Ui, r: Rect, b: &Bill, today: &str, show: bool) {
-    let when = oyenza::due_label(&b.due, today);
+fn bill_row(ui: &mut Ui, r: Rect, b: &Bill, today: &str, pick: DayPick, show: bool) {
+    let kind = if b.is_card() { "Card bill due" } else { "Subscription" };
+    let detail = match pick {
+        DayPick::Today => format!("{kind} · today"),
+        DayPick::Later => format!("{kind} · {}", oyenza::due_label(&b.due, today)),
+        _ => kind.to_string(),
+    };
     let (icon, sum, dim) = match (&b.text, b.is_card()) {
         (_, true) => (Icon::Card, "card bill".to_string(), true),
         (Some(t), false) => (Icon::Calendar, if show { t.clone() } else { oyenza::masked(t) }, false),
         (None, false) => (Icon::Calendar, String::new(), true),
     };
-    row(ui, r, Row { color: palette::ORANGE, icon, title: &b.name, detail: &when, sum: &sum, sum_dim: dim });
+    row(ui, r, Row { color: palette::ORANGE, icon, title: &b.name, detail: &detail, detail_tail: "", sum: &sum, sum_color: None, sum_dim: dim });
+}
+
+/// The list eases to where the wheel sent it.
+fn smooth_scroll(ui: &mut Ui, target: f32, max_scroll: f32) -> f32 {
+    let now = ui.now;
+    SCROLL_ANIM.with(|cell| {
+        let (prev, last) = cell.get();
+        // After an idle gap (the frame clock was parked) step as if one frame passed.
+        let dt = if now > last { (now - last).min(1.0 / 30.0) as f32 } else { 0.0 };
+        let mut pos = prev.clamp(0.0, max_scroll);
+        pos += (target - pos) * (1.0 - (-dt * 18.0).exp());
+        if (target - pos).abs() < 0.5 {
+            pos = target;
+        } else {
+            ui.request_anim();
+        }
+        cell.set((pos, now));
+        pos
+    })
+}
+
+/// The island's ground over `r`, from solid at the outer edge to clear: rows
+/// fade out where the list is cut off (the Clipboard page's fade).
+fn fade_edge(ui: &mut Ui, r: Rect, outer_is_top: bool, strength: f32) {
+    if strength <= 0.01 || r.h <= 0.0 {
+        return;
+    }
+    const STEPS: usize = 8;
+    const EDGE: f32 = 0.94;
+    let target = |j: usize| EDGE * strength * (STEPS - j) as f32 / STEPS as f32;
+    for k in (0..STEPS).rev() {
+        let below = if k + 1 < STEPS { target(k + 1) } else { 0.0 };
+        let a = 1.0 - (1.0 - target(k)) / (1.0 - below);
+        let depth = r.h * (k + 1) as f32 / STEPS as f32;
+        let band = if outer_is_top { Rect::new(r.x, r.y, r.w, depth) } else { Rect::new(r.x, r.bottom() - depth, r.w, depth) };
+        ui.c.fill_rect(band, Color::black(a));
+    }
 }
 
 /// A Unix time as the server writes instants, for [`oyenza::local_clock`].

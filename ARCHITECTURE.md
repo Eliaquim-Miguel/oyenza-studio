@@ -160,7 +160,9 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect);  // draw + handle input
 * Oyenza (optional): the sign-in, this PC's own key, sealed with DPAPI
   (`%LOCALAPPDATA%\Poni\oyenza-link.bin`; `oyenza-revoke.bin` while a sign-out
   still has to reach the server). The worker (`services/oyenza.rs`) asks
-  api.oyenza.app on its own thread, paced by the PC's use and power; words,
+  api.oyenza.app on its own thread, paced by the PC's use and power, and
+  checks the tab's day list every 15 s only while the tab is on screen
+  (`App::set_oyenza_watch`, beside the System page's sampler); words,
   parsing and cadence are in `poni_core::oyenza`, the tab in `pages/oyenza.rs`.
 * `PONI_HOME` overrides both (the self-test uses it).
 * Clipboard history is memory-only and skips content marked
