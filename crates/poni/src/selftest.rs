@@ -2362,6 +2362,17 @@ fn art_sample(u: f32, v: f32) -> [f32; 3] {
 
 // ---------------------------------------------------------------- pixels
 
+/// The rows above the Pill body: the largest alpha, the largest on the top
+/// row (the screen's edge), how many pixels have colour (anything but a
+/// black shadow or a hit pixel) and how many are the invisible hit pixels
+/// (alpha 1).
+struct GapScan {
+    most: u8,
+    edge: u8,
+    coloured: usize,
+    hit: usize,
+}
+
 /// Premultiplied BGRA frame with bounds-checked reads.
 struct Frame<'a> {
     w: i32,
@@ -2437,18 +2448,22 @@ impl Frame<'_> {
         n
     }
 
-    /// The largest alpha in rows `0..rows`, and how many of their pixels are
-    /// the invisible hit pixels (alpha 1).
-    fn rows_alpha(&self, rows: i32) -> (u8, usize) {
-        let (mut most, mut hit) = (0, 0);
+    /// What rows `0..rows` hold (see [`GapScan`]).
+    fn gap_scan(&self, rows: i32) -> GapScan {
+        let mut g = GapScan { most: 0, edge: 0, coloured: 0, hit: 0 };
         for y in 0..rows.min(self.h) {
             for x in 0..self.w {
-                let a = self.at(x, y)[3];
-                most = most.max(a);
-                hit += usize::from(a == 1);
+                let [b, gr, r, a] = self.at(x, y);
+                g.most = g.most.max(a);
+                if y == 0 {
+                    g.edge = g.edge.max(a);
+                }
+                // Premultiplied: black at any alpha stays (0, 0, 0); 2 allows rounding.
+                g.coloured += usize::from(r.max(gr).max(b) > 2);
+                g.hit += usize::from(a == 1);
             }
         }
-        (most, hit)
+        g
     }
 
     /// The largest alpha along each edge: top, bottom, left, right.
@@ -2523,27 +2538,41 @@ fn window_check(hwnd: HWND, surface: (i32, i32, i32, i32), present: (i32, i32), 
     )
 }
 
+/// Pill: what the gap above the floating body may hold besides the invisible
+/// hit pixels. The shadow's soft upper edge reaches into it (spec 6.2: about
+/// 21/255 just above the body, 3/255 at the screen's edge); it is black, at
+/// most the first alpha anywhere in the gap and the second on the screen's
+/// edge, so the island still reads as floating. Both at 1 = nothing but the
+/// hit pixels.
+const PILL_GAP_SHADOW_MAX: u8 = 64;
+const PILL_GAP_EDGE_MAX: u8 = 8;
+
 /// The Pill theme's own checks. The island floats, so the gap above the body
-/// shows the screen: nothing there but the invisible hit pixels (alpha 1)
-/// that take the mouse, and the body's top edge where its geometry says. Its
-/// shadow fades out inside the room the window keeps beside and below the
-/// body: a shadow that reaches the window's side or bottom edge is cut off
-/// there, a hard line on a light wallpaper. (The top edge is the screen's,
-/// and the gap check reads it.)
+/// shows the screen: nothing in it but the invisible hit pixels (alpha 1)
+/// that take the mouse and the shadow's soft upper edge, and the body's top
+/// edge where its geometry says. Its shadow fades out inside the room the
+/// window keeps beside and below the body: a shadow that reaches the window's
+/// side or bottom edge is cut off there, a hard line on a light wallpaper.
+/// (The top edge is the screen's, and the gap check reads it.)
 fn pill_checks(frame: &Frame, body: Rect, scale: f32, checks: &mut Vec<Check>) {
     // Rows wholly above the body.
     let gap = (body.y * scale).floor() as i32;
-    let (most, hit) = frame.rows_alpha(gap);
+    let g = frame.gap_scan(gap);
     let cx = ((body.x + body.w / 2.0) * scale).floor() as i32;
     let first = (0..frame.h).find(|&y| frame.at(cx, y)[3] >= 128);
     let want = body.y * scale;
     let starts = first.is_some_and(|y| (y as f32 - want).abs() <= 1.0);
     checks.push(check(
         "pill-gap",
-        gap > 0 && most <= 1 && starts,
+        gap > 0 && g.most <= PILL_GAP_SHADOW_MAX && g.edge <= PILL_GAP_EDGE_MAX && g.coloured == 0 && starts,
         format!(
-            "rows 0-{} above the body: max alpha {most} ({hit} hit pixels at alpha 1); the body starts at row {} (geometry {want:.1})",
+            "rows 0-{} above the body: max alpha {} (want <= {PILL_GAP_SHADOW_MAX}), {} on the screen's edge (want <= {PILL_GAP_EDGE_MAX}), \
+             {} coloured pixels (want 0: shadow and hit pixels are black), {} hit pixels at alpha 1; the body starts at row {} (geometry {want:.1})",
             gap - 1,
+            g.most,
+            g.edge,
+            g.coloured,
+            g.hit,
             first.map_or("-".to_string(), |y| y.to_string())
         ),
     ));
