@@ -58,10 +58,14 @@ pub fn hover_lift(g: Geom) -> Geom {
     Geom::new(g.w + 2.0 * d, g.h + 2.0 * d, g.r + d).below(g.dy - d + HOVER_SINK)
 }
 
-/// Where content scales from during a morph: the body's middle (Classic's
-/// is the top centre, where the island hangs).
-pub fn pivot(body: Rect) -> Point {
-    body.center()
+/// Where content scales from during a morph to `target`: the middle of the
+/// morph's small end, so content grows out of the pill and shrinks back into
+/// it (Classic's is the top centre, where the island hangs). Opening, that's
+/// the body's middle as it grows; closing, the middle of the pill it's
+/// becoming, near the top, so the leaving card gathers into the pill instead
+/// of into the middle of a card that's no longer there.
+pub fn pivot(body: Rect, target: Geom) -> Point {
+    Point::new(body.center().x, body.y + body.h.min(target.h) / 2.0)
 }
 
 /// How far the outgoing content, laid out at its old size `was`, has shrunk
@@ -96,6 +100,20 @@ mod tests {
         assert_eq!(g.r, g.h / 2.0);
         // Centred on the resting pill, then 1 DIP lower: 2 up into the gap, 4 down.
         assert_eq!(g.dy, -2.0);
+    }
+
+    #[test]
+    fn content_scales_about_the_small_end() {
+        let pill = Geom::new(120.0, 32.0, 16.0);
+        let card = Geom::new(620.0, 216.0, 40.0);
+        // Opening: the middle of the body as it grows.
+        let growing = Rect::new(100.0, 8.0, 300.0, 90.0);
+        assert_eq!(pivot(growing, card), Point::new(250.0, 53.0));
+        // Closing: the middle of the pill it's becoming.
+        let closing = Rect::new(40.0, 8.0, 420.0, 140.0);
+        assert_eq!(pivot(closing, pill), Point::new(250.0, 24.0));
+        // At rest, the body's middle.
+        assert_eq!(pivot(Rect::new(190.0, 8.0, 120.0, 32.0), pill), Point::new(250.0, 24.0));
     }
 
     #[test]

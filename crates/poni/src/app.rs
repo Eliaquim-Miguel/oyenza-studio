@@ -2406,8 +2406,8 @@ impl App {
                 }
 
                 // Content scales about the top centre, where the island hangs
-                // (floating, about its middle: nothing holds it at the top).
-                let pivot = if floating { pill::motion::pivot(body) } else { Point::new(body.center().x, body.y) };
+                // (floating, about the middle of the pill end of the morph).
+                let pivot = if floating { pill::motion::pivot(body, self.island.target()) } else { Point::new(body.center().x, body.y) };
                 if morphing {
                     canvas.clip(body);
                     if floating {
