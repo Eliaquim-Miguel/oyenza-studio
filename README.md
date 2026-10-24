@@ -33,6 +33,7 @@ Native Rust, no web view, no runtime, around 1.7 MB, and **zero CPU while nothin
 - A focus-timer countdown.
 - Pop-ups for volume, charging and Bluetooth headsets, with battery level.
 - Signed in to [Oyenza](#oyenza-optional), a notice when money arrives and a reminder the day before a bill is due.
+- With the [Prayer times](#add-ons) add-on on, the minutes before each prayer and a notice when it's time.
 - Once Oyenza can send the steps from your phone (coming soon), a notice when they reach the daily goal.
 
 **Point at the island (or click it) to open it.** Scroll over the header to switch pages.
@@ -46,6 +47,7 @@ Native Rust, no web view, no runtime, around 1.7 MB, and **zero CPU while nothin
 <tr><td width="84" align="center"><img src="docs/brand/art/poses/oyen-clipboard.webp" width="64" alt=""></td><td><b>Clipboard</b><br>Recent copied text, kept in memory only. It skips anything password managers mark as private.</td></tr>
 <tr><td width="84" align="center"><img src="docs/brand/art/poses/oyen-today.webp" width="64" alt=""></td><td><b>Today</b><br>Date and calendar, plus CPU, memory, disk and battery. Click a ring to open it on the System page</td></tr>
 <tr><td width="84" align="center"></td><td><b>System</b><br>CPU, memory, drives, network and battery, each with the last minute of history and the apps using the most. Readings run only while the page is open, without drivers or admin rights, and never leave your PC</td></tr>
+<tr><td width="84" align="center"></td><td><b>Prayer</b> (an <a href="#add-ons">add-on</a>)<br>Today's prayer times for your kab/kota from Kemenag RI, the next prayer and how long until it, and the qibla</td></tr>
 </table>
 
 | | |
@@ -148,6 +150,15 @@ Then the island shows:
 
 This PC gets a key of its own that can do only these things: it can't read your history, change or delete anything else, or touch your account. It is stored encrypted for your Windows account (`%LOCALAPPDATA%\Poni\oyenza-link.bin`). Oyen Poni asks Oyenza once a minute while you use the PC (every 3 minutes on battery, never while it's locked or asleep). **Disconnect** in Settings (or **Oyenza › Disconnect** in the menu) signs this PC out; you can also disconnect it in oyenza.app under Connected apps.
 
+## Add-ons
+
+The **+** at the end of the tabs lists features that aren't part of the download. Switching one on downloads its files from this project's releases (each checked against the size and SHA-256 built into the app); switching it off deletes them. While every add-on is off, nothing is downloaded and nothing of theirs runs.
+
+**Prayer times** (1.9 MB) shows today's times for your kab/kota as Kemenag RI publishes them, with Imsak and Terbit, the next prayer and how long until it, and the qibla. Makkah, Madinah and Jeddah use Umm al-Qura. In the 10 minutes before each prayer the island counts down, and at the time it says so with a short tone, the adzan recorded at Masjidil Haram, or nothing (Subuh gets the tone). Music pauses for the adzan; **Stop** ends it.
+
+- **Your place:** Windows' location picks the nearest of Kemenag's 517 places and checks again every few hours, so a trip moves the place. The point is used once on your PC and never saved or sent. With location off, the PC's time zone suggests a place; **Change place** lets you type yours.
+- **Accuracy:** replayed against Kemenag's published 2026 schedule for all 517 places, 98.2% of 227,367 times match to the minute and none is more than a minute off (`cargo test -p poni-core prayer`; details in [addons/sholat](addons/sholat/README.md)).
+
 ## Build
 
 Oyen Poni is a Cargo workspace:
@@ -206,6 +217,7 @@ Early, but in daily use on Windows 11. Most rough edges are in places a test mac
 - Phone drop follows the design of [Windfall](https://github.com/UvejsGj/Windfall)'s phone page (MIT). QR codes come from [qrcodegen](https://github.com/nayuki/QR-Code-generator) (MIT).
 - Romaji under Japanese lyrics comes from Windows' own reading analyzer or, on PCs without Windows' Japanese data, from [mecab-ipadic](https://taku910.github.io/mecab/) read with [vibrato](https://github.com/daac-tools/vibrato) (MIT/Apache-2.0).
 - Paired phones follow the idea of [PairDrop](https://github.com/schlagmichdoch/PairDrop)'s paired devices (no code taken). The WebRTC link is [str0m](https://github.com/algesten/str0m) (MIT or Apache-2.0).
+- Prayer times use the sun's position from [Adhan](https://github.com/batoulapps/adhan-js) (MIT), Kemenag RI's rules, and reference points fitted to Kemenag's published schedule. The adzan is "Maghrib Adhan at the Masjid al Haram, Mecca - 25 Feb, 2012" by 3omar Faruq, from [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Maghrib_Adhan_at_the_Masjid_al_Haram,_Mecca_-_25_Feb,_2012.webm), [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/) (cut to the adzan, mono, levelled).
 - Built with [windows-rs](https://github.com/microsoft/windows-rs) and [serde](https://serde.rs).
 
 ## License
