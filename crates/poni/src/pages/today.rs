@@ -64,7 +64,9 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
     draw_calendar(ui, st, Rect::new(x, area.y, cal_w, area.h), cal_top, compact);
     x += cal_w + BLOCK_GAP;
     let tiles = Rect::new(x, area.y, (area.right() - x).max(0.0), area.h);
-    draw_tiles(ui, st, tiles);
+    // The bottom-right tile shares the Pill card's corner.
+    let card = super::clipboard::pill_card(st, area);
+    draw_tiles(ui, st, tiles, card);
 }
 
 // ------------------------------------------------------------------ date
@@ -162,7 +164,7 @@ struct Tile {
     detail_short: String,
 }
 
-fn draw_tiles(ui: &mut Ui, st: &mut AppState, r: Rect) {
+fn draw_tiles(ui: &mut Ui, st: &mut AppState, r: Rect, card: Option<(Rect, f32)>) {
     if r.w < 120.0 {
         return;
     }
@@ -176,15 +178,15 @@ fn draw_tiles(ui: &mut Ui, st: &mut AppState, r: Rect) {
         let row = rows[i / 2];
         let cell = row.columns(2, TILE_GAP)[i % 2];
         let resp = ui.button(wid_n("today-tile", i as u64), cell);
-        draw_tile(ui, cell, tile, resp.hovered);
+        draw_tile(ui, cell, tile, resp.hovered, card);
         if resp.clicked {
             st.cmd(Command::OpenSystem(modules[i]));
         }
     }
 }
 
-fn draw_tile(ui: &mut Ui, r: Rect, t: &Tile, hovered: bool) {
-    ui.c.fill_rrect(r, TILE_RADIUS, if hovered { palette::SURFACE_HOVER } else { palette::SURFACE });
+fn draw_tile(ui: &mut Ui, r: Rect, t: &Tile, hovered: bool, card: Option<(Rect, f32)>) {
+    super::clipboard::fill_box(ui, card, r, TILE_RADIUS, if hovered { palette::SURFACE_HOVER } else { palette::SURFACE });
     let cy = r.center().y;
     let c = Point::new(r.x + 12.0 + RING_R, cy);
     match t.frac {
