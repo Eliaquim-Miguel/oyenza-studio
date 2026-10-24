@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Compare two self-test output folders picture by picture, exact pixels.
 
-    python3 tools/selftest_diff.py <before> <after> [--noise <dir>]
+    python3 tools/selftest_diff.py <before> <after> [--noise <dir> ...]
 
 <before> and <after> are `poni.exe --selftest` folders (tools/run-selftest-wine.sh),
 usually the same theme and DPI from two builds. Every PNG in <before> is
@@ -14,8 +14,9 @@ means a scene moved or was lost.
 Some pixels change between two runs of the same build: the clock shows the
 minute the picture was taken (run both builds side by side, as
 tools/site_shots.py says), and the equalizer, a blink and Oyen move with time.
-Give a second run of the <before> build as --noise: a picture that differs
-there too is listed as time-dependent and doesn't count.
+Give more runs of the <before> build as --noise (as many as you have): a
+picture that differs between <before> and any of them is listed as
+time-dependent and doesn't count.
 
 Exit code: 0 when no picture differs (beyond --noise) and nothing in <before>
 is missing from <after>, 1 otherwise, 2 for a usage problem.
@@ -69,19 +70,19 @@ def main():
     ap = argparse.ArgumentParser(description="Compare two self-test output folders, exact pixels.")
     ap.add_argument("before", type=Path)
     ap.add_argument("after", type=Path)
-    ap.add_argument("--noise", type=Path, help="a second run of the <before> build: pictures that differ there too are time-dependent")
+    ap.add_argument("--noise", type=Path, action="append", default=[], help="another run of the <before> build (repeatable): pictures that differ there too are time-dependent")
     args = ap.parse_args()
-    for d in [args.before, args.after] + ([args.noise] if args.noise else []):
+    for d in [args.before, args.after] + args.noise:
         if not d.is_dir():
             print(f"not a folder: {d}", file=sys.stderr)
             return 2
 
     before, after = pictures(args.before), pictures(args.after)
-    noise = pictures(args.noise) if args.noise else {}
+    noise = [pictures(d) for d in args.noise]
     print(f"before: {args.before} ({len(before)} pictures)")
     print(f"after:  {args.after} ({len(after)} pictures)")
-    if args.noise:
-        print(f"noise:  {args.noise} ({len(noise)} pictures)")
+    for d, p in zip(args.noise, noise):
+        print(f"noise:  {d} ({len(p)} pictures)")
 
     same, changed, timed = [], [], []
     for name, a in before.items():
@@ -90,7 +91,7 @@ def main():
         d = compare(a, after[name])
         if d is None:
             same.append(name)
-        elif name in noise and compare(a, noise[name]) is not None:
+        elif any(name in p and compare(a, p[name]) is not None for p in noise):
             timed.append((name, d))
         else:
             changed.append((name, d))
