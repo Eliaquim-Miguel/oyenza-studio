@@ -87,6 +87,11 @@ pub fn fake_notch(n: Option<Notch>) {
     FAKE_NOTCH.set(n);
 }
 
+/// The smoke test is pretending a notch.
+pub fn faking_notch() -> bool {
+    FAKE_NOTCH.get().is_some()
+}
+
 fn screen_info(s: &NSScreen) -> ScreenInfo {
     let f = s.frame();
     let inset = s.safeAreaInsets().top;

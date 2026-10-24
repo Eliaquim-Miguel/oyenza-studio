@@ -1,4 +1,4 @@
-//! `poni --render <dir> [--theme classic|oyen|glass] [--notch]`: draw the island's
+//! `poni --render <dir> [--theme classic|oyen|glass|pill] [--notch]`: draw the island's
 //! states with sample data into PNGs, offscreen, through the Mac renderer.
 //! CI runs it on a Mac with no notch and no person at the screen, so this is
 //! how the Mac drawing gets looked at: every page and activity, each theme,
@@ -8,7 +8,9 @@
 //! light menu bar. With `--notch` the camera notch is painted on top, black,
 //! the way it hides that part of the island on a real MacBook. Glass is
 //! macOS's own view on the real window, so here a smoked stand-in takes its
-//! place (the smoke run's screenshots show the real one).
+//! place (the smoke run's screenshots show the real one). Pill floats below
+//! the top edge, or around a notch rests attached in the menu bar's line and
+//! floats below the menu bar for what hangs under it (notch.rs).
 //!
 //! The music scenes use made-up data to test the drawing; the Mac app shows
 //! music once the media slice is built. The System page's scenes show a
@@ -173,11 +175,124 @@ pub fn run(dir: &str, args: &[String]) -> i32 {
             }
         }
     }
+    // Pill: how the floating outline moves (stills can't show it).
+    if crate::pill::on(theme) {
+        let n = SCENES.len() + SYSTEM_SCENES.len() + 1;
+        let path = out.join(format!("{n:02}-open-close-frames{suffix}.png"));
+        match render_morph(&mut gfx, theme, notch, &path) {
+            Ok(()) => println!("render: {}", path.display()),
+            Err(e) => {
+                eprintln!("render: {}: {e}", path.display());
+                failed += 1;
+            }
+        }
+    }
     if failed > 0 {
         1
     } else {
         0
     }
+}
+
+/// The island opening from rest onto the Today page (left column) and
+/// closing again (right), a frame every few sixtieths of a second, stepped on
+/// the app's own springs: for the Pill theme, how the floating outline moves
+/// and, around a notch, how it lets go of the edge and comes back.
+fn render_morph(gfx: &mut Gfx, theme: Theme, notch: Option<Notch>, path: &Path) -> Result<(), String> {
+    /// Sixtieths of a second after the change, one row each.
+    const FRAMES: [usize; 12] = [0, 2, 4, 6, 8, 10, 13, 16, 20, 25, 30, 45];
+    const DT: f32 = 1.0 / 60.0;
+    /// The strip is drawn at one pixel per DIP (it is long).
+    const STRIP_SCALE: f32 = 1.0;
+    let mut st = base_state(theme);
+    st.page = PageKind::Today;
+    let (rest, open) = (Mode::Idle, Mode::Expanded(PageKind::Today));
+    let size = |m: &Mode, st: &AppState| {
+        let g = activities::geom(m, st);
+        notch.map_or(g, |n| notch::geom(m, st, n, g))
+    };
+    let gap_at = |m: &Mode, st: &AppState| notch.map_or(crate::pill::TOP_GAP, |n| notch::pill_gap(m, st, n));
+    let ends = [(rest, size(&rest, &st), gap_at(&rest, &st)), (open, size(&open, &st), gap_at(&open, &st))];
+    let menu_h = notch.map_or(MENU_BAR, |n| n.h);
+    let cell_w = st.settings.expanded_width + 2.0 * MARGIN_X;
+    let cell_h = (notch.map_or(0.0, |n| n.h) + crate::pill::TOP_GAP + ends[1].1.h * 1.06 + 28.0).ceil();
+    let (w_px, h_px) = ((2.0 * cell_w * STRIP_SCALE).ceil() as usize, (FRAMES.len() as f32 * cell_h * STRIP_SCALE).ceil() as usize);
+    let bmp = Bitmap::new(w_px, h_px, STRIP_SCALE).ok_or("no bitmap context")?;
+    let look = if notch.is_some() { poni_core::look::around_notch(theme) } else { poni_core::look::of(theme) };
+    for (col, (from, to)) in [(0usize, 1usize), (1, 0)].into_iter().enumerate() {
+        let (_, g_from, gap_from) = ends[from];
+        let (to_mode, g_to, gap_to) = ends[to];
+        let mut island = Island::new(g_from);
+        island.snap(g_from);
+        let mut gap = notch::PillGap::default();
+        gap.snap(gap_from);
+        island.set_floating(gap.floating());
+        island.set_target(g_to, NOW_MONO, true);
+        let (mut k, mut now) = (0usize, NOW_MONO);
+        for (row, &f) in FRAMES.iter().enumerate() {
+            while k < f {
+                gap.step(gap_to, DT);
+                island.set_floating(gap.floating());
+                island.step(DT, now);
+                now += DT as f64;
+                k += 1;
+            }
+            let (x, y) = (col as f32 * cell_w, row as f32 * cell_h);
+            let cx = cell_w / 2.0;
+            let body = island.body_rect_at(cx);
+            let geom = island.current();
+            let shoulder = notch.map_or(SHOULDER, |n| notch::shoulder(n, geom.w));
+            let detach = notch::detach(island.top(), notch);
+            gfx.set_look(&poni_core::look::CLASSIC);
+            {
+                let mut c = gfx.canvas(bmp.ctx());
+                c.translate(x, y);
+                c.clip(Rect::new(0.0, 0.0, cell_w, cell_h));
+                let steps = 24;
+                for i in 0..steps {
+                    let t = i as f32 / (steps - 1) as f32;
+                    let shade = Color::lerp(Color::hex(0x2B4F86), Color::hex(0xF0708A), t);
+                    c.fill_rect(Rect::new(0.0, cell_h * i as f32 / steps as f32, cell_w, cell_h / steps as f32 + 0.5), shade);
+                }
+                c.fill_rect(Rect::new(0.0, 0.0, cell_w, menu_h), Color::rgba(0.96, 0.96, 0.97, 0.78));
+                c.unclip();
+                c.reset_transform();
+            }
+            gfx.set_look(look);
+            {
+                let mut c = gfx.canvas(bmp.ctx());
+                c.translate(x, y);
+                // Each frame keeps to its cell (the notch is drawn from above it).
+                c.clip(Rect::new(0.0, 0.0, cell_w, cell_h));
+                let border = Some(c.look().border);
+                if island.floating() {
+                    notch::draw_pill_body(&mut c, body, geom.r, shoulder, detach, palette::ISLAND, border);
+                    c.push_outline_mask(&notch::pill_outline(body, geom.r, shoulder, detach));
+                } else {
+                    c.notch(body, geom.r, shoulder, palette::ISLAND, border);
+                    c.push_shape_mask(body, geom.r, shoulder);
+                }
+                // The incoming content as it fades in (the app also fades the old one out).
+                let lay = match to_mode {
+                    Mode::Expanded(_) => Rect::new(body.center().x - g_to.w / 2.0, body.y, g_to.w, g_to.h),
+                    _ => body,
+                };
+                let (mut input, mut hits) = (Input::default(), Vec::<Hit>::new());
+                let alpha = island.content_alpha();
+                c.with_alpha(alpha, |c| crate::app::draw_content(c, &mut input, &mut hits, &mut st, to_mode, lay, body, None, now, notch));
+                c.pop_shape_mask();
+                if let Some(n) = notch {
+                    c.unthemed(|c| c.fill_rrect(Rect::new(cx - n.w / 2.0, -12.0, n.w, n.h + 12.0), 10.0, Color::black(1.0)));
+                }
+                let label = format!("{} {:.0} ms", if to == 1 { "open" } else { "close" }, f as f32 * 1000.0 / 60.0);
+                c.unthemed(|c| c.text(&label, Rect::new(10.0, cell_h - 22.0, 160.0, 16.0), &crate::gfx::TextStyle::caption().color(Color::white(0.92))));
+                c.unclip();
+                c.reset_transform();
+            }
+        }
+    }
+    let px = bmp.pixels();
+    crate::png::save_pbgra(path, w_px as u32, h_px as u32, &px)
 }
 
 fn base_state(theme: Theme) -> AppState {
@@ -351,10 +466,17 @@ fn render_scene(gfx: &mut Gfx, scene: Scene, theme: Theme, notch: Option<Notch>,
     }
     let mut island = Island::new(g);
     island.snap(g);
+    // The Pill theme floats it below the top edge, where the app puts it.
+    if crate::pill::on(theme) {
+        let gap = notch.map_or(crate::pill::TOP_GAP, |n| notch::pill_gap(&mode, &st, n));
+        let mut at = notch::PillGap::default();
+        at.snap(gap);
+        island.set_floating(at.floating());
+    }
 
     let menu_h = notch.map_or(MENU_BAR, |n| n.h);
     let w_dip = (st.settings.expanded_width + 2.0 * MARGIN_X).max(g.w + 2.0 * (SHOULDER + MARGIN_X));
-    let h_dip = g.h.max(menu_h) + MARGIN_BOTTOM + if matches!(mode, Mode::Expanded(_)) { 0.0 } else { 60.0 };
+    let h_dip = (island.top() + g.h).max(menu_h) + MARGIN_BOTTOM + if matches!(mode, Mode::Expanded(_)) { 0.0 } else { 60.0 };
     let (w_px, h_px) = ((w_dip * SCALE).ceil() as usize, (h_dip * SCALE).ceil() as usize);
     let bmp = Bitmap::new(w_px, h_px, SCALE).ok_or("no bitmap context")?;
     let cx = w_dip / 2.0;
@@ -386,7 +508,11 @@ fn render_scene(gfx: &mut Gfx, scene: Scene, theme: Theme, notch: Option<Notch>,
             crate::glass::draw_body(&mut c, body, g.r, shoulder, notch, inside, true);
         } else {
             let border = if inside { None } else { Some(c.look().border) };
-            c.notch(body, g.r, shoulder, palette::ISLAND, border);
+            if island.floating() {
+                crate::pill::shape::draw_body(&mut c, body, g.r, palette::ISLAND, border);
+            } else {
+                c.notch(body, g.r, shoulder, palette::ISLAND, border);
+            }
         }
         let mut input = Input::default();
         if hovering {
