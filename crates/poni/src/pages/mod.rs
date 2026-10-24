@@ -260,9 +260,10 @@ pub(crate) fn content_area(body: Rect) -> Rect {
 }
 
 /// The active page in [`content_area`], clipped to the island below the
-/// `header` row, and the page switch `tr` (already filtered to one in
-/// progress): the old page fades out sliding away while the new one fades
-/// in. Shared by every theme's frame, so a switch moves the same in all.
+/// `header` row. During the page switch `tr` (one in progress, as
+/// [`draw_expanded`] filters it) the old page fades out sliding away while
+/// the new one fades in. Every theme's frame draws its pages with this, so
+/// a switch moves the same in all of them.
 pub(crate) fn draw_pages(ui: &mut Ui, st: &mut AppState, body: Rect, header: Rect, page: PageKind, tr: Option<PageTransition>) {
     let area = content_area(body);
     // Content may reach a little above `area` (text boxes whose cap height,
