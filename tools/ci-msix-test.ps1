@@ -76,7 +76,7 @@ $identity = $manifest.Package.Identity
 
 # Allow installing trusted packages from outside the Store.
 $unlock = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock"
-New-Item -Path $unlock -Force | Out-Null
+if (-not (Test-Path $unlock)) { New-Item -Path $unlock | Out-Null }
 Set-ItemProperty -Path $unlock -Name AllowAllTrustedApps -Value 1 -Type DWord
 
 # A throwaway certificate whose subject matches the manifest's Publisher.
@@ -160,10 +160,10 @@ if ($app.HasExited) {
     Stop-Process -Id $app.Id -Force
 }
 # A packaged app's new files under AppData land in its private folder.
-$logs = @(
+$logs = @(@(
     (Join-Path $env:LOCALAPPDATA "Packages\$($pkg.PackageFamilyName)\LocalCache\Local\Poni\poni.log"),
     (Join-Path $env:LOCALAPPDATA "Poni\poni.log")
-) | Where-Object { Test-Path $_ }
+) | Where-Object { Test-Path $_ })
 if ($logs.Count -eq 0) {
     $failures.Add("no poni.log from the normal start")
 } else {
