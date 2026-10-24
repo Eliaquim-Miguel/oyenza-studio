@@ -142,14 +142,17 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, body: Rect) -> bool {
     let mut right_w = end_inset(H);
     if st.power.has_battery {
         let p = st.power;
+        // Plugged in counts as charging, as the Charging pop-up and the
+        // resting clock have it: a full battery on its charger keeps the bolt.
+        let charging = p.charging || p.on_ac;
         let pct = format!("{}%", p.percent.min(100));
         // Low, the number turns red with the charge (as the clock's badge
         // does): a sliver of red alone is easy to miss.
-        let pct_ts = ts.color(if low(p.percent, p.charging) { palette::RED } else { PCT });
+        let pct_ts = ts.color(if low(p.percent, charging) { palette::RED } else { PCT });
         let (pw, _) = ui.c.measure(&pct, &pct_ts, 100.0);
         let bx = snap(ui, body.right() - BATT_END - BATT_W);
         let by = snap(ui, cy - BATT.1 / 2.0);
-        battery(ui, Rect::new(bx, by, BATT.0, BATT.1), p.percent, p.charging);
+        battery(ui, Rect::new(bx, by, BATT.0, BATT.1), p.percent, charging);
         let tx = bx - BATT_GAP - pw;
         ui.c.text(&pct, Rect::new(tx, body.y, pw + 2.0, body.h), &pct_ts);
         x1 = tx - PCT_GAP;
