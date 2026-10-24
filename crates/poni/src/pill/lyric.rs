@@ -65,6 +65,10 @@ const WAKE_PAD_S: f64 = 0.01;
 const AWAY_S: f64 = 0.5;
 /// Narrower than this (the pill mid-morph), there is no room for a line.
 const MIN_W: f32 = 20.0;
+/// The line is laid out this much wider than its slot on each side: a slot
+/// cut to the line's measured width can come out a hair short once laid out
+/// (rounding to pixels), and the line would end in an ellipsis.
+const SLACK: f32 = 1.0;
 
 /// The synced line being sung now and when it started (mono seconds), when
 /// the song has synced lyrics and a line is current. The start is the app
@@ -307,15 +311,20 @@ fn fade(k: f32) -> ((f32, f32), (f32, f32)) {
 }
 
 impl State {
-    fn draw(&mut self, ui: &mut Ui, st: &AppState, area: Rect) -> bool {
-        let now = st.now;
-        let pick = self.follow.update(st);
-        let on_screen = now <= self.seen_until;
-        self.seen_until = pick.and_then(|p| p.wake).unwrap_or(now).max(now) + AWAY_S;
-        let Some((pick, i, text)) = pick.and_then(|p| p.line.and_then(|i| line_text(st, i).map(|t| (p, i, t)))) else {
-            self.shown = None;
-            return false;
-        };
+    /// Whether the pill has been on screen up to `now` (it drew on the frame
+    /// before, or the change it was waiting for is due), noting this draw:
+    /// the next one counts as on screen until the change this one waits for
+    /// (`wake`), give or take [`AWAY_S`].
+    fn seen(&mut self, now: f64, wake: Option<f64>) -> bool {
+        let on = now <= self.seen_until;
+        self.seen_until = wake.unwrap_or(now).max(now) + AWAY_S;
+        on
+    }
+
+    /// The line on screen once line `i` (`text`) is current at `now`: a
+    /// change starts a fade, and the line it replaces leaves with it only if
+    /// it was on screen until now and comes from the same lyrics.
+    fn show(&mut self, now: f64, on_screen: bool, i: usize, text: &str) -> &mut Shown {
         let generation = self.follow.generation;
         let shown = match self.shown.take() {
             Some(s) if s.line == i && s.text == text => s,
@@ -324,10 +333,22 @@ impl State {
                 Shown { line: i, text: text.to_string(), generation, leaving, since: now }
             }
         };
-        let shown = self.shown.insert(shown);
+        self.shown.insert(shown)
+    }
+
+    fn draw(&mut self, ui: &mut Ui, st: &AppState, area: Rect) -> bool {
+        let now = st.now;
+        let pick = self.follow.update(st);
+        let on_screen = self.seen(now, pick.and_then(|p| p.wake));
+        let Some((pick, i, text)) = pick.and_then(|p| p.line.and_then(|i| line_text(st, i).map(|t| (p, i, t)))) else {
+            self.shown = None;
+            return false;
+        };
+        let shown = self.show(now, on_screen, i, text);
         if area.w < MIN_W {
             return true;
         }
+        let area = area.inset(-SLACK, 0.0);
         // Paused (for the moment the line holds), dimmed like the art and a paused timer.
         let color = if pick.paused { palette::TEXT_DIM } else { palette::TEXT };
         let style = style().center().color(color);
@@ -613,6 +634,29 @@ mod tests {
         st.media.as_mut().unwrap().track_key = other.media.as_ref().unwrap().track_key.clone();
         report(&mut st, 101.0, 34.5, true);
         assert_eq!(f.update(&st).unwrap().line, Some(0));
+    }
+
+    #[test]
+    fn only_a_line_that_was_on_screen_fades_out() {
+        let mut s = State::default();
+        // First draw: nothing was on screen before.
+        assert!(!s.seen(100.0, Some(103.0)));
+        let first = s.show(100.0, false, 0, "First");
+        assert_eq!((first.leaving.as_deref(), first.since), (None, 100.0));
+        // The same line a frame later: nothing new.
+        assert!(s.seen(100.016, Some(103.0)));
+        assert_eq!(s.show(100.016, true, 0, "First").since, 100.0);
+        // No frames until the wake for the next line (no equalizer): still on screen.
+        assert!(s.seen(103.02, Some(106.0)));
+        let next = s.show(103.02, true, 1, "Second");
+        assert_eq!((next.leaving.as_deref(), next.since), (Some("First"), 103.02));
+        // Back after a while away (the page was open): the old line just goes.
+        assert!(!s.seen(120.0, Some(121.0)));
+        assert_eq!(s.show(120.0, false, 5, "Sixth").leaving, None);
+        // Other lyrics (another song): never fade a line of the last one out over them.
+        assert!(s.seen(120.016, None));
+        s.follow.generation += 1;
+        assert_eq!(s.show(120.016, true, 0, "Another song").leaving, None);
     }
 
     #[test]
