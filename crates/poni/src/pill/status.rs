@@ -199,11 +199,12 @@ fn battery(ui: &mut Ui, r: Rect, percent: u8, charging: bool) {
         ui.c.fill_rrect(Rect::new(inner.x, inner.y, (inner.w * p).max(2.0), inner.h), 1.5, fill);
     }
     if charging {
-        // The bolt's path fills 14 x 19 of its 24 grid: a 10 box draws it
-        // 6 x 8; the larger dark one under it cuts its edge out of the charge.
+        // The bolt's path fills 14 x 19 of its 24 grid: a 9.5 box draws it
+        // about 5.5 x 7.5, its tips clear of the outline; the larger dark one
+        // under it cuts its edge out of the charge.
         let c = r.center();
-        ui.c.icon(Icon::Bolt, Rect::from_center(c, 13.0, 13.0), palette::ISLAND);
-        ui.c.icon(Icon::Bolt, Rect::from_center(c, 10.0, 10.0), palette::TEXT);
+        ui.c.icon(Icon::Bolt, Rect::from_center(c, 12.5, 12.5), palette::ISLAND);
+        ui.c.icon(Icon::Bolt, Rect::from_center(c, 9.5, 9.5), palette::TEXT);
     }
     // The outline last, so the bolt's dark edge never cuts it.
     let stroke = 1.25;
