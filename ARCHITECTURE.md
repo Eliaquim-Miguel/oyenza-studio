@@ -3,13 +3,13 @@
 Poni is a "living notch" for Windows 10/11: a black island that hangs from the
 top-centre of the screen, shows live activities (media, timers, pop-ups) while
 collapsed, and expands on hover into pages (Music + synced lyrics, Focus,
-Water, Shelf, Tasks, Clipboard, Today).
+Health, Shelf, Tasks, Clipboard, Today).
 
 ## Crates
 
 | Crate | What | Builds on |
 |---|---|---|
-| `crates/poni-core` | Pure logic + models: geometry/colour, springs, LRC parsing, LRCLIB URL/JSON, Apple Music lyrics (web-player token, API replies, TTML), player metadata fix-ups, Pomodoro, water log, tasks, shelf, clipboard history, settings, JSON store, SVG path parser, and Oyen's face (`oyen/`, a port of the Oyenza app's built face, checked against its Swift port by `oyen/swift_check.rs`). **No OS calls.** | any OS (`cargo test -p poni-core`) |
+| `crates/poni-core` | Pure logic + models: geometry/colour, springs, LRC parsing, LRCLIB URL/JSON, Apple Music lyrics (web-player token, API replies, TTML), player metadata fix-ups, Pomodoro, the steps snapshot Oyenza sends (`health.rs`), tasks, shelf, clipboard history, settings, JSON store, SVG path parser, and Oyen's face (`oyen/`, a port of the Oyenza app's built face, checked against its Swift port by `oyen/swift_check.rs`). **No OS calls.** | any OS (`cargo test -p poni-core`) |
 | `crates/poni` | The Windows app (Win32 + Direct2D + WinRT via `windows` 0.58) | Windows only (`cargo wcheck` / `cargo wbuild` cross from macOS/Linux) |
 
 ## Threads and data flow
@@ -132,7 +132,7 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect);  // draw + handle input
 ## Data
 
 * Settings: `%APPDATA%\Poni\settings.json` (created with defaults; tray → "Open settings file").
-* Data (tasks, water log, shelf, focus stats): `%APPDATA%\Poni\data.json`.
+* Data (tasks, shelf, focus stats): `%APPDATA%\Poni\data.json`. Drinks logged by the old Water page stay in it untouched (`water`).
 * Cache + log: `%LOCALAPPDATA%\Poni\` (`lyrics\*.json`, `poni.log`), plus the Apple Music
   token sealed with DPAPI (`apple-music-token.bin`) and the web player's public
   developer token (`apple-music-web.json`).

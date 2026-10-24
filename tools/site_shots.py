@@ -23,8 +23,8 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parent.parent
 # States the site shows; the rest of the self-test's states are left out.
 KEEP = {
-    "idle-clock", "idle-eyes", "media-activity", "timer-activity", "volume-hud", "bluetooth-hud", "water-notice",
-    "page-media", "page-focus", "page-water", "page-shelf", "page-tasks", "page-clipboard", "page-today",
+    "idle-clock", "idle-eyes", "media-activity", "timer-activity", "volume-hud", "bluetooth-hud", "health-notice",
+    "page-media", "page-focus", "page-health", "page-shelf", "page-tasks", "page-clipboard", "page-today",
 }
 
 
