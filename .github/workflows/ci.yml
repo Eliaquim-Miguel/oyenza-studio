@@ -98,8 +98,8 @@ jobs:
   #            the Pill smoke run
   #   glass:   the Glass self-tests, the Glass smoke run, the Pill self-test
   #   smoke:   the smoke run, the software renderer, the Inno Setup check
-  # (The Pill steps went where there was most room: before them, glass ran
-  # about 85 s of steps, classic 95, smoke 145 with its weight check.)
+  # The Pill steps went to the two machines with the most room; smoke has
+  # the longest steps (its smoke run includes the weight check).
   # On CI's software GPU a slow frame doesn't fail a self-test; it shows as a
   # warning on the run page.
   selftest:
