@@ -154,10 +154,12 @@ fn digits(paused: bool) -> TextStyle {
 /// 14-DIP ring has no room for a glyph inside, as Classic's 20-DIP one has).
 fn timer_mark(ui: &mut Ui, c: Point, progress: f32, col: Color, paused: bool) {
     if paused {
+        // Both edges of each bar on whole device pixels (3 DIPs is 4.5 at 150 %).
         let (bw, bh, gap) = (3.0, 10.0, 3.0);
-        let y = snap(ui, c.y - bh / 2.0);
+        let (y0, y1) = (snap(ui, c.y - bh / 2.0), snap(ui, c.y + bh / 2.0));
         for x in [c.x - gap / 2.0 - bw, c.x + gap / 2.0] {
-            ui.c.fill_rrect(Rect::new(snap(ui, x), y, bw, bh), 1.25, col);
+            let (x0, x1) = (snap(ui, x), snap(ui, x + bw));
+            ui.c.fill_rrect(Rect::new(x0, y0, x1 - x0, y1 - y0), 1.25, col);
         }
     } else {
         ui.c.ring(c, (RING_D - RING_STROKE) / 2.0, RING_STROKE, progress, RING_TRACK, col);
