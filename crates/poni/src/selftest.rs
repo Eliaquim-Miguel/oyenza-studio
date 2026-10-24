@@ -1187,6 +1187,7 @@ impl SelfTest {
             theme: match std::env::var("PONI_SELFTEST_THEME").map(|v| v.trim().to_ascii_lowercase()).as_deref() {
                 Ok("oyen") => Theme::Oyen,
                 Ok("glass") => Theme::Glass,
+                Ok("pill") => Theme::Pill,
                 _ => Theme::Classic,
             },
             glass: None,

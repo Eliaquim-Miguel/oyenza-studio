@@ -7,10 +7,11 @@ use crate::commands::{Command, MediaCmd, OyenzaCmd, PairCmd, PhoneCmd};
 use crate::events::{AppEvent, AppleMusicStatus, EventSink, OyenzaEvent, SendHwnd, WM_APP_APPBAR, WM_APP_EVENT, WM_APP_FRAME, WM_APP_TRAY};
 use crate::gfx::{px_rect, px_union, scale_about, union_rect, Canvas, Gfx, HitMask};
 use crate::icons::Icon;
-use crate::island::{Geom, Island, HIT_MARGIN, SHOULDER};
+use crate::island::{Geom, Island, SHOULDER};
 use crate::oyen;
 use crate::pages::{self, PageKind};
 use crate::paths;
+use crate::pill;
 use crate::services::{self, Services};
 use crate::state::{
     AppState, FpsAccess, HudKind, InlineAction, Locate, LyricsState, LyricsStatus, Notice, NoticeAction, OyenzaLink, PairedPhone, PhoneAsk, PhoneDrop,
@@ -463,7 +464,8 @@ impl App {
         st.unix = clock::unix_now();
         st.accent = theme_accent(st.settings.theme);
         let mode = Mode::Idle;
-        let island = Island::new(activities::geom(&mode, &st));
+        let mut island = Island::new(activities::geom(&mode, &st));
+        island.set_floating(pill::on(st.settings.theme).then_some(pill::TOP_GAP));
         let clock = FrameClock::start(SendHwnd::new(hwnd), monitor.handle);
         let taskbar_created_msg = unsafe { RegisterWindowMessageW(w!("TaskbarCreated")) };
         let selftest = selftest_dir.map(selftest::SelfTest::new);
@@ -634,12 +636,12 @@ impl App {
     fn layout_surface_for(&mut self, body_w: f32, body_h: f32) {
         let s = self.gfx.scale();
         let mon_w = self.monitor.rect.right - self.monitor.rect.left;
-        let mut w = ((body_w * OVERSHOOT + 2.0 * (SHOULDER + HIT_MARGIN)) * s).ceil() as i32;
+        let mut w = ((body_w * OVERSHOOT + 2.0 * self.island.side_room()) * s).ceil() as i32;
         // An even margin on both sides puts the centre on the monitor's centre.
         if (mon_w - w) % 2 != 0 {
             w += 1;
         }
-        let h = ((body_h * OVERSHOOT + HIT_MARGIN) * s).ceil() as i32;
+        let h = ((body_h * OVERSHOOT + self.island.bottom_room() + self.island.top()) * s).ceil() as i32;
         let surface = Surface { x: self.monitor.rect.left + (mon_w - w) / 2, y: self.monitor.top(), w, h };
         if surface != self.surface {
             self.surface = surface;
@@ -659,8 +661,8 @@ impl App {
         let t = self.island.target();
         let (bw, bh) = ((t.w * OVERSHOOT).max(g.w), (t.h * OVERSHOOT).max(g.h));
         let s = self.gfx.scale();
-        let need_w = ((bw + 2.0 * (SHOULDER + HIT_MARGIN)) * s).ceil() as i32;
-        let need_h = ((bh + HIT_MARGIN) * s).ceil() as i32;
+        let need_w = ((bw + 2.0 * self.island.side_room()) * s).ceil() as i32;
+        let need_h = ((bh + self.island.bottom_room() + self.island.top()) * s).ceil() as i32;
         if need_w > self.surface.w || need_h > self.surface.h {
             let tallest = PageKind::ALL.iter().map(|p| pages::content_height(*p, &self.st)).fold(0.0f32, f32::max);
             let body_h = (pages::HEADER_H + tallest + pages::PAD).max(bh / OVERSHOOT * 1.1);
@@ -2139,7 +2141,7 @@ impl App {
     /// whole canvas while expanded (hit margin), only the island collapsed.
     fn hovering_inside(&self, p: Point) -> bool {
         if !self.expanded {
-            return self.island.body_rect_at(self.cx).contains(p);
+            return self.island.hover_rect_at(self.cx).contains(p);
         }
         self.island.canvas_rect_at(self.cx).contains(p)
     }
@@ -2151,7 +2153,7 @@ impl App {
         if !self.gfx.needs_hit_mask() || self.island.settled() || self.input.down {
             return false;
         }
-        let r = if self.expanded { self.island.canvas_rect_at(self.cx) } else { self.island.body_rect_at(self.cx).inset(-SHOULDER - 2.0, 0.0) };
+        let r = if self.expanded { self.island.canvas_rect_at(self.cx) } else { self.island.hover_rect_at(self.cx).inset(-SHOULDER - 2.0, 0.0) };
         !Rect::new(r.x, r.y, r.w, r.h + 2.0).contains(p)
     }
 
@@ -2299,6 +2301,8 @@ impl App {
         self.set_stats(self.mode == Mode::Expanded(PageKind::Today));
         self.set_sysmon(self.mode == Mode::Expanded(PageKind::System));
         self.set_oyenza_watch(self.mode == Mode::Expanded(PageKind::Oyenza));
+        // The Pill theme floats the island below the top edge.
+        self.island.set_floating(pill::on(self.st.settings.theme).then_some(pill::TOP_GAP));
         self.island.step(dt, now);
         self.ensure_room();
         self.note_motion(retarget, rendered_at, period, dt as f64);
@@ -2322,6 +2326,7 @@ impl App {
         hits.clear();
 
         let hidden_idle = self.mode == Mode::Idle && self.st.settings.idle_style == IdleStyle::Hidden;
+        let floating = self.island.floating();
         // Content is masked to the island silhouette only while the outline
         // or the content moves. At rest every layout fits inside the body,
         // and skipping the mask layer keeps ambient frames cheap.
@@ -2379,20 +2384,31 @@ impl App {
                     // panel. Collapsed, only the visible shape takes the mouse.
                     // (The GPU renderer keeps this in its hit mask instead.)
                     canvas.fill_rect(canvas_r, Color::black(1.0 / 255.0));
+                } else if floating && !canvas.on_gpu() {
+                    // The gap above the floating pill takes the mouse too.
+                    canvas.fill_rect(pill::shape::hover_rect(body), Color::black(1.0 / 255.0));
                 }
                 if let Some(p) = glass.as_ref() {
                     canvas.glass(p, canvas_r);
                 } else {
                     let island_color = if hidden_idle { Color::black(1.0 / 255.0) } else { palette::ISLAND };
                     let border = if hidden_idle { None } else { Some(canvas.look().border) };
-                    canvas.notch(body, geom.r, SHOULDER, island_color, border);
+                    if floating {
+                        pill::shape::draw_body(&mut canvas, body, geom.r, island_color, border);
+                    } else {
+                        canvas.notch(body, geom.r, SHOULDER, island_color, border);
+                    }
                 }
 
                 // Content scales about the top centre, where the island hangs.
                 let pivot = Point::new(body.center().x, body.y);
                 if morphing {
                     canvas.clip(body);
-                    canvas.push_shape_mask(body, geom.r, SHOULDER);
+                    if floating {
+                        canvas.push_outline_mask(&pill::shape::segments(body, geom.r));
+                    } else {
+                        canvas.push_shape_mask(body, geom.r, SHOULDER);
+                    }
                 }
 
                 // Outgoing content: laid out at its own (old) size, centred,
@@ -2544,7 +2560,14 @@ impl App {
     /// While the outline moves it follows at [`MASK_INTERVAL`]; at rest it
     /// matches exactly.
     fn update_hit_mask(&mut self, body: Rect, radius: f32, canvas_r: Rect, now: f64) {
-        let mask = if self.expanded { HitMask { rect: Some(canvas_r), notch: None } } else { HitMask { rect: None, notch: Some((body, radius, SHOULDER)) } };
+        let mask = if self.expanded {
+            HitMask { rect: Some(canvas_r), notch: None, pill: None }
+        } else if self.island.floating() {
+            // The floating pill and the gap above it (a pointer thrown at the top edge).
+            HitMask { rect: Some(Rect::new(body.x, 0.0, body.w, body.y + body.h / 2.0)), notch: None, pill: Some((body, radius)) }
+        } else {
+            HitMask { rect: None, notch: Some((body, radius, SHOULDER)), pill: None }
+        };
         let due = match &self.mask {
             None => true,
             Some((m, at)) => *m != mask && (self.island.settled() || now - at >= MASK_INTERVAL),

@@ -48,6 +48,10 @@ pub struct Island {
     /// When set, content fades in once `now` passes this time.
     fade_in_at: Option<f64>,
     target: Geom,
+    /// The body's distance below the top edge: 0 while it hangs from the
+    /// edge, the gap while it floats (the Pill theme).
+    top: f32,
+    floating: bool,
 }
 
 impl Island {
@@ -59,7 +63,25 @@ impl Island {
             content: Spring::new(1.0, CONTENT.0, CONTENT.1),
             fade_in_at: None,
             target: g,
+            top: 0.0,
+            floating: false,
         }
+    }
+
+    /// Float `Some(gap)` DIPs below the top edge (the Pill theme), or hang
+    /// from it (`None`).
+    pub fn set_floating(&mut self, gap: Option<f32>) {
+        self.floating = gap.is_some();
+        self.top = gap.unwrap_or(0.0);
+    }
+
+    pub fn floating(&self) -> bool {
+        self.floating
+    }
+
+    /// The body's distance below the top edge (DIPs).
+    pub fn top(&self) -> f32 {
+        self.top
     }
 
     pub fn target(&self) -> Geom {
@@ -134,16 +156,48 @@ impl Island {
         self.content.value.clamp(0.0, 1.0)
     }
 
-    /// The island body hanging from the top edge, centred on `cx` (DIPs).
+    /// The island body, hanging from the top edge or floating below it,
+    /// centred on `cx` (DIPs).
     pub fn body_rect_at(&self, cx: f32) -> Rect {
         let g = self.current();
-        Rect::new(cx - g.w / 2.0, 0.0, g.w, g.h)
+        Rect::new(cx - g.w / 2.0, self.top, g.w, g.h)
     }
 
-    /// The island plus its shoulders and hit margin, centred on `cx` (DIPs).
+    /// The island plus its shoulders (or, floating, the gap above it) and
+    /// hit margin, centred on `cx` (DIPs).
     pub fn canvas_rect_at(&self, cx: f32) -> Rect {
         let g = self.current();
-        let side = SHOULDER + HIT_MARGIN;
-        Rect::new(cx - g.w / 2.0 - side, 0.0, g.w + 2.0 * side, g.h + HIT_MARGIN)
+        let side = self.side_room();
+        Rect::new(cx - g.w / 2.0 - side, 0.0, g.w + 2.0 * side, self.top + g.h + self.bottom_room())
+    }
+
+    /// Room the window keeps on each side of the body: the shoulders and
+    /// hit margin, or (floating) the shadow's room.
+    pub fn side_room(&self) -> f32 {
+        if self.floating {
+            crate::pill::shape::MARGIN
+        } else {
+            SHOULDER + HIT_MARGIN
+        }
+    }
+
+    /// Room the window keeps below the body.
+    pub fn bottom_room(&self) -> f32 {
+        if self.floating {
+            crate::pill::shape::MARGIN
+        } else {
+            HIT_MARGIN
+        }
+    }
+
+    /// Where the resting island takes the mouse: its body, and while it
+    /// floats the gap above it too (a pointer thrown at the top edge).
+    pub fn hover_rect_at(&self, cx: f32) -> Rect {
+        let body = self.body_rect_at(cx);
+        if self.floating {
+            crate::pill::shape::hover_rect(body)
+        } else {
+            body
+        }
     }
 }

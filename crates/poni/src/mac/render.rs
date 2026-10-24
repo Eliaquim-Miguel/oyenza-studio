@@ -150,6 +150,7 @@ pub fn run(dir: &str, args: &[String]) -> i32 {
     let theme = match args.iter().position(|a| a == "--theme").and_then(|i| args.get(i + 1)).map(|s| s.as_str()) {
         Some("oyen") => Theme::Oyen,
         Some("glass") => Theme::Glass,
+        Some("pill") => Theme::Pill,
         _ => Theme::Classic,
     };
     let notch = args.iter().any(|a| a == "--notch").then_some(Notch::MACBOOK);
@@ -157,6 +158,7 @@ pub fn run(dir: &str, args: &[String]) -> i32 {
         Theme::Classic => "",
         Theme::Oyen => "-oyen",
         Theme::Glass => "-glass",
+        Theme::Pill => "-pill",
     };
     let suffix = format!("{name}{}", if notch.is_some() { "-notch" } else { "" });
     let mut gfx = Gfx::new(SCALE);

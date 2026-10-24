@@ -934,9 +934,15 @@ impl<'a> Canvas<'a> {
     /// Mask subsequent drawing to the island silhouette (anti-aliased) until
     /// [`Canvas::pop_shape_mask`].
     pub fn push_shape_mask(&mut self, body: Rect, radius: f32, shoulder: f32) {
+        self.push_outline_mask(&notch_segments(body, radius, shoulder));
+    }
+
+    /// Mask subsequent drawing to the closed outline `segs` until
+    /// [`Canvas::pop_shape_mask`] (the floating island's outline).
+    pub fn push_outline_mask(&mut self, segs: &[Seg]) {
         CGContext::save_g_state(self.cg());
         self.stack += 1;
-        let p = cg_path(&notch_segments(body, radius, shoulder));
+        let p = cg_path(segs);
         CGContext::begin_path(self.cg());
         CGContext::add_path(self.cg(), Some(&p));
         CGContext::clip(self.cg());

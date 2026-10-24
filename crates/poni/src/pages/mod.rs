@@ -240,6 +240,9 @@ const TABS_END: f32 = 0.6;
 /// one fades in; the old page is drawn without input (it can't be clicked).
 /// `body` is the island at its final size, so nothing reflows while it opens.
 pub fn draw_expanded(ui: &mut Ui, st: &mut AppState, body: Rect, page: PageKind, transition: Option<PageTransition>) {
+    if crate::pill::expanded::draw(ui, st, body, page, transition) {
+        return;
+    }
     let tr = transition.filter(|tr| tr.t < 1.0 && tr.from != page);
     let header = header_rect(body);
     let tip = draw_header(ui, st, header, page, tr);
@@ -287,7 +290,7 @@ pub fn draw_expanded(ui: &mut Ui, st: &mut AppState, body: Rect, page: PageKind,
     }
 }
 
-fn draw_page(ui: &mut Ui, st: &mut AppState, area: Rect, page: PageKind) {
+pub(crate) fn draw_page(ui: &mut Ui, st: &mut AppState, area: Rect, page: PageKind) {
     match page {
         PageKind::Media => media::draw(ui, st, area),
         PageKind::Focus => focus::draw(ui, st, area),

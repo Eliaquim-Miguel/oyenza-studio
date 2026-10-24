@@ -301,6 +301,9 @@ fn intersect(a: Rect, b: Rect) -> Rect {
 // ---------------------------------------------------------------- page
 
 pub fn height(st: &AppState) -> f32 {
+    if let Some(h) = crate::pill::music::height(st) {
+        return h;
+    }
     if st.media.is_some() {
         H_SESSION
     } else {
@@ -309,6 +312,9 @@ pub fn height(st: &AppState) -> f32 {
 }
 
 pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
+    if crate::pill::music::draw(ui, st, area) {
+        return;
+    }
     let mut a = take_anim();
     let fr = a.frame(st.now, ui.c.alpha());
     if st.media.is_some() {

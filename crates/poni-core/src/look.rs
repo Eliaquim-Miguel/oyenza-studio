@@ -17,7 +17,9 @@
 //!
 //! A look also says what the island is made of: Classic and Oyen paint a
 //! solid ground, Glass draws liquid glass there (gfx and the glass shader)
-//! and paints content in the light or dark Glass look on top.
+//! and paints content in the light or dark Glass look on top. And its
+//! shape: every theme hangs from the top edge like a notch, except Pill,
+//! which floats below it as a capsule (`crate::settings::Theme::Pill`).
 
 use crate::geom::{palette, Color};
 use crate::settings::Theme;
@@ -47,6 +49,8 @@ pub struct Look {
     pub font: Option<&'static str>,
     /// What the island's body is made of.
     pub material: Material,
+    /// The island's outline.
+    pub shape: Shape,
     swaps: &'static [Swap],
 }
 
@@ -56,6 +60,17 @@ pub struct Look {
 pub enum Material {
     Solid,
     Glass,
+}
+
+/// The island's outline.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Shape {
+    /// Hangs from the top edge: a flat top flush with the screen, concave
+    /// shoulders flaring into the edge, rounded bottom corners.
+    Notch,
+    /// Floats a little below the top edge, every corner rounded: a capsule
+    /// while it rests, a card while it's open.
+    Pill,
 }
 
 const OYEN_ORANGE: Color = Color::hex(crate::oyen::ORANGE);
@@ -69,6 +84,7 @@ pub const CLASSIC: Look = Look {
     light: false,
     font: None,
     material: Material::Solid,
+    shape: Shape::Notch,
     swaps: &[],
 };
 
@@ -82,6 +98,7 @@ pub const OYEN: Look = Look {
     light: true,
     font: Some("Outfit"),
     material: Material::Solid,
+    shape: Shape::Notch,
     swaps: &[
         Swap { from: OYEN_ORANGE, fill: OYEN_ORANGE, text: OYEN_FOLD },
         Swap { from: palette::ORANGE, fill: OYEN_ORANGE, text: OYEN_FOLD },
@@ -107,6 +124,7 @@ pub const OYEN_NIGHT: Look = Look {
     light: false,
     font: Some("Outfit"),
     material: Material::Solid,
+    shape: Shape::Notch,
     // His orange reads on black as it is, in fills and in text alike; the
     // palette's other accents are made for a dark ground already.
     swaps: &[
@@ -125,6 +143,7 @@ pub const GLASS_DARK: Look = Look {
     light: false,
     font: None,
     material: Material::Glass,
+    shape: Shape::Notch,
     swaps: &[],
 };
 
@@ -138,6 +157,7 @@ pub const GLASS_LIGHT: Look = Look {
     light: true,
     font: None,
     material: Material::Glass,
+    shape: Shape::Notch,
     swaps: &[
         Swap { from: palette::GREEN, fill: Color::hex(0x34C759), text: Color::hex(0x248A3D) },
         Swap { from: palette::ORANGE, fill: Color::hex(0xFF9500), text: Color::hex(0xC93400) },
@@ -150,6 +170,20 @@ pub const GLASS_LIGHT: Look = Look {
     ],
 };
 
+/// Pill: Classic's black and white (pages paint exactly as they ask) in a
+/// floating capsule, with a faint edge so it holds its shape on a dark screen.
+pub const PILL: Look = Look {
+    ground: Color::black(1.0),
+    ink: Color::white(1.0),
+    accent: None,
+    border: palette::BORDER,
+    light: false,
+    font: None,
+    material: Material::Solid,
+    shape: Shape::Pill,
+    swaps: &[],
+};
+
 /// The theme's look. Glass starts dark; the app picks [`glass`] light or
 /// dark from what's behind the island and the Windows mode.
 pub fn of(theme: Theme) -> &'static Look {
@@ -157,6 +191,7 @@ pub fn of(theme: Theme) -> &'static Look {
         Theme::Classic => &CLASSIC,
         Theme::Oyen => &OYEN,
         Theme::Glass => &GLASS_DARK,
+        Theme::Pill => &PILL,
     }
 }
 
@@ -169,6 +204,7 @@ pub fn around_notch(theme: Theme) -> &'static Look {
         Theme::Classic => &CLASSIC,
         Theme::Oyen => &OYEN_NIGHT,
         Theme::Glass => &GLASS_DARK,
+        Theme::Pill => &PILL,
     }
 }
 
@@ -283,6 +319,21 @@ mod tests {
         assert_eq!(*around_notch(Theme::Glass), GLASS_DARK);
         // Away from a notch (and on Windows) every theme keeps its look.
         assert_eq!(*of(Theme::Oyen), OYEN);
+    }
+
+    #[test]
+    fn pill_floats_and_paints_like_classic() {
+        assert_eq!(PILL.shape, Shape::Pill);
+        assert_eq!(*of(Theme::Pill), PILL);
+        for look in [&CLASSIC, &OYEN, &OYEN_NIGHT, &GLASS_DARK, &GLASS_LIGHT] {
+            assert_eq!(look.shape, Shape::Notch);
+        }
+        // Black and white like Classic: what a page asks for is what it gets.
+        for c in [Color::white(0.62), Color::black(1.0), palette::GREEN, Color::hex(0x123456)] {
+            assert_eq!(PILL.paint(c), c);
+            assert_eq!(PILL.paint_text(c), c);
+        }
+        assert_eq!(PILL.material, Material::Solid);
     }
 
     #[test]

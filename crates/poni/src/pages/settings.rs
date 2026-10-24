@@ -43,8 +43,8 @@ const KNOB_INSET: f32 = 2.0;
 const OYENZA: Color = palette::ORANGE;
 
 // Glass: on Windows from a copy of the screen, on a Mac macOS's own glass.
-const THEMES: [(Theme, &str); 3] = [(Theme::Classic, "Classic"), (Theme::Oyen, "Oyen"), (Theme::Glass, "Glass")];
-const IDLE_STYLES: [IdleStyle; 4] = [IdleStyle::Clock, IdleStyle::Eyes, IdleStyle::Minimal, IdleStyle::Hidden];
+const THEMES: [(Theme, &str); 4] = [(Theme::Classic, "Classic"), (Theme::Oyen, "Oyen"), (Theme::Glass, "Glass"), (Theme::Pill, "Pill")];
+const IDLE_STYLES: [IdleStyle; 5] = [IdleStyle::Clock, IdleStyle::Eyes, IdleStyle::Minimal, IdleStyle::Hidden, IdleStyle::Status];
 
 /// The five switches, as the tray menu names them.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -102,7 +102,7 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
     ui.c.text("IDLE LOOK", Rect::new(cols[1], area.y + LABELS_Y, col_w, 14.0), &label_st);
     // In the Oyen theme the eyes are Oyen's own (as in the tray menu).
     let eyes = if st.settings.theme == Theme::Oyen { "Oyen" } else { "Eyes" };
-    let names = ["Clock", eyes, "Minimal", "Hidden"];
+    let names = ["Clock", eyes, "Minimal", "Hidden", "Status"];
     let sel = IDLE_STYLES.iter().position(|s| *s == st.settings.idle_style).unwrap_or(0);
     if let Some(i) = picker(ui, "settings.idle", cols[1], area.y + PICKERS_Y, PILL_SMALL, &names, sel) {
         st.settings.idle_style = IDLE_STYLES[i];

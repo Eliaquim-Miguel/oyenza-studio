@@ -585,16 +585,16 @@ pub struct HitMask {
     pub rect: Option<Rect>,
     /// The island silhouette: body, bottom corner radius, shoulder.
     pub notch: Option<(Rect, f32, f32)>,
+    /// The floating island's outline (the Pill theme): body, corner radius.
+    pub pill: Option<(Rect, f32)>,
 }
 
 impl HitMask {
     fn bounds(&self) -> Option<Rect> {
         let a = self.rect;
         let b = self.notch.map(|(body, _, s)| Rect::new(body.x - s, body.y, body.w + 2.0 * s, body.h));
-        match (a, b) {
-            (Some(a), Some(b)) => Some(union_rect(a, b)),
-            (a, b) => a.or(b),
-        }
+        let c = self.pill.map(|(body, _)| body);
+        [a, b, c].into_iter().flatten().reduce(union_rect)
     }
 }
 
@@ -1243,6 +1243,11 @@ impl Gfx {
                     rt.FillGeometry(&geo, &self.mask_brush, None);
                 }
             }
+            if let Some((body, radius)) = mask.pill {
+                if let Ok(geo) = self.path_geometry(&crate::pill::shape::segments(body, radius), true) {
+                    rt.FillGeometry(&geo, &self.mask_brush, None);
+                }
+            }
             rt.PopAxisAlignedClip();
             rt.EndDraw(None, None)?;
             let full_push = self.soft_full || prev.is_none();
@@ -1670,7 +1675,13 @@ impl<'a> Canvas<'a> {
     /// Mask subsequent drawing to the island silhouette (anti-aliased) until
     /// [`Canvas::pop_shape_mask`]. Push it before any content scale transform.
     pub fn push_shape_mask(&mut self, body: Rect, radius: f32, shoulder: f32) {
-        let pushed = match self.g.path_geometry(&notch_segments(body, radius, shoulder), true).and_then(|g| g.cast::<ID2D1Geometry>()) {
+        self.push_outline_mask(&notch_segments(body, radius, shoulder));
+    }
+
+    /// Mask subsequent drawing to the closed outline `segs` (anti-aliased)
+    /// until [`Canvas::pop_shape_mask`] (the floating island's outline).
+    pub fn push_outline_mask(&mut self, segs: &[Seg]) {
+        let pushed = match self.g.path_geometry(segs, true).and_then(|g| g.cast::<ID2D1Geometry>()) {
             Ok(geom) => unsafe {
                 let params = D2D1_LAYER_PARAMETERS {
                     contentBounds: D2D_RECT_F { left: -1.0e7, top: -1.0e7, right: 1.0e7, bottom: 1.0e7 },
