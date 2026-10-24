@@ -10,8 +10,8 @@
 //! transactions by day (the Oyenza page's live view), bills due in the next
 //! 30 days, saving a spend typed here (with a short Undo), and the daily step
 //! totals the phone sent for the Health page, once the person turned that on
-//! in Oyenza › Sehat. It can't read balances, account numbers, notes or
-//! receipts, change or delete anything else, or touch the account.
+//! in Oyenza's Health (Sehat). It can't read balances, account numbers, notes
+//! or receipts, change or delete anything else, or touch the account.
 //!
 //! Everything here is pure: request bodies and URLs, parsing the answers, the
 //! words of notices and rows, how sums hide on screen, and how often to ask.
