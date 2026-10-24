@@ -13,9 +13,10 @@
 //! - the day list every 15 seconds while the Oyenza page is on screen, and
 //!   never otherwise; an answer with nothing new is a few bytes;
 //! - bills every half hour, and all three again when the Oyenza tab opens;
-//! - the steps every 15 minutes while the PC is in use, and when the Health
-//!   tab opens (at most once in 30 seconds); a server from before steps (404)
-//!   counts as none to show. They go to the island only, never to disk or the log;
+//! - the steps every 15 minutes while the PC is in use and battery saver is
+//!   off, and when the Health tab opens (at most once in 30 seconds, battery
+//!   saver or not); a server from before steps (404) counts as none to show.
+//!   They go to the island only, never to disk or the log;
 //! - failures back off to 1, 2, 4 … 15 minutes, honouring `Retry-After`;
 //! - a 401 means the key was disconnected in oyenza.app (or ran out): the key
 //!   is deleted and the island says so once.
@@ -149,6 +150,8 @@ struct Worker {
     next_health: Instant,
     /// When the steps were last asked for: the Health tab opening asks again only after `REFRESH_GAP`.
     health_asked: Option<Instant>,
+    /// The Health tab asked: the next look goes ahead even in battery saver, where the timer rests.
+    health_page: bool,
     /// What the steps check last answered, so the log says each change once (never the numbers).
     health_said: Option<&'static str>,
     fails: u32,
@@ -176,6 +179,7 @@ fn worker_main(shared: Arc<Shared>, sink: EventSink) {
         last_refresh: None,
         next_health: now,
         health_asked: None,
+        health_page: false,
         health_said: None,
         fails: 0,
         revoke: None,
@@ -258,7 +262,11 @@ impl Worker {
         if self.link.is_some() && a.in_use {
             consider(self.next_money);
             consider(self.next_bills);
-            consider(self.next_health);
+            // The steps change only when the phone sends them: every 15 minutes is
+            // enough, and battery saver stops the timer (the Health tab still asks).
+            if !a.saver || self.health_page {
+                consider(self.next_health);
+            }
             if a.watching {
                 consider(self.next_activity);
             }
@@ -294,6 +302,7 @@ impl Worker {
                 let now = Instant::now();
                 if self.link.is_some() && self.health_asked.is_none_or(|t| now - t >= REFRESH_GAP) {
                     self.next_health = now;
+                    self.health_page = true;
                 }
             }
         }
@@ -317,7 +326,7 @@ impl Worker {
             if self.link.is_some() && a.watching && Instant::now() >= self.next_activity {
                 self.poll_activity();
             }
-            if self.link.is_some() && Instant::now() >= self.next_health {
+            if self.link.is_some() && (!a.saver || self.health_page) && Instant::now() >= self.next_health {
                 self.poll_health();
             }
         }
@@ -448,6 +457,7 @@ impl Worker {
         self.activity_cursor = None;
         self.activity_today.clear();
         self.health_asked = None;
+        self.health_page = false;
         self.health_said = None;
         self.fails = 0;
         if let Err(e) = crate::services::secret::delete(&crate::paths::oyenza_link_path()) {
@@ -551,6 +561,7 @@ impl Worker {
     fn poll_health(&mut self) {
         let Some(key) = self.link.as_ref().map(|l| l.key.clone()) else { return };
         self.health_asked = Some(Instant::now());
+        self.health_page = false;
         match self.call(Method::Get, &oyenza::health_url(), Some(&key), None, TIMEOUT) {
             Ok(r) if r.status == 200 => match oyenza::parse_health(&r.body) {
                 Some(Some(h)) => self.got_health(Some(h), "steps from the phone came in"),
