@@ -237,8 +237,8 @@ To bend what's under it, Glass copies the part of the screen behind its window (
 Pill changes the island's shape and layouts, not only its colours. Pick it with right-click › **Theme › Pill**, or the gear › **Theme › Pill**.
 
 - **It floats.** The island sits a little below the top edge: a capsule while it rests, and a card with all four corners rounded when it opens. A soft shadow and a fine rim keep it apart from the wallpaper, light or dark.
-- **At rest** it shows the time, with the battery on the right. Pick **Idle look › Status bar** and it widens into a status bar with the date and time, the volume and the battery.
-- **While music plays** it shows the album art, the line being sung (or the song, when there are no lyrics) and a beat in the album's colour, which glows along the bottom edge.
+- **At rest** it shows the time and, on a laptop, the battery on the right. Pick **Idle look › Status bar** and it widens into a status bar with the date and time, the volume and the battery.
+- **While music plays** it shows the album art, the line being sung (or the song's title when nothing is being sung) and a beat in the album's colour, which glows along the bottom edge.
 - **Open**, the Music page is a card: the album art and the song, the time on one line, and the controls under it. Pop-ups and notices take the capsule shape too.
 - **Colour only where it means something:** the album's colour for music, green for a charging battery, red for a low one, and your Windows accent elsewhere.
 
