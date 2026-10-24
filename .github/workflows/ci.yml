@@ -89,6 +89,10 @@ jobs:
 
           "---- report.json"
           if (Test-Path selftest-out\report.json) { Get-Content selftest-out\report.json -Raw } else { "(missing)" }
+          if (Test-Path selftest-out\report.json) {
+            $r = Get-Content selftest-out\report.json -Raw | ConvertFrom-Json
+            if ($r.slow_frames) { "::warning title=Slow frames on CI's software GPU (not counted)::$($r.slow_frames -join '; ')" }
+          }
           "---- screenshots"
           Get-ChildItem selftest-out -Filter *.png | ForEach-Object { "  $($_.Name)  $($_.Length) bytes" }
 
@@ -156,6 +160,7 @@ jobs:
           if (Test-Path selftest-oyen-ja\report.json) {
             $r = Get-Content selftest-oyen-ja\report.json -Raw | ConvertFrom-Json
             "renderer: $($r.renderer); states passed: $($r.states_passed)/$($r.states_total); failed: $($r.failed_checks -join ', ')"
+            if ($r.slow_frames) { "::warning title=Slow frames on CI's software GPU (not counted)::$($r.slow_frames -join '; ')" }
           }
           "---- pronunciation (poni.log)"
           Select-String -Path selftest-oyen-ja\home\cache\poni.log -Pattern 'selftest: \[ja\]|fonts:|reading analyzer' -ErrorAction SilentlyContinue | ForEach-Object { $_.Line }
@@ -187,6 +192,7 @@ jobs:
           if (Test-Path selftest-ja-own\report.json) {
             $r = Get-Content selftest-ja-own\report.json -Raw | ConvertFrom-Json
             "renderer: $($r.renderer); states passed: $($r.states_passed)/$($r.states_total); failed: $($r.failed_checks -join ', ')"
+            if ($r.slow_frames) { "::warning title=Slow frames on CI's software GPU (not counted)::$($r.slow_frames -join '; ')" }
           }
           "---- pronunciation (poni.log)"
           Select-String -Path selftest-ja-own\home\cache\poni.log -Pattern 'selftest: \[ja\]|reading' -ErrorAction SilentlyContinue | ForEach-Object { $_.Line }
@@ -220,6 +226,7 @@ jobs:
             if (Test-Path "$dir\report.json") {
               $r = Get-Content "$dir\report.json" -Raw | ConvertFrom-Json
               "renderer: $($r.renderer); states passed: $($r.states_passed)/$($r.states_total); failed: $($r.failed_checks -join ', ')"
+              if ($r.slow_frames) { "::warning title=Slow Glass ($run) frames on CI's software GPU (not counted)::$($r.slow_frames -join '; ')" }
             }
             Select-String -Path "$dir\home\cache\poni.log" -Pattern 'glass:' -ErrorAction SilentlyContinue | Select-Object -First 6 | ForEach-Object { $_.Line }
             if ($code -ne 0) {
