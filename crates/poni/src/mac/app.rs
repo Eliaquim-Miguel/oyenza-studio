@@ -75,6 +75,10 @@ const CONTENT_DROP: f32 = 6.0;
 const GHOST_MIN_SCALE: f32 = 0.6;
 /// Phone drop closes itself after this long without a request from a phone.
 const PHONE_IDLE_S: f64 = 600.0;
+/// The hidden resting island's height, and how much taller the floating
+/// one is when it has faded all the way in.
+const HIDDEN_SLIVER: f32 = 5.0;
+const HIDDEN_FADE: f32 = 24.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Timer {
@@ -1936,7 +1940,11 @@ impl App {
             } else {
                 let border = if hidden { None } else { Some(canvas.look().border) };
                 if floating {
-                    notch::draw_pill_body(&mut canvas, body, geom.r, shoulder, detach, palette::ISLAND, border);
+                    // Hidden until hover, the floating island fades out as it nears
+                    // its sliver (one below the edge would show); the pointer test
+                    // takes the mouse there, not pixels. Inside a notch it stays black.
+                    let alpha = if hidden { ((geom.h - HIDDEN_SLIVER) / HIDDEN_FADE).clamp(0.0, 1.0) } else { 1.0 };
+                    canvas.with_alpha(alpha, |c| notch::draw_pill_body(c, body, geom.r, shoulder, detach, palette::ISLAND, border));
                 } else {
                     canvas.notch(body, geom.r, shoulder, palette::ISLAND, border);
                 }
