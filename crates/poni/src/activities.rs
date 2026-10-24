@@ -250,7 +250,16 @@ fn draw_hud(ui: &mut Ui, st: &mut AppState, body: Rect) {
             };
             ui.c.icon(icon, icon_r, palette::TEXT);
             let bar = Rect::new(body.x + 48.0, cy - 3.0, body.w - 48.0 - 56.0, 6.0);
-            let shown = if muted { 0.0 } else { level };
+            // The bar glides to new levels; the number is exact immediately.
+            let target = if muted { 0.0 } else { level };
+            let cur = st.ui.hud_level;
+            let shown = if (cur - target).abs() > 0.002 {
+                ui.request_anim();
+                cur + (target - cur) * 0.32
+            } else {
+                target
+            };
+            st.ui.hud_level = shown;
             ui.c.fill_rrect(bar, 3.0, palette::TRACK);
             if shown > 0.0 {
                 ui.c.fill_rrect(Rect::new(bar.x, bar.y, (bar.w * shown).max(6.0), bar.h), 3.0, Color::white(0.95));

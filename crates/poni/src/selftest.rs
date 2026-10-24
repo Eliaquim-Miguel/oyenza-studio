@@ -253,6 +253,8 @@ struct Report {
 // ---------------------------------------------------------------- driver
 
 enum Phase {
+    /// Record one transition frame by frame (PONI_SELFTEST_ANIM=1).
+    Anim { seq: usize },
     Settle { i: usize, since: f64, steps: u32, stable: u32 },
     Click { i: usize },
     ClickWait { i: usize, since: f64, from: PageKind },
@@ -273,7 +275,23 @@ pub struct SelfTest {
     writes: Vec<(String, JoinHandle<Vec<String>>)>,
     scale: f32,
     expanded_width: f32,
+    /// PONI_SELFTEST_DPI: render at this DPI instead of the monitor's.
+    dpi: Option<u32>,
+    /// PONI_SELFTEST_ANIM=1: after the scenes, record transitions frame by frame.
+    anim: bool,
+    dpi_applied: bool,
 }
+
+/// Transitions recorded in animation mode: (name, from, to).
+const ANIMS: [(&str, Scene, Scene); 5] = [
+    ("expand", Scene::Media, Scene::Page(PageKind::Media)),
+    ("page", Scene::Page(PageKind::Media), Scene::Page(PageKind::Focus)),
+    ("collapse", Scene::Page(PageKind::Media), Scene::Media),
+    ("hud", Scene::Media, Scene::VolumeHud),
+    ("notice", Scene::IdleClock, Scene::WaterNotice),
+];
+/// Frames recorded per transition (~16 ms apart).
+const ANIM_FRAMES: usize = 40;
 
 impl SelfTest {
     pub fn new(dir: String) -> Self {
@@ -291,6 +309,9 @@ impl SelfTest {
             writes: Vec::new(),
             scale: 1.0,
             expanded_width: 0.0,
+            dpi: std::env::var("PONI_SELFTEST_DPI").ok().and_then(|v| v.trim().parse().ok()),
+            anim: std::env::var("PONI_SELFTEST_ANIM").is_ok_and(|v| v.trim() == "1"),
+            dpi_applied: false,
         }
     }
 
@@ -340,11 +361,18 @@ impl SelfTest {
 
     /// Called every ~50 ms; returns Some(exit code) when finished.
     pub fn step(&mut self, app: &mut App) -> Option<i32> {
+        if !self.dpi_applied {
+            self.dpi_applied = true;
+            if let Some(dpi) = self.dpi {
+                crate::pinfo!("selftest: rendering at {dpi} DPI ({:.0} %)", dpi as f32 / 96.0 * 100.0);
+                app.selftest_set_dpi(dpi);
+            }
+        }
         self.scale = app.scale();
         self.expanded_width = app.st.settings.expanded_width;
         let now = clock::mono();
         let elapsed = self.t0.elapsed().as_secs_f64();
-        if elapsed > SCENE_DEADLINE && !matches!(self.phase, Phase::Finish { .. } | Phase::Done(_)) {
+        if elapsed > SCENE_DEADLINE && !matches!(self.phase, Phase::Finish { .. } | Phase::Done(_) | Phase::Anim { .. }) {
             let at = match &self.phase {
                 Phase::Settle { i, .. } | Phase::Click { i } | Phase::ClickWait { i, .. } => SCENES[*i].name(),
                 _ => String::new(),
@@ -355,6 +383,10 @@ impl SelfTest {
         }
 
         match self.phase {
+            Phase::Anim { seq } => {
+                self.record_anim(app, seq);
+                self.phase = if seq + 1 < ANIMS.len() { Phase::Anim { seq: seq + 1 } } else { Phase::Finish { since: now } };
+            }
             Phase::Settle { i, since, steps, stable } => {
                 let scene = SCENES[i];
                 let since = if steps == 0 { now } else { since };
@@ -397,7 +429,8 @@ impl SelfTest {
             }
             Phase::Finish { since } => {
                 let all_done = self.writes.iter().all(|(_, h)| h.is_finished());
-                if all_done || elapsed > WRITE_DEADLINE {
+                let deadline = if self.anim { WRITE_DEADLINE + 40.0 } else { WRITE_DEADLINE };
+                if all_done || elapsed > deadline {
                     let code = self.finish(all_done, now - since);
                     self.phase = Phase::Done(code);
                     return Some(code);
@@ -412,8 +445,37 @@ impl SelfTest {
         match SCENES.get(i) {
             Some(Scene::TabClick) => Phase::Click { i },
             Some(_) => Phase::Settle { i, since: now, steps: 0, stable: 0 },
+            None if self.anim => Phase::Anim { seq: 0 },
             None => Phase::Finish { since: now },
         }
+    }
+
+    /// Settle the `from` state, switch to `to`, and save every frame of the
+    /// transition as anim-<name>-NN.png. Blocks the UI thread for ~1-3 s,
+    /// which is fine in self-test mode.
+    fn record_anim(&mut self, app: &mut App, seq: usize) {
+        let (name, from, to) = ANIMS[seq];
+        let t = Instant::now();
+        loop {
+            self.apply(app, from);
+            let _ = app.selftest_capture();
+            if (app.selftest_settled() && t.elapsed().as_millis() > 200) || t.elapsed().as_secs_f64() > 2.5 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(16));
+        }
+        self.apply(app, to);
+        let mut settle_frame = None;
+        for k in 0..ANIM_FRAMES {
+            let (w, h, px, _) = app.selftest_capture();
+            if settle_frame.is_none() && app.selftest_settled() {
+                settle_frame = Some(k);
+            }
+            let scale = self.scale;
+            self.queue_write(&format!("anim-{name}-{k:02}"), w, h, px, scale);
+            std::thread::sleep(std::time::Duration::from_millis(16));
+        }
+        crate::pinfo!("selftest: anim '{name}' recorded, settled at frame {settle_frame:?}");
     }
 
     // ------------------------------------------------------------ scene state

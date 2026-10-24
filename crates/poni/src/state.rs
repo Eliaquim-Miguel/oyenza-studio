@@ -146,6 +146,8 @@ pub struct PageUiState {
     pub clip_flash: Option<(usize, f64)>,
     /// Water: mono time of the last "+cup" for a little bounce.
     pub water_bump: f64,
+    /// Volume HUD bar position, gliding toward the real level.
+    pub hud_level: f32,
 }
 
 pub struct AppState {

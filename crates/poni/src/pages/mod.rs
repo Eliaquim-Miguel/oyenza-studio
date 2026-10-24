@@ -21,7 +21,7 @@ use crate::commands::Command;
 use crate::gfx::{TextStyle, Weight};
 use crate::icons::Icon;
 use crate::state::AppState;
-use crate::ui::{wid, wid_n, Ui};
+use crate::ui::{wid, wid_n, Input, Ui};
 use poni_core::datetime::{fmt_clock, fmt_date_short};
 use poni_core::geom::{palette, Color, Rect};
 
@@ -110,12 +110,58 @@ pub fn content_height(p: PageKind, st: &AppState) -> f32 {
     }
 }
 
+/// A page switch in progress: the page we came from, 0..1 progress, and the
+/// slide direction (+1 = moving to a tab on the right).
+#[derive(Clone, Copy, Debug)]
+pub struct PageTransition {
+    pub from: PageKind,
+    pub t: f32,
+    pub dir: f32,
+}
+
+/// How far (DIPs) pages slide during a switch.
+const SLIDE: f32 = 14.0;
+
 /// Draw the header and the active page inside the expanded island `body`.
-pub fn draw_expanded(ui: &mut Ui, st: &mut AppState, body: Rect, page: PageKind) {
+/// During a page switch the old page fades out sliding away while the new
+/// one fades in; the old page is drawn without input (it can't be clicked).
+pub fn draw_expanded(ui: &mut Ui, st: &mut AppState, body: Rect, page: PageKind, transition: Option<PageTransition>) {
     let header = Rect::new(body.x + PAD - 6.0, body.y + 6.0, body.w - 2.0 * PAD + 12.0, HEADER_H - 8.0);
     draw_header(ui, st, header, page);
     let area = Rect::new(body.x + PAD, body.y + HEADER_H, body.w - 2.0 * PAD, (body.h - HEADER_H - PAD).max(0.0));
     ui.c.clip(Rect::new(body.x, body.y + HEADER_H - 2.0, body.w, body.h - HEADER_H + 2.0));
+    match transition.filter(|tr| tr.t < 1.0 && tr.from != page) {
+        Some(tr) => {
+            // Sequential rather than a straight cross-fade: dense pages look
+            // muddy when both sit at 50 %. The old page leaves during the first
+            // 45 %, the new one arrives from 30 % on.
+            let out_e = ease_out_cubic(tr.t / 0.45);
+            let in_e = ease_out_cubic((tr.t - 0.3) / 0.7);
+            let base = ui.c.alpha();
+            // Outgoing page: ghost UI (no input, throwaway hit list).
+            if out_e < 1.0 {
+                let mut ghost_input = Input::default();
+                let mut ghost_hits = Vec::new();
+                let now = ui.now;
+                let mut ghost = Ui::new(&mut *ui.c, &mut ghost_input, &mut ghost_hits, now);
+                ghost.c.set_alpha(base * (1.0 - out_e));
+                ghost.c.translate(-tr.dir * SLIDE * out_e, 0.0);
+                draw_page(&mut ghost, st, area, tr.from);
+                ghost.c.reset_transform();
+            }
+            ui.c.set_alpha(base * in_e);
+            ui.c.translate(tr.dir * SLIDE * (1.0 - in_e), 0.0);
+            draw_page(ui, st, area, page);
+            ui.c.reset_transform();
+            ui.c.set_alpha(base);
+            ui.request_anim();
+        }
+        None => draw_page(ui, st, area, page),
+    }
+    ui.c.unclip();
+}
+
+fn draw_page(ui: &mut Ui, st: &mut AppState, area: Rect, page: PageKind) {
     match page {
         PageKind::Media => media::draw(ui, st, area),
         PageKind::Focus => focus::draw(ui, st, area),
@@ -125,7 +171,18 @@ pub fn draw_expanded(ui: &mut Ui, st: &mut AppState, body: Rect, page: PageKind)
         PageKind::Clipboard => clipboard::draw(ui, st, area),
         PageKind::Today => today::draw(ui, st, area),
     }
-    ui.c.unclip();
+}
+
+pub fn ease_out_cubic(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    1.0 - (1.0 - t).powi(3)
+}
+
+impl PageKind {
+    /// Position in the tab row (for slide direction).
+    pub fn tab_index(self) -> usize {
+        Self::ALL.iter().position(|p| *p == self).unwrap_or(0)
+    }
 }
 
 fn draw_header(ui: &mut Ui, st: &mut AppState, r: Rect, page: PageKind) {

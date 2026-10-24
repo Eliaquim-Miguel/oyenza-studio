@@ -6,7 +6,7 @@ use crate::clock;
 use crate::commands::{Command, MediaCmd};
 use crate::events::{AppEvent, EventSink, SendHwnd, WM_APP_APPBAR, WM_APP_EVENT, WM_APP_FRAME, WM_APP_TRAY};
 use crate::gfx::Gfx;
-use crate::island::{Island, SHOULDER};
+use crate::island::{Geom, Island, SHOULDER};
 use crate::pages::{self, PageKind};
 use crate::paths;
 use crate::services::{self, Services};
@@ -285,7 +285,17 @@ pub struct App {
     locked: bool,
     display_off: bool,
     tray_retries: u32,
+    /// Content of the previous mode, fading out while the outline morphs:
+    /// (mode, start time, its geometry).
+    outgoing: Option<(Mode, f64, Geom)>,
+    /// A page switch in progress: (from page, start time, slide direction).
+    page_anim: Option<(PageKind, f64, f32)>,
 }
+
+/// How long outgoing content takes to fade (seconds).
+const OUTGOING_FADE: f64 = 0.09;
+/// Page switch cross-fade duration (seconds).
+const PAGE_SWITCH: f64 = 0.22;
 
 impl App {
     #[allow(clippy::too_many_arguments)]
@@ -353,6 +363,8 @@ impl App {
             locked: false,
             display_off: false,
             tray_retries: 0,
+            outgoing: None,
+            page_anim: None,
         })
     }
 
@@ -1225,6 +1237,15 @@ impl App {
         let target = self.target_mode();
         if target != self.mode {
             let new_content = activities::content_key(&target) != activities::content_key(&self.mode);
+            if new_content {
+                self.outgoing = Some((self.mode, now, self.island.target()));
+            }
+            if let (Mode::Expanded(a), Mode::Expanded(b)) = (self.mode, target) {
+                if a != b {
+                    let dir = if b.tab_index() > a.tab_index() { 1.0 } else { -1.0 };
+                    self.page_anim = Some((a, now, dir));
+                }
+            }
             self.island.set_target(activities::geom(&target, &self.st), now, new_content);
             self.mode = target;
         } else {
@@ -1256,10 +1277,41 @@ impl App {
                 let island_color = if hidden_idle { Color::black(1.0 / 255.0) } else { palette::ISLAND };
                 let border = if hidden_idle { None } else { Some(palette::BORDER) };
                 canvas.notch(body, geom.r, SHOULDER, island_color, border);
+
+                // Outgoing content: drawn at its own (old) size, centred, clipped
+                // to the morphing outline, fading out. Ghost input: no clicks.
+                if let Some((m, t0, g)) = self.outgoing {
+                    let t = ((now - t0) / OUTGOING_FADE) as f32;
+                    if t >= 1.0 {
+                        self.outgoing = None;
+                    } else {
+                        let old_body = Rect::new(body.center().x - g.w / 2.0, body.y, g.w, g.h);
+                        canvas.clip(body);
+                        canvas.set_alpha(1.0 - pages::ease_out_cubic(t));
+                        {
+                            let mut ghost_input = Input::default();
+                            let mut ghost_hits = Vec::new();
+                            let mut ghost = Ui::new(&mut canvas, &mut ghost_input, &mut ghost_hits, now);
+                            match m {
+                                Mode::Expanded(page) => pages::draw_expanded(&mut ghost, &mut self.st, old_body, page, None),
+                                _ => activities::draw(&mut ghost, &mut self.st, &m, old_body),
+                            }
+                        }
+                        canvas.unclip();
+                    }
+                }
+
                 canvas.set_alpha(content_alpha);
+                let transition = self.page_anim.and_then(|(from, t0, dir)| {
+                    let t = ((now - t0) / PAGE_SWITCH) as f32;
+                    (t < 1.0).then_some(pages::PageTransition { from, t, dir })
+                });
+                if transition.is_none() {
+                    self.page_anim = None;
+                }
                 let mut ui = Ui::new(&mut canvas, &mut self.input, &mut hits, now);
                 match self.mode {
-                    Mode::Expanded(page) => pages::draw_expanded(&mut ui, &mut self.st, body, page),
+                    Mode::Expanded(page) => pages::draw_expanded(&mut ui, &mut self.st, body, page, transition),
                     _ => activities::draw(&mut ui, &mut self.st, &self.mode, body),
                 }
                 let out = (ui.repaint_requested(), ui.anim_requested(), ui.focus_request(), ui.live_requested());
@@ -1323,7 +1375,7 @@ impl App {
         // the session is locked or the display is off.
         let ambient_ok = !self.locked && !self.display_off;
         let live = ambient_ok && (activities::is_live(&self.mode, &self.st) || ui_live);
-        let moving = !self.island.settled() || anim || repaint || !self.st.cmds.is_empty();
+        let moving = !self.island.settled() || anim || repaint || !self.st.cmds.is_empty() || self.outgoing.is_some() || self.page_anim.is_some();
         self.clock.set_min_interval_ms(if moving { 0 } else if live { 33 } else { 0 });
         self.clock.set_active(moving || live);
         self.schedule_wake();
@@ -1473,6 +1525,14 @@ impl App {
     }
 
     // ------------------------------------------------------------ self-test hooks
+
+    /// Self-test only: render as if the monitor had `dpi` (120 = 125 %, 144 = 150 %, 192 = 200 %).
+    pub fn selftest_set_dpi(&mut self, dpi: u32) {
+        let dpi = dpi.clamp(96, 480);
+        self.monitor.dpi = dpi;
+        self.gfx.set_dpi(dpi as f32);
+        self.request_frame();
+    }
 
     pub fn selftest_set_expanded(&mut self, on: bool) {
         if on {
