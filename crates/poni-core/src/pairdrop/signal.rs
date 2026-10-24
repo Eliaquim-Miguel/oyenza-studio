@@ -64,7 +64,10 @@ impl Msg {
 
     /// Check the signature and the clock. Replays are [`Replays`]' job.
     pub fn verify(&self, secret: &Secret, now_ms: i64) -> Result<(), Reject> {
-        if !super::keys::is_id(&self.sid) || self.t.is_empty() || self.t.len() > 16 || self.sdp.len() > MAX_SDP_BYTES || self.name.chars().count() > MAX_NAME_CHARS {
+        // A name is one line: the signed text separates fields with line
+        // breaks, so a name holding one could shift text into the SDP's line.
+        let name_ok = self.name.chars().count() <= MAX_NAME_CHARS && !self.name.chars().any(char::is_control);
+        if !super::keys::is_id(&self.sid) || self.t.is_empty() || self.t.len() > 16 || !self.t.bytes().all(|b| b.is_ascii_lowercase() || b == b'-') || self.sdp.len() > MAX_SDP_BYTES || !name_ok {
             return Err(Reject::Malformed);
         }
         let Some(got) = b64u_decode(&self.mac) else { return Err(Reject::BadMac) };
@@ -149,6 +152,12 @@ mod tests {
         let mut bad_sid = m.clone();
         bad_sid.sid = "short".into();
         assert_eq!(bad_sid.verify(&s, TS), Err(Reject::Malformed));
+        // A line break in a name is refused even when the signature matches.
+        let two_lines = Msg { name: "Pixel\n10".into(), ..Msg::default() };
+        let mut forged = Msg::signed(&s, "offer", SID, "", SDP, TS);
+        forged.name = two_lines.name.clone();
+        forged.mac = b64u(&forged.tag(&s));
+        assert_eq!(forged.verify(&s, TS), Err(Reject::Malformed));
         let json = serde_json::to_string(&m).unwrap();
         let back: Msg = serde_json::from_str(&json).unwrap();
         assert_eq!(back.verify(&s, TS), Ok(()));
