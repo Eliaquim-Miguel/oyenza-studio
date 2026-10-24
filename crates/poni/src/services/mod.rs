@@ -26,6 +26,7 @@ pub struct Services {
     _audio: Option<audio::AudioService>,
     _bluetooth: Option<bluetooth::BluetoothService>,
     fullscreen: Option<fullscreen::FullscreenWatcher>,
+    clip: Option<clipboard::ClipboardHistory>,
 }
 
 fn started<T>(name: &str, r: windows::core::Result<T>) -> Option<T> {
@@ -42,22 +43,29 @@ fn started<T>(name: &str, r: windows::core::Result<T>) -> Option<T> {
 }
 
 impl Services {
-    pub fn start(sink: &EventSink, _island: HWND, helper: HWND, _settings: &Settings) -> Self {
+    pub fn start(sink: &EventSink, _island: HWND, helper: HWND, settings: &Settings) -> Self {
         let media = started("media", media::MediaService::start(sink.clone()));
         let lyrics = started("lyrics", lyrics::LyricsService::start(sink.clone()));
         let audio = started("audio", audio::AudioService::start(sink.clone()));
         let bluetooth = started("bluetooth", bluetooth::BluetoothService::start(sink.clone()));
         let fullscreen = started("fullscreen", fullscreen::FullscreenWatcher::start(helper, sink.clone()));
-        if let Err(e) = clipboard::listen(helper) {
-            crate::pwarn!("clipboard listener unavailable ({e})");
-        }
-        Self { media, lyrics, _audio: audio, _bluetooth: bluetooth, fullscreen }
+        let clip = started("clipboard history", clipboard::ClipboardHistory::start(sink.clone(), settings.clipboard_history));
+        Self { media, lyrics, _audio: audio, _bluetooth: bluetooth, fullscreen, clip }
     }
 
-    pub fn stop(self, helper: HWND) {
-        clipboard::unlisten(helper);
+    pub fn stop(self, _helper: HWND) {
+        if let Some(c) = self.clip {
+            c.stop();
+        }
         if let Some(f) = self.fullscreen {
             f.stop();
+        }
+    }
+
+    /// Turn clipboard history capture on or off (the setting changed).
+    pub fn set_clipboard_history(&self, on: bool) {
+        if let Some(c) = &self.clip {
+            c.set_enabled(on);
         }
     }
 
