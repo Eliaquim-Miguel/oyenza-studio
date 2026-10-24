@@ -115,7 +115,7 @@ On a MacBook, the island lives around the camera notch: the album art on one sid
 
 <table>
 <tr>
-<td align="center" width="25%"><h3>6.3 MB</h3>download on Windows</td>
+<td align="center" width="25%"><h3>2.4 MB</h3>download on Windows</td>
 <td align="center" width="25%"><h3>Rust</h3>native code, no web view, no runtime</td>
 <td align="center" width="25%"><h3>60–240 Hz</h3>drawn on the GPU, in step with your screen</td>
 <td align="center" width="25%"><h3>0</h3>accounts, ads or analytics</td>
