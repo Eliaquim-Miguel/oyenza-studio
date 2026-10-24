@@ -8,6 +8,9 @@ Oyen Poni belongs to the Oyen family. Oyen is the orange cat of the Oyenza logo.
 | `oyen-poni-logo.svg`, `oyen-poni-logo-512.png` | The logo: an orange tile, the island hanging from its top edge playing music (album cover and equalizer, as on the real island), the white Oyen below |
 | `art/oyen-poni-sit.webp` | Oyen sitting on the island while it plays music (the installer's welcome and finish picture) |
 | `art/oyen-poni-peek.webp` | Oyen peeking over the island while it plays music (README, link preview) |
+| `art/oyen-poni-asleep.webp` | Oyen asleep on the island while it plays music (the website's Oyen theme section) |
+| `art/poses/oyen-*.webp` | Oyen with each page's prop: music, focus, water, shelf, tasks, clipboard, today (README and website) |
+| `readme-hero.webp` | The README banner: a 200 % screenshot of the website's hero (`site/index.html`), so the README shows the site's type |
 | `social-preview.png` | The card GitHub shows when the repo link is shared (Settings → General → Social preview) |
 
 `python3 tools/make_brand.py` redraws the logo, `crates/poni/res/poni.ico` and everything in `installer/art` from these files.

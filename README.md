@@ -1,14 +1,22 @@
-<p align="center"><img src="docs/brand/oyen-poni-logo.svg" width="128" alt="Oyen Poni logo: an orange tile with the black island at the top playing music, and a white Oyen below"></p>
+<p align="center"><img src="docs/brand/oyen-poni-logo.svg" width="96" alt="Oyen Poni logo: an orange tile with the black island at the top playing music, and a white Oyen below"></p>
 
 <h1 align="center">Oyen Poni</h1>
 
-<p align="center"><a href="https://github.com/lucacadalora/poni/releases/latest/download/Oyen-Poni-Setup.exe"><b>Download for Windows</b></a></p>
+<p align="center"><b>A living notch for Windows 10 and 11.</b><br>Music with synced lyrics, a focus timer, water reminders, a file shelf, tasks and your clipboard, one hover away.</p>
 
-**A living notch for Windows 10 and 11.** A small black island hangs from the top of your screen. It shows what's happening (music, timers, volume, headphones connecting), and when you point at it, it opens into a set of quick pages.
+<p align="center">
+  <a href="https://github.com/lucacadalora/poni/releases/latest/download/Oyen-Poni-Setup.exe"><b>Download for Windows</b></a>
+  &nbsp;·&nbsp;
+  <a href="https://lucacadalora.github.io/poni/"><b>Website</b></a>
+  &nbsp;·&nbsp;
+  <a href="#install">Install notes</a>
+</p>
 
-Native Rust, no web view, no runtime, around 1.6 MB, and **zero CPU while nothing is moving**. No accounts, no tracking: your data stays on your PC.
+<p align="center"><img src="docs/brand/readme-hero.webp" width="880" alt="The open island hanging from the top of the screen, showing the Music page with synced lyrics, next to Oyen peeking over a playing island"></p>
 
-![The Music page](docs/screenshots/10-page-media.png)
+A small black island hangs from the top of your screen. It shows what's happening (music, timers, volume, headphones connecting), and when you point at it, it opens into a set of quick pages.
+
+Native Rust, no web view, no runtime, around 1.7 MB, and **zero CPU while nothing is moving**. No accounts, no tracking: your data stays on your PC.
 
 | Collapsed | |
 |---|---|
@@ -26,15 +34,15 @@ Native Rust, no web view, no runtime, around 1.6 MB, and **zero CPU while nothin
 
 **Point at the island (or click it) to open it.** Scroll over the header to switch pages.
 
-| Page | |
-|---|---|
-| **Music** | Controls for whatever is playing (Spotify, Apple Music, YouTube in your browser, any app in Windows' media controls), with time-synced lyrics from [LRCLIB](https://lrclib.net), or Apple Music's own lyrics if you add [your Apple Music token](#apple-music-lyrics) |
-| **Focus** | A Pomodoro timer that keeps counting in the island |
-| **Water** | A daily goal, one-tap logging, a week of history and gentle reminders |
-| **Shelf** | Drop files on the island to keep them handy; click to open or drag them back out |
-| **Tasks** | A tiny to-do list |
-| **Clipboard** | Recent copied text, kept in memory only. It skips anything password managers mark as private. |
-| **Today** | Date and calendar, plus CPU, memory, disk and battery |
+<table>
+<tr><td width="84" align="center"><img src="docs/brand/art/poses/oyen-music.webp" width="64" alt=""></td><td><b>Music</b><br>Controls for whatever is playing (Spotify, Apple Music, YouTube in your browser, any app in Windows' media controls), with time-synced lyrics from <a href="https://lrclib.net">LRCLIB</a>, or Apple Music's own lyrics if you add <a href="#apple-music-lyrics">your Apple Music token</a></td></tr>
+<tr><td width="84" align="center"><img src="docs/brand/art/poses/oyen-focus.webp" width="64" alt=""></td><td><b>Focus</b><br>A Pomodoro timer that keeps counting in the island</td></tr>
+<tr><td width="84" align="center"><img src="docs/brand/art/poses/oyen-water.webp" width="64" alt=""></td><td><b>Water</b><br>A daily goal, one-tap logging, a week of history and gentle reminders</td></tr>
+<tr><td width="84" align="center"><img src="docs/brand/art/poses/oyen-shelf.webp" width="64" alt=""></td><td><b>Shelf</b><br>Drop files on the island to keep them handy; click to open or drag them back out</td></tr>
+<tr><td width="84" align="center"><img src="docs/brand/art/poses/oyen-tasks.webp" width="64" alt=""></td><td><b>Tasks</b><br>A tiny to-do list</td></tr>
+<tr><td width="84" align="center"><img src="docs/brand/art/poses/oyen-clipboard.webp" width="64" alt=""></td><td><b>Clipboard</b><br>Recent copied text, kept in memory only. It skips anything password managers mark as private.</td></tr>
+<tr><td width="84" align="center"><img src="docs/brand/art/poses/oyen-today.webp" width="64" alt=""></td><td><b>Today</b><br>Date and calendar, plus CPU, memory, disk and battery</td></tr>
+</table>
 
 | | |
 |---|---|
@@ -115,6 +123,10 @@ NSIS_HOST=user@linux-box tools/package.sh   # exe + portable zip + installer int
 ![The expand animation, frame by frame](docs/screenshots/expand-motion.png)
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for how the pieces fit: threads, the rendering model, the page and service contracts, and data files.
+
+### Website
+
+The website is `site/index.html`, published with GitHub Pages by `.github/workflows/pages.yml` whenever `site/` or `docs/brand/` changes on main. Preview it with `tools/build_site.sh && python3 -m http.server -d _site 8000`. Its island screenshots come from the self-test at 200 % in both themes (`tools/site_shots.py`).
 
 ## Status
 
