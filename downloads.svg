@@ -1,38 +1,43 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="820" height="408" viewBox="0 0 820 408" role="img" aria-labelledby="title">
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="472" viewBox="0 0 820 472" role="img" aria-labelledby="title">
 <title id="title">Oyen Poni downloads per release</title>
-<rect width="820" height="408" rx="16" fill="#FFF1DE"/>
+<rect width="820" height="472" rx="16" fill="#FFF1DE"/>
 <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, Helvetica, Arial, sans-serif">
-<path d="M77.5,68.0L77.5,384.0" stroke="#D8BF9C" stroke-width="1"/>
-<path d="M78.0,75.0H348.4A4.0,4.0 0 0 1 352.4,79.0V89.0A4.0,4.0 0 0 1 348.4,93.0H78.0Z" fill="#D9661C"/>
-<path d="M78.0,107.0H485.6A4.0,4.0 0 0 1 489.6,111.0V121.0A4.0,4.0 0 0 1 485.6,125.0H78.0Z" fill="#D9661C"/>
-<path d="M78.0,139.0H279.8A4.0,4.0 0 0 1 283.8,143.0V153.0A4.0,4.0 0 0 1 279.8,157.0H78.0Z" fill="#D9661C"/>
-<path d="M78.0,171.0H554.3A4.0,4.0 0 0 1 558.3,175.0V185.0A4.0,4.0 0 0 1 554.3,189.0H78.0Z" fill="#D9661C"/>
-<path d="M78.0,203.0H760.1A4.0,4.0 0 0 1 764.1,207.0V217.0A4.0,4.0 0 0 1 760.1,221.0H78.0Z" fill="#D9661C"/>
-<path d="M78.0,235.0H279.8A4.0,4.0 0 0 1 283.8,239.0V249.0A4.0,4.0 0 0 1 279.8,253.0H78.0Z" fill="#D9661C"/>
-<path d="M78.0,267.0H279.8A4.0,4.0 0 0 1 283.8,271.0V281.0A4.0,4.0 0 0 1 279.8,285.0H78.0Z" fill="#D9661C"/>
-<path d="M78.0,299.0H348.4A4.0,4.0 0 0 1 352.4,303.0V313.0A4.0,4.0 0 0 1 348.4,317.0H78.0Z" fill="#D9661C"/>
-<path d="M78.0,331.0H485.6A4.0,4.0 0 0 1 489.6,335.0V345.0A4.0,4.0 0 0 1 485.6,349.0H78.0Z" fill="#D9661C"/>
-<path d="M78.0,363.0H142.6A4.0,4.0 0 0 1 146.6,367.0V377.0A4.0,4.0 0 0 1 142.6,381.0H78.0Z" fill="#D9661C"/>
+<path d="M91.5,68.0L91.5,448.0" stroke="#D8BF9C" stroke-width="1"/>
+<path d="M92.0,107.0H472.0A4.0,4.0 0 0 1 476.0,111.0V121.0A4.0,4.0 0 0 1 472.0,125.0H92.0Z" fill="#D9661C"/>
+<path d="M92.0,139.0H712.1A4.0,4.0 0 0 1 716.1,143.0V153.0A4.0,4.0 0 0 1 712.1,157.0H92.0Z" fill="#D9661C"/>
+<path d="M92.0,171.0H328.0A4.0,4.0 0 0 1 332.0,175.0V185.0A4.0,4.0 0 0 1 328.0,189.0H92.0Z" fill="#D9661C"/>
+<path d="M92.0,203.0H184.0A4.0,4.0 0 0 1 188.0,207.0V217.0A4.0,4.0 0 0 1 184.0,221.0H92.0Z" fill="#D9661C"/>
+<path d="M92.0,235.0H664.1A4.0,4.0 0 0 1 668.1,239.0V249.0A4.0,4.0 0 0 1 664.1,253.0H92.0Z" fill="#D9661C"/>
+<path d="M92.0,267.0H376.0A4.0,4.0 0 0 1 380.0,271.0V281.0A4.0,4.0 0 0 1 376.0,285.0H92.0Z" fill="#D9661C"/>
+<path d="M92.0,299.0H232.0A4.0,4.0 0 0 1 236.0,303.0V313.0A4.0,4.0 0 0 1 232.0,317.0H92.0Z" fill="#D9661C"/>
+<path d="M92.0,331.0H424.0A4.0,4.0 0 0 1 428.0,335.0V345.0A4.0,4.0 0 0 1 424.0,349.0H92.0Z" fill="#D9661C"/>
+<path d="M92.0,363.0H568.1A4.0,4.0 0 0 1 572.1,367.0V377.0A4.0,4.0 0 0 1 568.1,381.0H92.0Z" fill="#D9661C"/>
+<path d="M92.0,395.0H232.0A4.0,4.0 0 0 1 236.0,399.0V409.0A4.0,4.0 0 0 1 232.0,413.0H92.0Z" fill="#D9661C"/>
+<path d="M92.0,427.0H760.1A4.0,4.0 0 0 1 764.1,431.0V441.0A4.0,4.0 0 0 1 760.1,445.0H92.0Z" fill="#D9661C"/>
 <text x="28.0" y="44.0" font-size="16" fill="#2B1B10" font-weight="600">Downloads per release</text>
-<text x="68.0" y="88.0" font-size="14" fill="#6B5442" text-anchor="end" style="font-variant-numeric: tabular-nums">0.1.9</text>
-<text x="360.4" y="88.5" font-size="14" fill="#2B1B10" font-weight="600">4</text>
-<text x="68.0" y="120.0" font-size="14" fill="#6B5442" text-anchor="end" style="font-variant-numeric: tabular-nums">0.1.8</text>
-<text x="497.6" y="120.5" font-size="14" fill="#2B1B10" font-weight="600">6</text>
-<text x="68.0" y="152.0" font-size="14" fill="#6B5442" text-anchor="end" style="font-variant-numeric: tabular-nums">0.1.7</text>
-<text x="291.8" y="152.5" font-size="14" fill="#2B1B10" font-weight="600">3</text>
-<text x="68.0" y="184.0" font-size="14" fill="#6B5442" text-anchor="end" style="font-variant-numeric: tabular-nums">0.1.6</text>
-<text x="566.3" y="184.5" font-size="14" fill="#2B1B10" font-weight="600">7</text>
-<text x="68.0" y="216.0" font-size="14" fill="#6B5442" text-anchor="end" style="font-variant-numeric: tabular-nums">0.1.5</text>
-<text x="772.1" y="216.5" font-size="14" fill="#2B1B10" font-weight="600">10</text>
-<text x="68.0" y="248.0" font-size="14" fill="#6B5442" text-anchor="end" style="font-variant-numeric: tabular-nums">0.1.4</text>
-<text x="291.8" y="248.5" font-size="14" fill="#2B1B10" font-weight="600">3</text>
-<text x="68.0" y="280.0" font-size="14" fill="#6B5442" text-anchor="end" style="font-variant-numeric: tabular-nums">0.1.3</text>
-<text x="291.8" y="280.5" font-size="14" fill="#2B1B10" font-weight="600">3</text>
-<text x="68.0" y="312.0" font-size="14" fill="#6B5442" text-anchor="end" style="font-variant-numeric: tabular-nums">0.1.2</text>
-<text x="360.4" y="312.5" font-size="14" fill="#2B1B10" font-weight="600">4</text>
-<text x="68.0" y="344.0" font-size="14" fill="#6B5442" text-anchor="end" style="font-variant-numeric: tabular-nums">0.1.1</text>
-<text x="497.6" y="344.5" font-size="14" fill="#2B1B10" font-weight="600">6</text>
-<text x="68.0" y="376.0" font-size="14" fill="#6B5442" text-anchor="end" style="font-variant-numeric: tabular-nums">0.1.0</text>
-<text x="154.6" y="376.5" font-size="14" fill="#2B1B10" font-weight="600">1</text>
+<text x="82.0" y="88.0" font-size="14" fill="#6B5442" text-anchor="end" style="font-variant-numeric: tabular-nums">0.1.14</text>
+<text x="100.0" y="88.5" font-size="14" fill="#2B1B10" font-weight="600">0</text>
+<text x="82.0" y="120.0" font-size="14" fill="#6B5442" text-anchor="end" style="font-variant-numeric: tabular-nums">0.1.13</text>
+<text x="484.0" y="120.5" font-size="14" fill="#2B1B10" font-weight="600">8</text>
+<text x="82.0" y="152.0" font-size="14" fill="#6B5442" text-anchor="end" style="font-variant-numeric: tabular-nums">0.1.12</text>
+<text x="724.1" y="152.5" font-size="14" fill="#2B1B10" font-weight="600">13</text>
+<text x="82.0" y="184.0" font-size="14" fill="#6B5442" text-anchor="end" style="font-variant-numeric: tabular-nums">0.1.11</text>
+<text x="340.0" y="184.5" font-size="14" fill="#2B1B10" font-weight="600">5</text>
+<text x="82.0" y="216.0" font-size="14" fill="#6B5442" text-anchor="end" style="font-variant-numeric: tabular-nums">0.1.10</text>
+<text x="196.0" y="216.5" font-size="14" fill="#2B1B10" font-weight="600">2</text>
+<text x="82.0" y="248.0" font-size="14" fill="#6B5442" text-anchor="end" style="font-variant-numeric: tabular-nums">0.1.9</text>
+<text x="676.1" y="248.5" font-size="14" fill="#2B1B10" font-weight="600">12</text>
+<text x="82.0" y="280.0" font-size="14" fill="#6B5442" text-anchor="end" style="font-variant-numeric: tabular-nums">0.1.8</text>
+<text x="388.0" y="280.5" font-size="14" fill="#2B1B10" font-weight="600">6</text>
+<text x="82.0" y="312.0" font-size="14" fill="#6B5442" text-anchor="end" style="font-variant-numeric: tabular-nums">0.1.7</text>
+<text x="244.0" y="312.5" font-size="14" fill="#2B1B10" font-weight="600">3</text>
+<text x="82.0" y="344.0" font-size="14" fill="#6B5442" text-anchor="end" style="font-variant-numeric: tabular-nums">0.1.6</text>
+<text x="436.0" y="344.5" font-size="14" fill="#2B1B10" font-weight="600">7</text>
+<text x="82.0" y="376.0" font-size="14" fill="#6B5442" text-anchor="end" style="font-variant-numeric: tabular-nums">0.1.5</text>
+<text x="580.1" y="376.5" font-size="14" fill="#2B1B10" font-weight="600">10</text>
+<text x="82.0" y="408.0" font-size="14" fill="#6B5442" text-anchor="end" style="font-variant-numeric: tabular-nums">0.1.4</text>
+<text x="244.0" y="408.5" font-size="14" fill="#2B1B10" font-weight="600">3</text>
+<text x="82.0" y="440.0" font-size="14" fill="#6B5442" text-anchor="end" style="font-variant-numeric: tabular-nums">4 older</text>
+<text x="772.1" y="440.5" font-size="14" fill="#2B1B10" font-weight="600">14</text>
 </g>
 </svg>
