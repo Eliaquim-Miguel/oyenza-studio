@@ -1,19 +1,47 @@
 {
   "repo": "lucacadalora/poni",
-  "checked_at": "2026-10-24T18:23:02Z",
+  "checked_at": "2026-10-24T21:13:30Z",
   "since": "2026-10-24",
-  "downloads": 114,
-  "github_count": 242,
-  "ci_count": 129,
-  "last_7_days": 114,
+  "downloads": 136,
+  "github_count": 292,
+  "ci_count": 156,
+  "last_7_days": 136,
   "latest": {
-    "release": "v0.1.16",
-    "downloads": 4
+    "release": "v0.1.18",
+    "downloads": 5
   },
   "stars": 11,
   "forks": 2,
   "watchers": 0,
   "releases": [
+    {
+      "release": "v0.1.18",
+      "published": "2026-10-24T19:33:42Z",
+      "downloads": 5,
+      "github_count": 5,
+      "ci_count": 0,
+      "files": {
+        "Oyen-Poni-0.1.18-mac.dmg": 0,
+        "Oyen-Poni-0.1.18-portable.zip": 1,
+        "Oyen-Poni-Mac.dmg": 0,
+        "Oyen-Poni-Setup-0.1.18.exe": 1,
+        "Oyen-Poni-Setup.exe": 3
+      }
+    },
+    {
+      "release": "v0.1.17",
+      "published": "2026-10-24T18:27:12Z",
+      "downloads": 13,
+      "github_count": 13,
+      "ci_count": 0,
+      "files": {
+        "Oyen-Poni-0.1.17-mac.dmg": 1,
+        "Oyen-Poni-0.1.17-portable.zip": 1,
+        "Oyen-Poni-Mac.dmg": 2,
+        "Oyen-Poni-Setup-0.1.17.exe": 4,
+        "Oyen-Poni-Setup.exe": 5
+      }
+    },
     {
       "release": "v0.1.16",
       "published": "2026-10-24T17:43:05Z",
@@ -57,11 +85,11 @@
     {
       "release": "v0.1.13",
       "published": "2026-10-24T13:54:59Z",
-      "downloads": 8,
-      "github_count": 8,
+      "downloads": 9,
+      "github_count": 9,
       "ci_count": 0,
       "files": {
-        "Oyen-Poni-0.1.13-portable.zip": 0,
+        "Oyen-Poni-0.1.13-portable.zip": 1,
         "Oyen-Poni-Setup-0.1.13.exe": 1,
         "Oyen-Poni-Setup.exe": 7
       }
@@ -81,11 +109,11 @@
     {
       "release": "v0.1.11",
       "published": "2026-10-24T12:03:02Z",
-      "downloads": 5,
-      "github_count": 5,
+      "downloads": 6,
+      "github_count": 6,
       "ci_count": 0,
       "files": {
-        "Oyen-Poni-0.1.11-portable.zip": 2,
+        "Oyen-Poni-0.1.11-portable.zip": 3,
         "Oyen-Poni-Setup-0.1.11.exe": 1,
         "Oyen-Poni-Setup.exe": 2
       }
@@ -141,11 +169,11 @@
     {
       "release": "v0.1.6",
       "published": "2026-10-24T08:58:17Z",
-      "downloads": 7,
-      "github_count": 7,
+      "downloads": 8,
+      "github_count": 8,
       "ci_count": 0,
       "files": {
-        "Oyen-Poni-0.1.6-portable.zip": 1,
+        "Oyen-Poni-0.1.6-portable.zip": 2,
         "Oyen-Poni-Setup-0.1.6.exe": 1,
         "Oyen-Poni-Setup.exe": 5
       }
@@ -202,8 +230,8 @@
       "release": "v0.1.1",
       "published": "2026-10-24T05:54:33Z",
       "downloads": 6,
-      "github_count": 134,
-      "ci_count": 129,
+      "github_count": 162,
+      "ci_count": 156,
       "files": {
         "Poni-0.1.1-portable.zip": 0,
         "Poni-Setup-0.1.1.exe": 6
@@ -212,11 +240,11 @@
     {
       "release": "v0.1.0",
       "published": "2026-10-24T00:06:58Z",
-      "downloads": 1,
-      "github_count": 1,
+      "downloads": 2,
+      "github_count": 2,
       "ci_count": 0,
       "files": {
-        "Poni-0.1.0-portable.zip": 0,
+        "Poni-0.1.0-portable.zip": 1,
         "Poni-Setup-0.1.0.exe": 1
       }
     }
@@ -224,7 +252,7 @@
   "days": [
     {
       "date": "2026-10-24",
-      "downloads": 114
+      "downloads": 136
     }
   ]
 }
