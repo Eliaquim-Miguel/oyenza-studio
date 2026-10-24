@@ -171,12 +171,13 @@ pub const GLASS_LIGHT: Look = Look {
 };
 
 /// Pill: Classic's black and white (pages paint exactly as they ask) in a
-/// floating capsule, with a faint edge so it holds its shape on a dark screen.
+/// floating capsule, with a faint rim (the spec's white at 0.10, a little
+/// brighter than Classic's edge) so it holds its shape on a dark screen.
 pub const PILL: Look = Look {
     ground: Color::black(1.0),
     ink: Color::white(1.0),
     accent: None,
-    border: palette::BORDER,
+    border: Color::white(0.10),
     light: false,
     font: None,
     material: Material::Solid,

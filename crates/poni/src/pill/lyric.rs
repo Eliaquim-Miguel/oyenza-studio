@@ -25,8 +25,6 @@
 //! in the line's place would hide the words from everyone who reads the
 //! script, and readings run two to three times longer, so more of them would
 //! end in an ellipsis. Whoever needs the reading has it a hover away.
-// Unused until the music pill calls it (pill/media.rs, on the media lane's branch).
-#![allow(dead_code)]
 
 use crate::gfx::{TextStyle, Weight};
 use crate::state::{AppState, LyricsStatus};

@@ -114,7 +114,8 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, body: Rect) -> bool {
     // The bars keep moving while they sink at a pause; on battery saver they stand.
     let moving = (playing || level > 0.0) && !st.power.saver;
     let eq_x = body.right() - EQ_RIGHT - EQ_W;
-    equalizer(ui, eq_x, cy, accent, level, moving, now);
+    // The open card's equalizer colour, so the bars keep it through a morph.
+    equalizer(ui, eq_x, cy, super::music::eq_color(accent), level, moving, now);
 
     // The text centres on the pill in a box as wide as the widest pill's
     // text, so its layout doesn't change with the pill's width on each
@@ -176,13 +177,6 @@ fn fit(w: f32, max: f32) -> f32 {
     (((w + SIDES) / W_STEP).ceil() * W_STEP).clamp(MIN_W, max)
 }
 
-/// The sung line as `lyric::draw` sets it (13 semibold, like the title it
-/// takes turns with), to size the pill. Once both lanes are in, this can be
-/// `super::lyric::style()`.
-fn line_style() -> TextStyle {
-    TextStyle::body().weight(Weight::Semibold)
-}
-
 /// Run `f` with everything it draws `a` times as opaque.
 fn faded<R>(ui: &mut Ui, a: f32, f: impl FnOnce(&mut Ui) -> R) -> R {
     let prev = ui.c.alpha();
@@ -224,7 +218,7 @@ fn draw_text(ui: &mut Ui, st: &AppState, area: Rect, paused_a: f32, now: f64) ->
         draw_song(ui, st, song, paused_a * (1.0 - k));
     }
     match super::lyric::current(st) {
-        Some((line, _)) => fit(widest_line(st, ui.c.measure(&line, &line_style(), 10_000.0).0), MAX_W),
+        Some((line, _)) => fit(widest_line(st, ui.c.measure(&line, &super::lyric::style(), 10_000.0).0), MAX_W),
         // The last line is still fading out: it keeps its width until it's gone.
         None => FIT_W.get(),
     }
