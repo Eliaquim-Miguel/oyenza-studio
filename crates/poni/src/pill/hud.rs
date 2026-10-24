@@ -26,6 +26,7 @@ const BT_MAX_W: f32 = 360.0;
 /// The left glyph: a 16 DIP box 12 in, in the round end (spec 6.8).
 const GLYPH: f32 = 16.0;
 const GLYPH_X: f32 = 12.0;
+const BATTERY_ICON: f32 = 20.0;
 /// Labels start past the glyph; the level bar a little further (spec 6.8).
 const TEXT_X: f32 = 36.0;
 const TRACK_X: f32 = 40.0;
@@ -165,7 +166,9 @@ fn speaker(ui: &mut Ui, r: Rect, waves: Option<u8>, color: Color) {
 /// the resting pill shows it.
 fn power(ui: &mut Ui, body: Rect, icon: Icon, color: Color, label: &str, percent: u8, charging: bool) {
     let cy = body.center().y;
-    ui.c.icon(icon, Rect::new(body.x + GLYPH_X, cy - GLYPH / 2.0, GLYPH, GLYPH), color);
+    // The battery outline is a flat glyph: a bigger box gives it the bolt's weight.
+    let g = if icon == Icon::Battery { BATTERY_ICON } else { GLYPH };
+    ui.c.icon(icon, Rect::from_center(Point::new(body.x + GLYPH_X + GLYPH / 2.0, cy), g, g), color);
     battery_cluster(ui, body.right() - BATTERY_INSET, cy, percent, charging);
     // The label's room at the pill's own width, so it doesn't re-ellipsize while the pill grows.
     let room = body.w.max(BATTERY_W) - TEXT_X - MID_GAP - CLUSTER_W - BATTERY_INSET;
@@ -180,30 +183,45 @@ fn bluetooth(ui: &mut Ui, st: &AppState, body: Rect, name: &str, connected: bool
     let (disc, glyph) = if connected { (st.accent, ink_on(st.accent)) } else { (Color::white(0.16), palette::TEXT) };
     ui.c.fill_circle(c, DISC / 2.0, disc);
     ui.c.icon(if audio { Icon::Headphones } else { Icon::Bluetooth }, Rect::from_center(c, DISC_GLYPH, DISC_GLYPH), glyph);
-    if let Some(b) = battery {
-        battery_cluster(ui, body.right() - BATTERY_INSET, cy, b, false);
-    }
 
     let (name_st, state_st) = (label_style(), TextStyle::body().color(palette::TEXT_DIM));
     let state = if connected { "Connected" } else { "Disconnected" };
     let sw = ui.c.measure(state, &state_st, 400.0).0;
     let nw = ui.c.measure(name, &name_st, 10_000.0).0;
-    // Room at the pill's own width (see `power`) up to the percentage as
-    // drawn; a long name gives way, the state stays whole.
-    let end = match battery {
-        Some(b) => BATTERY_INSET + BATTERY_GLYPH_W + PCT_GAP + ui.c.measure(&format!("{b}%"), &value_style(), 100.0).0 + MID_GAP,
-        None => BATTERY_INSET,
-    };
-    let room = body.w.max(bluetooth_w(st)) - TEXT_X - end;
-    let sep = if nw > 0.0 { SEP } else { 0.0 };
-    let name_w = nw.min(room - sep - sw).max(0.0);
     let x = body.x + TEXT_X;
-    if name_w > 0.0 {
-        // A little slack so a name that fits isn't ellipsized by rounding.
-        let slack = if name_w < nw { 0.0 } else { 2.0 };
-        ui.c.text(name, Rect::new(x, body.y, name_w + slack, body.h), &name_st);
+    // Rooms are taken at the pill's own width (see `power`): a long name
+    // gives way, the state stays whole.
+    let full = body.w.max(bluetooth_w(st));
+    match battery {
+        // The battery holds the right end; the state follows the name.
+        Some(b) => {
+            battery_cluster(ui, body.right() - BATTERY_INSET, cy, b, false);
+            let pw = ui.c.measure(&format!("{b}%"), &value_style(), 100.0).0;
+            let sep = if nw > 0.0 { SEP } else { 0.0 };
+            let room = full - TEXT_X - (BATTERY_INSET + BATTERY_GLYPH_W + PCT_GAP + pw + MID_GAP) - sep - sw;
+            let name_w = text_upto(ui, name, nw, x, body, room, &name_st);
+            ui.c.text(state, Rect::new(x + name_w + sep, body.y, sw + 2.0, body.h), &state_st);
+        }
+        // Without one the state holds the right end, so a wrong guess of the
+        // width only moves the room in the middle, as on the resting pill.
+        None => {
+            let right = body.right() - BATTERY_INSET;
+            ui.c.text(state, Rect::new(right - sw - 2.0, body.y, sw + 2.0, body.h), &state_st.right());
+            text_upto(ui, name, nw, x, body, full - TEXT_X - BATTERY_INSET - sw - SEP, &name_st);
+        }
     }
-    ui.c.text(state, Rect::new(x + name_w + sep, body.y, sw + 2.0, body.h), &state_st);
+}
+
+/// `s`, `w` wide as measured, at `x` in at most `room`: whole when it fits,
+/// else ellipsized. Returns the width it takes.
+fn text_upto(ui: &mut Ui, s: &str, w: f32, x: f32, body: Rect, room: f32, ts: &TextStyle) -> f32 {
+    let w = w.min(room).max(0.0);
+    if w > 0.0 {
+        // Slack for text that fits, so rounding doesn't ellipsize it.
+        let slack = if w < room { 2.0 } else { 0.0 };
+        ui.c.text(s, Rect::new(x, body.y, w + slack, body.h), ts);
+    }
+    w
 }
 
 /// White on the accent, dark on a very light one (as the Today page's date).
@@ -250,8 +268,9 @@ fn approx_w(s: &str) -> f32 {
 fn battery_cluster(ui: &mut Ui, right: f32, cy: f32, percent: u8, charging: bool) {
     let gx = right - BATTERY_GLYPH_W;
     battery(ui, Rect::new(gx, cy - BODY_H / 2.0, BATTERY_GLYPH_W, BODY_H), percent, charging);
-    let tr = gx - PCT_GAP;
-    ui.c.text(&format!("{percent}%"), Rect::new(tr - PCT_SLOT, cy - 10.0, PCT_SLOT, 20.0), &value_style().right());
+    // Right-aligned in a box wider than its slot, so a wider font never ellipsizes "100%".
+    let (tr, bw) = (gx - PCT_GAP, PCT_SLOT + 12.0);
+    ui.c.text(&format!("{percent}%"), Rect::new(tr - bw, cy - 10.0, bw, 20.0), &value_style().right());
 }
 
 /// The resting pill's battery glyph (spec 6.3) in `r` (body and nub): a
