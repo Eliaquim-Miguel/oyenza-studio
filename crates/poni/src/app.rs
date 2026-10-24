@@ -1123,7 +1123,8 @@ impl App {
                 }
                 oyenza::merge_today(&mut o.today, &arrived);
                 o.updated_unix = Some(self.st.unix);
-                if let Some(n) = oyenza::money_notice(&arrived) {
+                let fresh = oyenza::unseen(&mut o.shown, &arrived);
+                if let Some(n) = oyenza::money_notice(&fresh) {
                     self.oyenza_notice(Icon::MoneyIn, palette::GREEN, n.title, n.shown, Some(n.hidden));
                 }
             }

@@ -518,6 +518,18 @@ pub fn local_clock(iso: &str, offset_minutes: i32) -> Option<LocalDateTime> {
     Some(LocalDateTime { year: ly, month: lm, day: ld, hour: (rest / 3600) as u8, minute: (rest % 3600 / 60) as u8, second: (rest % 60) as u8 })
 }
 
+/// The arrivals not shown as a notice yet, now remembered as shown (the last 50). The server sends each arrival to a
+/// PC once; this keeps a notice from ever repeating, whatever the server does.
+pub fn unseen(shown: &mut Vec<String>, arrived: &[Arrival]) -> Vec<Arrival> {
+    let fresh: Vec<Arrival> = arrived.iter().filter(|a| !shown.contains(&a.id)).cloned().collect();
+    shown.extend(fresh.iter().map(|a| a.id.clone()));
+    if shown.len() > 50 {
+        let cut = shown.len() - 50;
+        shown.drain(..cut);
+    }
+    fresh
+}
+
 /// Today's arrivals for the tab: the new ones first, each once, at most
 /// [`MAX_TODAY_ROWS`].
 pub fn merge_today(today: &mut Vec<Arrival>, arrived: &[Arrival]) {
@@ -705,6 +717,20 @@ mod tests {
         assert_eq!((west.year, west.month, west.day, west.hour), (2025, 12, 31, 20));
         assert_eq!(local_clock("2026-10-24 02:12:00", 420), None);
         assert_eq!(local_clock("", 0), None);
+    }
+
+    #[test]
+    fn a_notice_never_repeats() {
+        let mut shown = Vec::new();
+        let first = unseen(&mut shown, &[arrival("a", "Rp 1", "", None)]);
+        assert_eq!(first.len(), 1);
+        let again = unseen(&mut shown, &[arrival("a", "Rp 1", "", None), arrival("b", "Rp 2", "", None)]);
+        assert_eq!(again.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(), ["b"]);
+        for i in 0..60 {
+            unseen(&mut shown, &[arrival(&format!("n{i}"), "Rp 1", "", None)]);
+        }
+        assert_eq!(shown.len(), 50);
+        assert_eq!(shown.last().map(String::as_str), Some("n59"));
     }
 
     #[test]

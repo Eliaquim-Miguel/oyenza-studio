@@ -255,6 +255,8 @@ pub struct OyenzaState {
     pub reveal: bool,
     /// A notice that came while a full-screen app hid the island, and when.
     pub held: Option<(Notice, f64)>,
+    /// Arrivals already shown as a notice (`oyenza::unseen`), so none repeats.
+    pub shown: Vec<String>,
     /// Pinned before a sign-in code pinned the island open.
     pub pinned_before: Option<bool>,
 }
