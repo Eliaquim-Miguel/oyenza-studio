@@ -9,8 +9,11 @@ on:
         type: boolean
         default: false
 
+# A newer push cancels an older run of the same branch. A manual run (such as
+# a release dry run) has its own group, so it never cancels a push run, least
+# of all a tag's release run.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 env:
