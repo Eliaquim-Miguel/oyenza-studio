@@ -1199,6 +1199,9 @@ impl App {
                         self.input.clicked = Some((h, MouseButton::Left));
                     }
                 }
+                if self.input.down {
+                    self.input.released = self.input.pressed_id.map(|id| (id, p));
+                }
                 self.dbl_press = false;
                 self.input.down = false;
                 self.input.pressed_id = None;

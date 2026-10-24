@@ -369,11 +369,17 @@ fn draw_session(ui: &mut Ui, st: &mut AppState, area: Rect, a: &mut Anim, fr: &F
     if has_dur {
         let seekable = m.can_seek;
         let hover = seekable && ui.hovered(Rect::new(bar.x, bar.y - 6.0, bar.w, bar.h + 12.0));
-        let progress = tl.progress_at(now);
-        if let Some(f) = ui.progress_bar(wid("media_seek"), bar, progress, accent, seekable) {
+        let scrub = ui.progress_bar(wid("media_seek"), bar, tl.progress_at(now), accent, seekable);
+        if let Some(f) = scrub.released {
             acts.push(MediaCmd::Seek(f as f64 * tl.duration_s));
         }
-        if hover {
+        // While dragging, the knob and times follow the pointer; the player
+        // only seeks on release.
+        let (progress, pos) = match scrub.held {
+            Some(f) => (f, f as f64 * tl.duration_s),
+            None => (tl.progress_at(now), pos),
+        };
+        if hover || scrub.held.is_some() {
             let c = Point::new(bar.x + bar.w * progress, bar.y + bar.h / 2.0);
             ui.c.fill_circle(c, 6.0, palette::TEXT);
         }

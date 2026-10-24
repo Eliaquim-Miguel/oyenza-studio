@@ -73,6 +73,9 @@ pub struct Input {
     pub press_pos: Option<Point>,
     /// Click resolved on mouse-up (valid for exactly one frame).
     pub clicked: Option<(WidgetId, MouseButton)>,
+    /// Widget that was held when the left button came up, and where it came
+    /// up, even off the widget (a slider drag; valid for exactly one frame).
+    pub released: Option<(WidgetId, Point)>,
     /// Mouse-wheel notches this frame (+ = away from user).
     pub wheel: f32,
     /// Keys typed while a text field has focus.
@@ -87,6 +90,7 @@ impl Input {
     /// Called after each frame: one-shot inputs are consumed.
     pub fn end_frame(&mut self) {
         self.clicked = None;
+        self.released = None;
         self.wheel = 0.0;
         self.keys.clear();
     }
@@ -101,6 +105,15 @@ pub struct Resp {
     pub rclicked: bool,
     /// While pressed: distance moved since the press (DIPs).
     pub drag: Option<(f32, f32)>,
+}
+
+/// What a seekable [`Ui::progress_bar`] did this frame (fractions 0..=1).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Scrub {
+    /// Held down: where the pointer is along the bar.
+    pub held: Option<f32>,
+    /// Let go: where to seek.
+    pub released: Option<f32>,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -423,23 +436,26 @@ impl<'a, 'g> Ui<'a, 'g> {
         out
     }
 
-    /// Horizontal progress bar; returns `Some(fraction)` when clicked (for seeking).
-    pub fn progress_bar(&mut self, id: WidgetId, r: Rect, progress: f32, fill: Color, seekable: bool) -> Option<f32> {
+    /// Horizontal progress bar. When `seekable` it can be clicked or dragged:
+    /// while held it shows (and reports) the fraction under the pointer, and
+    /// the release reports where to seek, even if the pointer slid off the bar.
+    pub fn progress_bar(&mut self, id: WidgetId, r: Rect, progress: f32, fill: Color, seekable: bool) -> Scrub {
         let hit = Rect::new(r.x, r.y - 6.0, r.w, r.h + 12.0);
         let resp = if seekable { self.button(id, hit) } else { Resp::default() };
-        let thick = if resp.hovered && seekable { r.h + 2.0 } else { r.h };
+        let frac = |x: f32| if r.w > 0.0 { ((x - r.x) / r.w).clamp(0.0, 1.0) } else { 0.0 };
+        let held = if resp.pressed { self.input.mouse.map(|m| frac(m.x)) } else { None };
+        let released = self.input.released.filter(|(rid, _)| seekable && *rid == id).map(|(_, p)| frac(p.x));
+        let thick = if (resp.hovered || held.is_some()) && seekable { r.h + 2.0 } else { r.h };
         let bar = Rect::new(r.x, r.center().y - thick / 2.0, r.w, thick);
         self.c.fill_rrect(bar, thick / 2.0, palette::TRACK);
-        let p = progress.clamp(0.0, 1.0);
+        let p = held.or(released).unwrap_or(progress).clamp(0.0, 1.0);
         if p > 0.0 {
             self.c.fill_rrect(Rect::new(bar.x, bar.y, (bar.w * p).max(thick), bar.h), thick / 2.0, fill);
         }
-        if resp.clicked {
-            if let Some(m) = self.input.mouse {
-                return Some(((m.x - r.x) / r.w).clamp(0.0, 1.0));
-            }
+        if released.is_some() {
+            self.repaint = true;
         }
-        None
+        Scrub { held, released }
     }
 
     /// Release keyboard focus (e.g. after submitting).
