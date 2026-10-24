@@ -6,10 +6,10 @@
 //! reminder switch slides. Nothing moves while idle.
 
 use crate::commands::Command;
-use crate::gfx::{TextStyle, Weight};
+use crate::gfx::{ts, TextStyle, Weight};
 use crate::icons::Icon;
 use crate::state::AppState;
-use crate::ui::{wid, Ui};
+use crate::ui::{wid, PillStyle, Ui, PILL_GAP, PILL_REGULAR};
 use poni_core::datetime::{fmt_clock, LocalDateTime};
 use poni_core::geom::{lerp, palette, Color, Point, Rect};
 use poni_core::spring::Spring;
@@ -18,7 +18,15 @@ use std::cell::Cell;
 use std::f32::consts::TAU;
 use std::f64::consts::TAU as TAU64;
 
-const HEIGHT: f32 = 150.0;
+const HEIGHT: f32 = 144.0;
+/// The glass (its rim starts at the page's left edge) and the gap to the middle column.
+const GLASS_W: f32 = 64.0;
+const GLASS_H: f32 = 116.0;
+const MID_GAP: f32 = 24.0;
+/// Reminder switch, and its hit target (inflated to a comfortable size).
+const SWITCH_W: f32 = 28.0;
+const SWITCH_H: f32 = 16.0;
+const SWITCH_HIT: (f32, f32) = (44.0, 28.0);
 /// Length of the "+cup" bounce.
 const BUMP_S: f64 = 0.4;
 /// Length of the reminder switch slide.
@@ -93,18 +101,18 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
     let squash = bump.map(|b| 0.06 * (TAU * b).sin() * (1.0 - b)).unwrap_or(0.0);
     let slosh = (a.level.velocity.abs() / LEVEL_UNITS * 5.0).min(3.0) + bump.map(|b| 2.5 * (1.0 - b)).unwrap_or(0.0);
     let wave_phase = ((now * 8.0) % TAU64) as f32;
-    draw_glass(ui, Rect::new(area.x + 8.0, area.y + 17.0, 64.0, 116.0), shown, squash, slosh, wave_phase);
+    draw_glass(ui, Rect::new(area.x, area.y + 11.0, GLASS_W, GLASS_H), shown, squash, slosh, wave_phase);
 
     // ---- Columns: amount + buttons in the middle, chart + reminders on the right.
     let right_w = (area.w - 340.0).clamp(110.0, 250.0);
     let right_x = area.right() - right_w;
-    let mid_x = area.x + 96.0;
+    let mid_x = area.x + GLASS_W + MID_GAP;
     let mid_w = (right_x - 24.0 - mid_x).max(0.0);
 
-    draw_amount(ui, Rect::new(mid_x, area.y + 14.0, mid_w, 62.0), total, goal);
-    draw_buttons(ui, st, Rect::new(mid_x, area.y + 96.0, mid_w, 34.0), goal);
-    draw_reminder(ui, st, Rect::new(right_x, area.y + 10.0, right_w, 26.0), &mut a, switch_t);
-    draw_chart(ui, st, Rect::new(right_x, area.y + 52.0, right_w, 64.0), goal, shown);
+    draw_amount(ui, Rect::new(mid_x, area.y + 8.0, mid_w, 62.0), total, goal);
+    draw_buttons(ui, st, Rect::new(mid_x, area.y + 90.0, mid_w, PILL_REGULAR), goal);
+    draw_reminder(ui, st, Rect::new(right_x, area.y + 4.0, right_w, 26.0), &mut a, switch_t);
+    draw_chart(ui, st, Rect::new(right_x, area.y + 46.0, right_w, 64.0), goal, shown);
 
     a.last_draw = now;
     ANIM.with(|c| c.set(a));
@@ -146,6 +154,38 @@ impl Glass {
         let mut segs = vec![Seg::MoveTo(self.cx - self.half_at(y), y)];
         self.append_bowl(y, &mut segs);
         segs
+    }
+
+    /// The outline to stroke: [`Glass::bowl_from`] at the rim with the base
+    /// corners flattened into short lines. A curve continuing a straight
+    /// segment at the same tangent can stroke a stray spur on some Direct2D
+    /// implementations (Wine draws one along the base); at 8 steps per corner
+    /// the polyline stays within 0.1 DIP of the curve.
+    fn outline(&self) -> Vec<Seg> {
+        const STEPS: usize = 8;
+        let bowl = self.bowl_from(self.top);
+        let mut out = Vec::with_capacity(bowl.len() + 2 * STEPS);
+        let mut cur = (0.0f32, 0.0f32);
+        for s in bowl {
+            match s {
+                Seg::QuadTo(x1, y1, x, y) => {
+                    for k in 1..=STEPS {
+                        let t = k as f32 / STEPS as f32;
+                        let u = 1.0 - t;
+                        let px = u * u * cur.0 + 2.0 * u * t * x1 + t * t * x;
+                        let py = u * u * cur.1 + 2.0 * u * t * y1 + t * t * y;
+                        out.push(Seg::LineTo(px, py));
+                    }
+                    cur = (x, y);
+                }
+                Seg::MoveTo(x, y) | Seg::LineTo(x, y) => {
+                    out.push(s);
+                    cur = (x, y);
+                }
+                other => out.push(other),
+            }
+        }
+        out
     }
 
     /// Append the walls and base, from the left wall (already at `y`) to the right wall at `y`.
@@ -224,10 +264,12 @@ fn draw_glass(ui: &mut Ui, r: Rect, level: f32, squash: f32, slosh: f32, phase: 
         }
     }
 
-    // Reflection along the left wall, then the outline (open at the rim).
+    // Reflection along the left wall, the outline, then a thinner rim line
+    // across the top so the glass reads as a glass, not a cropped shape.
     let (ra, rb) = (g.top + 14.0, g.bottom - 22.0);
     ui.c.line(Point::new(g.cx - g.half_at(ra) + 8.0, ra), Point::new(g.cx - g.half_at(rb) + 8.0, rb), Color::white(0.14), 2.5);
-    ui.c.path(&g.bowl_from(g.top), None, Some((Color::white(0.3), 2.0)));
+    ui.c.path(&g.outline(), None, Some((Color::white(0.3), 2.0)));
+    ui.c.line(Point::new(g.cx - g.half_top, g.top), Point::new(g.cx + g.half_top, g.top), Color::white(0.3), 1.5);
 }
 
 // ------------------------------------------------------------ amount + buttons
@@ -235,8 +277,8 @@ fn draw_glass(ui: &mut Ui, r: Rect, level: f32, squash: f32, slosh: f32, phase: 
 /// "1.25" big + "/ 2.0 L", then "63% · 750 ml to go".
 fn draw_amount(ui: &mut Ui, r: Rect, total: u32, goal: u32) {
     let big = fmt_litres(total);
-    let big_st = TextStyle::new(30.0).weight(Weight::Semibold).tabular().top();
-    let small_st = TextStyle::new(14.0).color(palette::TEXT_DIM).top();
+    let big_st = TextStyle::display().tabular().top();
+    let small_st = TextStyle::new(ts::HEADLINE).color(palette::TEXT_DIM).top();
     let (bw, bh) = ui.c.measure(&big, &big_st, r.w);
     let (_, sh) = ui.c.measure("L", &small_st, r.w);
     ui.c.text(&big, Rect::new(r.x, r.y, bw + 2.0, bh), &big_st);
@@ -247,8 +289,8 @@ fn draw_amount(ui: &mut Ui, r: Rect, total: u32, goal: u32) {
 
     let pct = ((total as f64 / goal as f64) * 100.0).round() as u32;
     let line = Rect::new(r.x, r.y + 42.0, r.w, 18.0);
-    let strong = TextStyle::new(12.0).weight(Weight::Semibold);
-    let dim = TextStyle::new(12.0).color(palette::TEXT_DIM);
+    let strong = TextStyle::footnote().weight(Weight::Semibold);
+    let dim = TextStyle::footnote().color(palette::TEXT_DIM);
     if total >= goal {
         let ir = Rect::new(line.x, line.center().y - 6.5, 13.0, 13.0);
         ui.c.icon(Icon::Check, ir, palette::CYAN);
@@ -271,26 +313,30 @@ fn text_run(ui: &mut Ui, x: f32, line: Rect, s: &str, st: &TextStyle) -> f32 {
     x + w
 }
 
+/// "+cup" (the page's one primary action), "+2 cups" and a round undo, all Regular capsules.
 fn draw_buttons(ui: &mut Ui, st: &mut AppState, r: Rect, goal: u32) {
     let cup = st.settings.water.cup_ml.max(1);
     let big_cup = cup.saturating_mul(2);
-    // Preferred widths, squeezed proportionally on narrow islands.
-    let (mut w1, mut w2, gap, undo_w) = (98.0f32, 84.0f32, 8.0f32, r.h);
+    let (cup_label, big_label) = (fmt_add(cup), fmt_add(big_cup));
+    // Natural widths, squeezed proportionally on narrow islands.
+    let (gap, undo_w) = (PILL_GAP, r.h);
+    let mut w1 = ui.pill_width(&cup_label, true, false);
+    let mut w2 = ui.pill_width(&big_label, false, false);
     let need = w1 + w2 + undo_w + 2.0 * gap;
     if r.w < need {
         let k = ((r.w - undo_w - 2.0 * gap) / (w1 + w2)).max(0.5);
-        w1 *= k;
-        w2 *= k;
+        w1 = (w1 * k).floor();
+        w2 = (w2 * k).floor();
     }
     let r1 = Rect::new(r.x, r.y, w1, r.h);
     let r2 = Rect::new(r1.right() + gap, r.y, w2, r.h);
     let ru = Rect::new(r2.right() + gap, r.y, undo_w, r.h);
 
     let mut add = None;
-    if ui.pill_button(wid("water.cup"), r1, &fmt_add(cup), Some(Icon::DropFill), palette::CYAN.with_alpha(0.2), palette::CYAN).clicked {
+    if ui.pill(wid("water.cup"), r1, &cup_label, Some(Icon::DropFill), PillStyle::Primary(palette::CYAN)).clicked {
         add = Some(cup);
     }
-    if ui.pill_button(wid("water.bigcup"), r2, &fmt_add(big_cup), None, palette::SURFACE, palette::TEXT).clicked {
+    if ui.pill(wid("water.bigcup"), r2, &big_label, None, PillStyle::Neutral).clicked {
         add = Some(big_cup);
     }
     if let Some(ml) = add {
@@ -305,16 +351,17 @@ fn draw_buttons(ui: &mut Ui, st: &mut AppState, r: Rect, goal: u32) {
     }
 
     let can_undo = st.store.water.count(&st.day_key()) > 0;
-    ui.c.fill_circle(ru.center(), ru.h / 2.0, if can_undo { palette::SURFACE } else { palette::SURFACE.mul_alpha(0.5) });
     if can_undo {
-        if ui.icon_button(wid("water.undo"), ru, Icon::Undo, palette::TEXT, 15.0).clicked {
+        if ui.pill(wid("water.undo"), ru, "", Some(Icon::Undo), PillStyle::Utility).clicked {
             let day = st.day_key();
             if st.store.water.undo_last(&day).is_some() {
                 st.save();
             }
         }
     } else {
-        ui.c.icon(Icon::Undo, Rect::from_center(ru.center(), 15.0, 15.0), palette::TEXT_FAINT.mul_alpha(0.6));
+        // Inert: nothing logged today.
+        ui.c.fill_circle(ru.center(), ru.h / 2.0, palette::SURFACE.mul_alpha(0.5));
+        ui.c.icon(Icon::Undo, Rect::from_center(ru.center(), 14.0, 14.0), palette::DISABLED);
     }
 }
 
@@ -376,31 +423,47 @@ fn fmt_time_of_day(st: &AppState, secs: i64) -> String {
     fmt_clock(&t, st.settings.use_24h)
 }
 
+/// Bell + "Every 60 min · next 13:56" + switch. Only the switch (with an
+/// inflated hit target) and the bell toggle reminders; the text is inert.
 fn draw_reminder(ui: &mut Ui, st: &mut AppState, r: Rect, a: &mut Anim, switch_t: f32) {
     let enabled = st.settings.water.enabled;
-    let resp = ui.button(wid("water.remind"), r);
-    if resp.pressed {
-        ui.c.fill_rrect(r, r.h / 2.0, palette::SURFACE_HOVER);
-    } else if resp.hovered {
-        ui.c.fill_rrect(r, r.h / 2.0, palette::SURFACE);
-    }
     let cy = r.center().y;
     let on = enabled && st.settings.water.interval_min > 0;
-    ui.c.icon(Icon::Bell, Rect::new(r.x + 9.0, cy - 7.5, 15.0, 15.0), if on { palette::CYAN } else { palette::TEXT_FAINT });
 
-    // Switch on the right.
-    let sw = Rect::new(r.right() - 8.0 - 28.0, cy - 8.0, 28.0, 16.0);
+    // Bell on the left edge (its glyph lines up with the chart's goal line below).
+    let bell_hit = Rect::from_center(Point::new(r.x + 7.5, cy), 26.0, 26.0);
+    let bell_color = if on {
+        palette::CYAN
+    } else if ui.hovered(bell_hit) {
+        palette::TEXT_DIM
+    } else {
+        palette::TEXT_FAINT
+    };
+    let bell = ui.icon_button(wid("water.remind.bell"), bell_hit, Icon::Bell, bell_color, 15.0);
+
+    // Switch on the right edge.
+    let sw = Rect::new(r.right() - SWITCH_W, cy - SWITCH_H / 2.0, SWITCH_W, SWITCH_H);
+    let switch = ui.button(wid("water.remind"), Rect::from_center(sw.center(), SWITCH_HIT.0, SWITCH_HIT.1));
     let k = {
         let to = if enabled { 1.0 } else { 0.0 };
         lerp(1.0 - to, to, ease_out_cubic(switch_t))
     };
-    ui.c.fill_rrect(sw, sw.h / 2.0, Color::lerp(palette::TRACK, palette::CYAN, k));
+    let track = Color::lerp(palette::TRACK, palette::CYAN, k);
+    let lift = if switch.pressed {
+        0.2
+    } else if switch.hovered {
+        0.1
+    } else {
+        0.0
+    };
+    ui.c.fill_rrect(sw, sw.h / 2.0, Color::lerp(track, Color::white(1.0), lift));
     let knob = Point::new(lerp(sw.x + 8.0, sw.right() - 8.0, k), cy);
     ui.c.fill_circle(knob, 6.0, Color::white(0.96));
 
-    let line = Rect::new(r.x + 30.0, r.y, (sw.x - 6.0 - (r.x + 30.0)).max(0.0), r.h);
-    let strong = TextStyle::new(11.5).weight(Weight::Semibold);
-    let dim = TextStyle::new(11.5).color(palette::TEXT_DIM);
+    let tx = r.x + 22.0;
+    let line = Rect::new(tx, r.y, (sw.x - 8.0 - tx).max(0.0), r.h);
+    let strong = TextStyle::footnote().weight(Weight::Semibold);
+    let dim = TextStyle::footnote().color(palette::TEXT_DIM);
     if on {
         let x = text_run(ui, line.x, line, &format!("Every {} min", st.settings.water.interval_min), &strong);
         let tail = match next_reminder(st) {
@@ -415,7 +478,7 @@ fn draw_reminder(ui: &mut Ui, st: &mut AppState, r: Rect, a: &mut Anim, switch_t
         text_run(ui, line.x, line, if enabled { "Reminders paused" } else { "Reminders off" }, &dim);
     }
 
-    if resp.clicked {
+    if bell.clicked || switch.clicked {
         st.settings.water.enabled = !enabled;
         st.cmd(Command::SaveSettings);
         a.switch_at = st.now;
@@ -441,7 +504,7 @@ fn draw_chart(ui: &mut Ui, st: &AppState, r: Rect, goal: u32, today_shown: f32) 
     ui.c.text(
         &format!("{} L", fmt_litres_short(goal)),
         Rect::new(bars.right() + 5.0, goal_y - 7.0, label_w - 5.0, 14.0),
-        &TextStyle::new(10.5).color(palette::TEXT_FAINT),
+        &TextStyle::caption().color(palette::TEXT_FAINT),
     );
 
     let hist = st.store.water.history(&st.local, 7);
@@ -471,16 +534,16 @@ fn draw_chart(ui: &mut Ui, st: &AppState, r: Rect, goal: u32, today_shown: f32) 
         let back = i as i64 + 1 - n as i64;
         let wd = st.local.add_days(back).weekday() as usize % 7;
         let letter_st = if today {
-            TextStyle::new(10.5).weight(Weight::Semibold).color(palette::CYAN).center()
+            TextStyle::caption().weight(Weight::Semibold).color(palette::CYAN).center()
         } else {
-            TextStyle::new(10.5).color(if hovered { palette::TEXT_DIM } else { palette::TEXT_FAINT }).center()
+            TextStyle::caption().color(if hovered { palette::TEXT_DIM } else { palette::TEXT_FAINT }).center()
         };
         ui.c.text(WEEKDAY_LETTER[wd], Rect::new(col.x, bars.bottom() + 4.0, col.w, 14.0), &letter_st);
 
         if hovered {
             let text = if *ml == 0 { "—".to_string() } else { fmt_amount(*ml) };
             let tr = Rect::new(col.center().x - 30.0, (br.y - 16.0).max(r.y - 14.0), 60.0, 14.0);
-            ui.c.text(&text, tr, &TextStyle::new(10.5).weight(Weight::Semibold).tabular().center());
+            ui.c.text(&text, tr, &TextStyle::caption().weight(Weight::Semibold).tabular().center());
         }
     }
 }
@@ -488,7 +551,7 @@ fn draw_chart(ui: &mut Ui, st: &AppState, r: Rect, goal: u32, today_shown: f32) 
 // ------------------------------------------------------------ formatting
 
 /// Centilitres rounded, so 1250 → "1.25", 2000 → "2.0", 333 → "0.33".
-fn fmt_litres(ml: u32) -> String {
+pub(crate) fn fmt_litres(ml: u32) -> String {
     let cl = (ml.saturating_add(5)) / 10;
     if cl.is_multiple_of(10) {
         format!("{}.{}", cl / 100, (cl / 10) % 10)
