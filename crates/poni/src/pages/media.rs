@@ -4,21 +4,22 @@
 //! ```text
 //! ┌──────────┐  Title                        │  earlier line
 //! │          │  Artist                       │  previous line
-//! │   art    │  ( • Player )                 │  CURRENT LINE
+//! │   art    │  • Player                     │  CURRENT LINE
 //! │ 104×104  │  ━━━━━━━━━━━━━━━━━──────────  │  next line
 //! └──────────┘  1:23                 −2:10   │  later line
-//!                  ⏮      ( ▶ )      ⏭       │  Lyrics: LRCLIB
+//!                  ⏮      ( ▶ )      ⏭       │  (Lyrics: LRCLIB, on hover)
 //! ```
 //!
-//! Everything is laid out at the island's final width and centred on the
-//! body, so nothing reflows while the island springs open. All units are
-//! DIPs; static geometry is snapped to device pixels.
+//! The app lays pages out at the island's final size (and masks them with
+//! the island's outline while it springs open), so nothing reflows here.
+//! The art's top edge and the title's cap height share the content top.
+//! All units are DIPs; static geometry is snapped to device pixels.
 //!
 //! Animation state that has no home in `PageUiState` (velocities, the last
 //! frame time, a text-measurement cache) lives in a UI-thread `thread_local`.
 
 use crate::commands::{Command, MediaCmd};
-use crate::gfx::{TextStyle, Weight};
+use crate::gfx::{ts, TextStyle, Weight};
 use crate::icons::Icon;
 use crate::state::{AppState, LyricsState, LyricsStatus, MediaSession, PageUiState};
 use crate::ui::{wid, wid_n, Ui, WidgetId};
@@ -30,15 +31,15 @@ use std::collections::HashMap;
 
 // ---------------------------------------------------------------- layout
 
-/// Content height with a media session.
-const H_SESSION: f32 = 154.0;
+/// Content height with a media session (the play button's bottom + air).
+const H_SESSION: f32 = 148.0;
 /// Content height of the "Nothing playing" state.
 const H_EMPTY: f32 = 124.0;
 
 const ART: f32 = 104.0;
 const ART_RADIUS: f32 = 14.0;
-/// Art top offset, so its edge lines up with the title's cap height.
-const ART_TOP: f32 = 6.0;
+/// The art's first ink is the content top, like every page.
+const ART_TOP: f32 = 0.0;
 /// Art shrinks a little while paused (animated).
 const ART_PAUSED_SCALE: f32 = 0.94;
 const GAP_ART: f32 = 16.0;
@@ -46,20 +47,22 @@ const GAP_LYRICS: f32 = 20.0;
 const LYRICS_SHARE: f32 = 0.42;
 const MIN_MID_W: f32 = 176.0;
 const MIN_LYRICS_W: f32 = 110.0;
-/// Room around the area for hover pills and hit slop (stays inside the
-/// island's rounded bottom corners).
-const CLIP_MARGIN: f32 = 10.0;
 
-// Middle column rows (offsets from the content top).
-const TITLE_Y: f32 = 0.0;
-const ARTIST_Y: f32 = 22.0;
-const CHIP_Y: f32 = 47.0;
-const CHIP_H: f32 = 18.0;
-const BAR_Y: f32 = 79.0;
+// Middle column rows (offsets from the content top). The title's text box
+// starts above the top so its cap height (not its line box) meets the art's
+// top edge; the header leaves room for that. Title, artist and player sit on
+// a ~20 DIP rhythm; the bar + times group has about the same air (~14 DIPs
+// of ink gap) above it and above the controls.
+const TITLE_Y: f32 = -6.0;
+const TITLE_H: f32 = 22.0;
+const ARTIST_Y: f32 = 16.0;
+const SOURCE_Y: f32 = 37.0;
+const SOURCE_H: f32 = 18.0;
+const BAR_Y: f32 = 66.0;
 const BAR_H: f32 = 4.0;
-const TIMES_Y: f32 = 88.0;
+const TIMES_Y: f32 = 75.0;
 const TIMES_H: f32 = 14.0;
-const CONTROLS_CY: f32 = 128.0;
+const CONTROLS_CY: f32 = 122.0;
 
 const PLAY_D: f32 = 44.0;
 const SIDE_BTN: f32 = 38.0;
@@ -68,8 +71,10 @@ const CONTROL_ICON: f32 = 20.0;
 // ---------------------------------------------------------------- lyrics
 
 const LYRIC_MIN: f32 = 13.0;
-const LYRIC_MAX: f32 = 15.0;
-const LYRIC_GAP: f32 = 9.0;
+const LYRIC_MAX: f32 = 16.0;
+const LYRIC_GAP: f32 = 12.0;
+/// Uniform leading for lyric rows, so a wrapped line reads as one unit.
+const LYRIC_LEADING: f32 = 1.2;
 /// Highlight a line slightly early so the scroll lands as the line starts.
 const LYRIC_LEAD_S: f64 = 0.12;
 /// Show "intro" dots before the first line when it starts this late.
@@ -84,11 +89,13 @@ const JUMP_LAND_ROWS: f32 = 2.0;
 const EDGE_FADE: f32 = 26.0;
 const CREDIT_H: f32 = 14.0;
 const CREDIT_GAP: f32 = 4.0;
+/// The credit fades in while the pointer is over the lyrics column.
+const CREDIT_FADE_S: f32 = 0.15;
 const CREDIT: &str = "Lyrics: LRCLIB";
 const CREDIT_UNSYNCED: &str = "Lyrics: LRCLIB \u{b7} Unsynced";
 const LYRICS_URL: &str = "https://lrclib.net";
 
-const PLAIN_SIZE: f32 = 13.0;
+const PLAIN_SIZE: f32 = ts::BODY;
 const PLAIN_GAP: f32 = 5.0;
 const STANZA_GAP: f32 = 6.0;
 const PLAIN_MAX_LINES: usize = 400;
@@ -116,6 +123,8 @@ struct Anim {
     /// Unsynced lyrics: wanted scroll offset (DIPs); `lyric_pos` follows it.
     scroll_target: f32,
     scroll_vel: f32,
+    /// Lyrics credit opacity (0..1), following the pointer over the column.
+    credit_k: f32,
     /// Identity of the lyrics shown last frame (track, synced, shape).
     sig: Option<Sig>,
     /// Column width and DPI scale the measurements below were made at.
@@ -256,16 +265,12 @@ fn draw_session(ui: &mut Ui, st: &mut AppState, area: Rect, a: &mut Anim, fr: &F
     let now = st.now;
     let accent = st.media_accent();
     let lyrics_enabled = st.settings.lyrics;
-    let final_w = st.settings.expanded_width - 2.0 * super::PAD;
     let Some(m) = st.media.as_ref() else { return };
 
     let scale = ui.c.scale().max(0.5);
-    let w = if final_w > 0.0 { final_w } else { area.w };
-    let x0 = snap(area.center().x - w / 2.0, scale);
+    let w = area.w;
+    let x0 = snap(area.x, scale);
     let y0 = snap(area.y, scale);
-    // While the island springs open the content keeps its final layout and
-    // is revealed by the growing area (never drawn into the rounded corners).
-    ui.c.clip(Rect::new(area.x - CLIP_MARGIN, area.y - 2.0, area.w + 2.0 * CLIP_MARGIN, area.h + 6.0));
 
     // Columns.
     let lyr_w = (w * LYRICS_SHARE).min(w - ART - GAP_ART - GAP_LYRICS - MIN_MID_W).round();
@@ -294,7 +299,7 @@ fn draw_session(ui: &mut Ui, st: &mut AppState, area: Rect, a: &mut Anim, fr: &F
     let art_px = if art_settled { Some(scale) } else { None };
     draw_art(ui, m, Rect::new(x0, y0 + ART_TOP, ART, ART), a.art_scale, art_px);
 
-    // Title, artist, player chip.
+    // Title, artist, player.
     let title = match m.title.trim() {
         "" => "Unknown title",
         t => t,
@@ -303,20 +308,20 @@ fn draw_session(ui: &mut Ui, st: &mut AppState, area: Rect, a: &mut Anim, fr: &F
         "" => m.album.trim(),
         t => t,
     };
-    ui.c.text(title, Rect::new(mid.x, y0 + TITLE_Y, mid.w, 22.0), &TextStyle::new(15.5).weight(Weight::Semibold));
+    ui.c.text(title, Rect::new(mid.x, y0 + TITLE_Y, mid.w, TITLE_H), &TextStyle::headline());
     if !artist.is_empty() {
-        ui.c.text(artist, Rect::new(mid.x, y0 + ARTIST_Y, mid.w, 18.0), &TextStyle::new(13.0).color(palette::TEXT_DIM));
+        ui.c.text(artist, Rect::new(mid.x, y0 + ARTIST_Y, mid.w, 18.0), &TextStyle::body().color(palette::TEXT_DIM));
     }
     let app = m.app_name.trim();
-    let chip_label = match (app.is_empty(), playing) {
+    let source = match (app.is_empty(), playing) {
         (false, true) => Some(app.to_string()),
         (false, false) => Some(format!("{app} \u{b7} Paused")),
         (true, false) => Some("Paused".to_string()),
         (true, true) => None,
     };
-    if let Some(label) = chip_label {
+    if let Some(label) = source {
         let dot = if playing { accent } else { accent.mul_alpha(0.45) };
-        draw_chip(ui, mid.x, y0 + CHIP_Y, mid.w, &label, dot);
+        draw_source(ui, mid.x, y0 + SOURCE_Y, mid.w, &label, dot, scale);
     }
 
     // Progress + times.
@@ -332,7 +337,7 @@ fn draw_session(ui: &mut Ui, st: &mut AppState, area: Rect, a: &mut Anim, fr: &F
             let c = Point::new(bar.x + bar.w * progress, bar.y + bar.h / 2.0);
             ui.c.fill_circle(c, 6.0, palette::TEXT);
         }
-        let ts = TextStyle::new(11.5).tabular().color(palette::TEXT_DIM);
+        let ts = TextStyle::footnote().tabular().color(palette::TEXT_DIM);
         let half = mid.w / 2.0;
         let remaining = (tl.duration_s.floor() - pos.floor()).max(0.0);
         ui.c.text(&fmt_duration(pos), Rect::new(mid.x, y0 + TIMES_Y, half, TIMES_H), &ts);
@@ -375,7 +380,6 @@ fn draw_session(ui: &mut Ui, st: &mut AppState, area: Rect, a: &mut Anim, fr: &F
     } else if playing && (has_dur || synced_shown) {
         ui.request_live();
     }
-    ui.c.unclip();
 
     for c in acts {
         push_media(st, c);
@@ -429,29 +433,26 @@ fn draw_art(ui: &mut Ui, m: &MediaSession, r: Rect, scale: f32, px_scale: Option
     }
 }
 
-/// Small capsule: accent dot + player name.
-fn draw_chip(ui: &mut Ui, x: f32, y: f32, max_w: f32, label: &str, dot: Color) {
-    let ts = TextStyle::new(11.0).weight(Weight::Medium).color(palette::TEXT_FAINT);
-    let (tw, _) = ui.c.measure(label, &ts, max_w);
-    let (pad_l, dot_r, gap, pad_r) = (8.0, 3.0, 6.0, 9.0);
-    let w = (pad_l + 2.0 * dot_r + gap + tw + 2.0 + pad_r).min(max_w);
-    if w <= pad_l + 2.0 * dot_r + gap + pad_r {
+/// The player's name after a small accent dot, as plain secondary text.
+fn draw_source(ui: &mut Ui, x: f32, y: f32, max_w: f32, label: &str, dot: Color, scale: f32) {
+    let ts = TextStyle::footnote().color(palette::TEXT_DIM);
+    let (dot_r, gap) = (3.0, 6.0);
+    let tx = x + 2.0 * dot_r + gap;
+    let tw = (x + max_w - tx).max(0.0);
+    if tw < 24.0 {
         return;
     }
-    let r = Rect::new(x, y, w, CHIP_H);
-    ui.c.fill_rrect(r, CHIP_H / 2.0, Color::white(0.07));
-    ui.c.fill_circle(Point::new(x + pad_l + dot_r, y + CHIP_H / 2.0), dot_r, dot);
-    let tx = x + pad_l + 2.0 * dot_r + gap;
-    ui.c.text(label, Rect::new(tx, y, (r.right() - pad_r + 2.0 - tx).max(0.0), CHIP_H), &ts);
+    ui.c.fill_circle(Point::new(x + dot_r, snap(y + SOURCE_H / 2.0, scale)), dot_r, dot);
+    ui.c.text(label, Rect::new(tx, y, tw, SOURCE_H), &ts);
 }
 
-/// Previous / next. Disabled buttons are drawn faint and take no input.
+/// Previous / next. Disabled buttons are drawn inert and take no input.
 fn side_button(ui: &mut Ui, id: WidgetId, c: Point, icon: Icon, enabled: bool) -> bool {
     let r = Rect::from_center(c, SIDE_BTN, SIDE_BTN);
     if enabled {
         ui.icon_button(id, r, icon, palette::TEXT, CONTROL_ICON).clicked
     } else {
-        ui.c.icon(icon, Rect::from_center(c, CONTROL_ICON, CONTROL_ICON), palette::TEXT_FAINT);
+        ui.c.icon(icon, Rect::from_center(c, CONTROL_ICON, CONTROL_ICON), palette::DISABLED);
         false
     }
 }
@@ -461,8 +462,8 @@ fn play_button(ui: &mut Ui, c: Point, playing: bool, enabled: bool) -> bool {
     let icon = if playing { Icon::Pause } else { Icon::Play };
     let icon_r = Rect::from_center(c, CONTROL_ICON, CONTROL_ICON);
     if !enabled {
-        ui.c.fill_circle(c, PLAY_D / 2.0, Color::white(0.12));
-        ui.c.icon(icon, icon_r, palette::TEXT_FAINT);
+        ui.c.fill_circle(c, PLAY_D / 2.0, palette::SURFACE);
+        ui.c.icon(icon, icon_r, palette::DISABLED);
         return false;
     }
     let resp = ui.button(wid("media_play"), Rect::from_center(c, PLAY_D, PLAY_D));
@@ -573,7 +574,21 @@ fn draw_lyrics(
             CREDIT_UNSYNCED
         }
     };
-    out.open_credit = draw_credit(ui, col, credit);
+
+    // The attribution only shows while the pointer is over the column (the
+    // zone includes the credit's own hit slop so it stays while reaching it).
+    let hot = ui.hovered(Rect::new(col.x - 6.0, col.y, col.w + 12.0, col.h + 5.0));
+    let target = if hot { 1.0 } else { 0.0 };
+    if fr.resumed {
+        a.credit_k = target;
+    } else if a.credit_k != target {
+        let step = fr.dt / CREDIT_FADE_S;
+        a.credit_k = if target > a.credit_k { (a.credit_k + step).min(target) } else { (a.credit_k - step).max(target) };
+        out.animating = true;
+    }
+    if a.credit_k > 0.0 {
+        out.open_credit = draw_credit(ui, col, credit, smoothstep(a.credit_k));
+    }
     out
 }
 
@@ -582,19 +597,25 @@ fn draw_status(ui: &mut Ui, vp: Rect, msg: &str, pulse: Option<f64>) {
     let c = vp.center();
     let k = pulse.map_or(1.0, |t| 0.7 + 0.3 * (t * 3.2).sin() as f32);
     ui.c.icon(Icon::Lyrics, Rect::from_center(Point::new(c.x, c.y - 13.0), 20.0, 20.0), palette::TEXT_FAINT.mul_alpha(k));
-    let ts = TextStyle::new(12.5).color(palette::TEXT_DIM).center().wrap().top();
+    let ts = TextStyle::footnote().color(palette::TEXT_DIM).center().wrap().top();
     ui.c.text(msg, Rect::new(vp.x, c.y + 4.0, vp.w, 36.0), &ts);
 }
 
-/// Faint attribution at the bottom of the column; clicking it opens LRCLIB.
-fn draw_credit(ui: &mut Ui, col: Rect, label: &str) -> bool {
-    let ts = TextStyle::new(10.5);
+/// Attribution at the bottom of the column, faded in by `alpha`; clicking it
+/// opens LRCLIB.
+fn draw_credit(ui: &mut Ui, col: Rect, label: &str, alpha: f32) -> bool {
+    let ts = TextStyle::caption();
     let (tw, _) = ui.c.measure(label, &ts, col.w);
     let r = Rect::new(col.x, col.bottom() - CREDIT_H, (tw + 2.0).min(col.w), CREDIT_H);
-    let resp = ui.button(wid("media_lyrics_credit"), r.inset(-4.0, -3.0));
-    let color = if resp.hovered { palette::TEXT_DIM } else { palette::TEXT_FAINT };
-    ui.c.text(label, r, &ts.color(color));
+    let resp = ui.button(wid("media_lyrics_credit"), r.inset(-6.0, -5.0));
+    let color = if resp.hovered { palette::TEXT } else { palette::TEXT_DIM };
+    ui.c.with_alpha(alpha, |c| c.text(label, r, &ts.color(color)));
     resp.clicked
+}
+
+/// Lyric text style at `size` (wrapped, uniform leading).
+fn lyric_style(size: f32) -> TextStyle {
+    TextStyle::new(size).weight(Weight::Semibold).wrap().line_spacing(LYRIC_LEADING)
 }
 
 /// Wrapped lyric line size, cached per (row, size) for the current lyrics.
@@ -603,7 +624,7 @@ fn measure_row(ui: &mut Ui, a: &mut Anim, row: usize, size: f32, text: &str, wra
     if let Some(v) = a.sizes.get(&key) {
         return *v;
     }
-    let ts = TextStyle::new(size).weight(Weight::Semibold).wrap();
+    let ts = lyric_style(size);
     let (w, h) = ui.c.measure(text, &ts, wrap_w);
     let v = (w.min(wrap_w), h.max(size));
     a.sizes.insert(key, v);
@@ -675,7 +696,7 @@ fn draw_synced(
         let size = ((LYRIC_MIN + (LYRIC_MAX - LYRIC_MIN) * e) * 4.0).round() / 4.0;
         let text = if r < off { "" } else { lines[r - off].text.trim() };
         let wrap_w = vp.w * size / LYRIC_MAX;
-        let (w, h) = if text.is_empty() { (dots_width(size), size * 1.33) } else { measure_row(ui, a, r, size, text, wrap_w) };
+        let (w, h) = if text.is_empty() { (dots_width(size), size * LYRIC_LEADING) } else { measure_row(ui, a, r, size, text, wrap_w) };
         rows.push(Row { r, d, size, text, wrap_w, w, h, c: 0.0 });
     }
     let ik = k - lo;
@@ -706,8 +727,9 @@ fn draw_synced(
         if fade <= 0.01 {
             continue;
         }
-        // Current 0.96 → neighbours 0.62 → outer rows 0.38 (then the edge fade).
-        let base = if row.d <= 1.0 { lerp(0.96, 0.62, row.d) } else { lerp(0.62, 0.38, (row.d - 1.0).min(1.0)) };
+        // Current 1.0 → neighbours 0.40 → outer rows 0.24 (then the edge
+        // fade): a clear step, so the sung line stands out from its context.
+        let base = if row.d <= 1.0 { lerp(1.0, 0.40, row.d) } else { lerp(0.40, 0.24, (row.d - 1.0).min(1.0)) };
         let mut alpha = base * fade;
 
         let is_line = row.r >= off;
@@ -737,7 +759,7 @@ fn draw_synced(
             let breathe = if current && ctx.live { 1.0 + 0.12 * (ctx.now * 3.4).sin() as f32 } else { 1.0 };
             draw_dots(ui, vp.x, cy, row.size, alpha, lit, breathe);
         } else {
-            let ts = TextStyle::new(row.size).weight(Weight::Semibold).color(Color::white(alpha)).wrap().top();
+            let ts = lyric_style(row.size).color(Color::white(alpha)).top();
             ui.c.text(row.text, Rect::new(vp.x, y, row.wrap_w, row.h + 2.0), &ts);
         }
     }
@@ -798,7 +820,7 @@ fn draw_plain(ui: &mut Ui, l: &Lyrics, pui: &mut PageUiState, vp: Rect, a: &mut 
     // Fade an edge only while there is more text beyond it.
     let top_k = (offset / EDGE_FADE).clamp(0.0, 1.0);
     let bottom_k = ((max_off - offset) / EDGE_FADE).clamp(0.0, 1.0);
-    let ts = TextStyle::new(PLAIN_SIZE).weight(Weight::Semibold).wrap().top();
+    let ts = lyric_style(PLAIN_SIZE).top();
     ui.c.clip(vp);
     let mut y = if settled { snap(vp.y - offset, scale) } else { vp.y - offset };
     for (line, &h) in shown.iter().zip(&heights) {
