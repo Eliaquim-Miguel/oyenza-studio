@@ -10,6 +10,7 @@
 use crate::commands::{Command, OyenzaCmd};
 use crate::gfx::{TextStyle, Weight};
 use crate::pages::PageKind;
+use crate::pill::status;
 use crate::state::{AppState, OyenzaLink};
 use crate::ui::{wid, wid_n, PillStyle, Ui, PILL_GAP, PILL_REGULAR, PILL_SMALL};
 use poni_core::geom::{palette, Color, Point, Rect};
@@ -32,8 +33,16 @@ const COL_GAP: f32 = 24.0;
 /// A row's hover wash reaches this far past its text and switch.
 const ROW_BLEED: f32 = 8.0;
 /// Pickers: the selection's inset in the track, and each choice's padding.
+/// Side by side, the theme and idle look pickers may close their choices up
+/// to SEG_PAD_MIN to fit their columns (the Pill theme's five idle looks at
+/// the default width).
 const SEG_INSET: f32 = 2.0;
 const SEG_PAD: f32 = 11.0;
+const SEG_PAD_MIN: f32 = 8.5;
+/// Where they still don't fit (a narrow island), each takes a row: the
+/// label on the left, the picker on the right, in the room the labels-above
+/// layout uses, so the page keeps its height.
+const STACK_Y: [f32; 2] = [58.0, 86.0];
 /// The full-screen choice's picker, inside its row.
 const ROW_PICKER_H: f32 = 24.0;
 const SWITCH_W: f32 = 30.0;
@@ -44,7 +53,17 @@ const OYENZA: Color = palette::ORANGE;
 
 // Glass: on Windows from a copy of the screen, on a Mac macOS's own glass.
 const THEMES: [(Theme, &str); 4] = [(Theme::Classic, "Classic"), (Theme::Oyen, "Oyen"), (Theme::Glass, "Glass"), (Theme::Pill, "Pill")];
-const IDLE_STYLES: [IdleStyle; 5] = [IdleStyle::Clock, IdleStyle::Eyes, IdleStyle::Minimal, IdleStyle::Hidden, IdleStyle::Status];
+
+/// An idle look's name in the picker (`eyes` is Oyen in his theme).
+fn idle_name(s: IdleStyle, eyes: &'static str) -> &'static str {
+    match s {
+        IdleStyle::Clock => "Clock",
+        IdleStyle::Eyes => eyes,
+        IdleStyle::Minimal => "Minimal",
+        IdleStyle::Hidden => "Hidden",
+        IdleStyle::Status => "Status",
+    }
+}
 
 /// The five switches, as the tray menu names them.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -91,21 +110,36 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
     let cols = [area.x, area.x + col_w + COL_GAP];
     let label_st = TextStyle::caption().weight(Weight::Semibold).color(palette::TEXT_FAINT);
 
-    // Pickers.
-    ui.c.text("THEME", Rect::new(cols[0], area.y + LABELS_Y, col_w, 14.0), &label_st);
-    let names: Vec<&str> = THEMES.iter().map(|t| t.1).collect();
-    let sel = THEMES.iter().position(|t| t.0 == st.settings.theme).unwrap_or(0);
-    if let Some(i) = picker(ui, "settings.theme", cols[0], area.y + PICKERS_Y, PILL_SMALL, &names, sel) {
+    // Pickers: side by side under their labels where they fit, else a row each.
+    let theme_names: Vec<&str> = THEMES.iter().map(|t| t.1).collect();
+    let theme_sel = THEMES.iter().position(|t| t.0 == st.settings.theme).unwrap_or(0);
+    let looks = status::looks(st.settings.theme);
+    // In the Oyen theme the eyes are Oyen's own (as in the tray menu).
+    let eyes = if st.settings.theme == Theme::Oyen { "Oyen" } else { "Eyes" };
+    let look_names: Vec<&str> = looks.iter().map(|s| idle_name(*s, eyes)).collect();
+    let look_sel = looks.iter().position(|s| *s == status::shown(st.settings.theme, st.settings.idle_style)).unwrap_or(0);
+    let pad = pad_to_fit(ui, &theme_names, col_w).min(pad_to_fit(ui, &look_names, col_w));
+    let (theme_pick, look_pick) = if pad >= SEG_PAD_MIN {
+        ui.c.text("THEME", Rect::new(cols[0], area.y + LABELS_Y, col_w, 14.0), &label_st);
+        ui.c.text("IDLE LOOK", Rect::new(cols[1], area.y + LABELS_Y, col_w, 14.0), &label_st);
+        let y = area.y + PICKERS_Y;
+        (
+            picker_padded(ui, "settings.theme", cols[0], y, PILL_SMALL, &theme_names, theme_sel, pad),
+            picker_padded(ui, "settings.idle", cols[1], y, PILL_SMALL, &look_names, look_sel, pad),
+        )
+    } else {
+        let row = |i: usize| Rect::new(area.x, area.y + STACK_Y[i], area.w, ROW_H);
+        (
+            picker_row(ui, "settings.theme", row(0), "THEME", &label_st, &theme_names, theme_sel),
+            picker_row(ui, "settings.idle", row(1), "IDLE LOOK", &label_st, &look_names, look_sel),
+        )
+    };
+    if let Some(i) = theme_pick {
         st.settings.theme = THEMES[i].0;
         st.cmd(Command::SaveSettings);
     }
-    ui.c.text("IDLE LOOK", Rect::new(cols[1], area.y + LABELS_Y, col_w, 14.0), &label_st);
-    // In the Oyen theme the eyes are Oyen's own (as in the tray menu).
-    let eyes = if st.settings.theme == Theme::Oyen { "Oyen" } else { "Eyes" };
-    let names = ["Clock", eyes, "Minimal", "Hidden", "Status"];
-    let sel = IDLE_STYLES.iter().position(|s| *s == st.settings.idle_style).unwrap_or(0);
-    if let Some(i) = picker(ui, "settings.idle", cols[1], area.y + PICKERS_Y, PILL_SMALL, &names, sel) {
-        st.settings.idle_style = IDLE_STYLES[i];
+    if let Some(i) = look_pick {
+        st.settings.idle_style = looks[i];
         st.cmd(Command::SaveSettings);
     }
 
@@ -233,16 +267,40 @@ fn account_text(ui: &mut Ui, r: Rect, right: f32, title: &str, line: &str) {
 
 // ---------------------------------------------------------------- widgets
 
+/// The widest padding (up to SEG_PAD) that fits a picker of `names` into `w`.
+fn pad_to_fit(ui: &mut Ui, names: &[&str], w: f32) -> f32 {
+    let n = names.len().max(1) as f32;
+    let text: f32 = names.iter().map(|s| ui.c.measure(s, &picker_text(), 300.0).0).sum();
+    // Each choice's width is rounded up: up to a DIP each.
+    ((w - 2.0 * SEG_INSET - text - n) / (2.0 * n)).min(SEG_PAD)
+}
+
+/// A picker on a row of its own: its label on the left, the picker on the
+/// right (as the full-screen choice), closed up if the row is short.
+fn picker_row(ui: &mut Ui, id: &str, r: Rect, label: &str, label_st: &TextStyle, names: &[&str], sel: usize) -> Option<usize> {
+    let lw = ui.c.measure(label, label_st, 300.0).0.ceil();
+    let pad = pad_to_fit(ui, names, r.w - lw - 12.0).max(0.0);
+    let x = r.right() - picker_width_padded(ui, names, pad);
+    ui.c.text(label, Rect::new(r.x, r.y, (x - 10.0 - r.x).max(0.0), r.h), label_st);
+    picker_padded(ui, id, x, r.center().y - ROW_PICKER_H / 2.0, ROW_PICKER_H, names, sel, pad)
+}
+
 /// Choices side by side in a track `h` tall, the chosen one lifted (the
 /// Focus page's picker, a size smaller). Returns the choice clicked, if any.
 pub(crate) fn picker(ui: &mut Ui, id: &str, x: f32, y: f32, h: f32, names: &[&str], sel: usize) -> Option<usize> {
+    picker_padded(ui, id, x, y, h, names, sel, SEG_PAD)
+}
+
+/// [`picker`] with `pad` around each choice's name.
+#[allow(clippy::too_many_arguments)]
+fn picker_padded(ui: &mut Ui, id: &str, x: f32, y: f32, h: f32, names: &[&str], sel: usize, pad: f32) -> Option<usize> {
     let st = picker_text();
     let inner_h = h - 2.0 * SEG_INSET;
     let mut cx = x + SEG_INSET;
     let cells: Vec<Rect> = names
         .iter()
         .map(|n| {
-            let w = choice_width(ui, n);
+            let w = choice_width(ui, n, pad);
             let cell = Rect::new(cx, y + SEG_INSET, w, inner_h);
             cx += w;
             cell
@@ -276,13 +334,17 @@ fn picker_text() -> TextStyle {
 }
 
 /// One choice in a picker: its name and the padding around it.
-fn choice_width(ui: &mut Ui, name: &str) -> f32 {
-    (2.0 * SEG_PAD + ui.c.measure(name, &picker_text(), 300.0).0).ceil()
+fn choice_width(ui: &mut Ui, name: &str, pad: f32) -> f32 {
+    (2.0 * pad + ui.c.measure(name, &picker_text(), 300.0).0).ceil()
 }
 
 /// A whole picker: its choices and the track's inset.
 pub(crate) fn picker_width(ui: &mut Ui, names: &[&str]) -> f32 {
-    2.0 * SEG_INSET + names.iter().map(|n| choice_width(ui, n)).sum::<f32>()
+    picker_width_padded(ui, names, SEG_PAD)
+}
+
+fn picker_width_padded(ui: &mut Ui, names: &[&str], pad: f32) -> f32 {
+    2.0 * SEG_INSET + names.iter().map(|n| choice_width(ui, n, pad)).sum::<f32>()
 }
 
 /// A label with a switch at the row's right end; the whole row toggles.
