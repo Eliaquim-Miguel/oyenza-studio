@@ -1,0 +1,521 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Oyen Poni</title>
+<meta name="description" content="Oyen Poni is a living notch for Windows 10 and 11: music with synced lyrics, a focus timer, water reminders, a file shelf, tasks and your clipboard, one hover away at the top of your screen.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Oyen Poni">
+<meta property="og:description" content="A living notch for Windows 10 and 11: music with synced lyrics, a focus timer, water reminders, a file shelf, tasks and your clipboard, one hover away.">
+<meta property="og:image" content="https://lucacadalora.github.io/poni/brand/social-preview.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="brand/oyen-poni-logo.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700&display=swap">
+<style>
+/* Layout: every section is a strip of "the top of a screen". The island hangs
+   from the top edge of a sky wallpaper, at true size, the way it does on a PC.
+   One light look on purpose (Oyenza's own), so colours are set explicitly. */
+:root {
+  --bg: #ffffff;
+  --panel: #f5f5f7;
+  --panel-2: #ebebef;
+  --ink: #171717;
+  --muted: #6e6e73;
+  --line: #e2e2e7;
+  --orange: #f0892e;
+  --fold: #c9581a;
+  --cream: #fff0da;
+  --island: #000000;
+  --display: "Outfit", -apple-system, BlinkMacSystemFont, "Segoe UI Variable Display", "Segoe UI", sans-serif;
+  --sans: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif;
+  --radius: 24px;
+  --wrap: 1120px;
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.55 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
+a { color: inherit; }
+img { max-width: 100%; height: auto; display: block; }
+h1, h2, h3 { font-family: var(--display); font-weight: 600; letter-spacing: -0.02em; text-wrap: balance; margin: 0; }
+p { margin: 0; }
+.wrap {
+  max-width: var(--wrap);
+  margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.eyebrow { font: 600 12px/1 var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--fold); }
+.muted { color: var(--muted); }
+:focus-visible { outline: 2px solid var(--orange); outline-offset: 3px; border-radius: 8px; }
+
+/* ---------- top bar */
+.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: rgba(255, 255, 255, 0.86); backdrop-filter: saturate(1.4) blur(14px); border-bottom: 1px solid var(--line); }
+.bar .wrap { display: flex; align-items: center; gap: 24px; height: 60px; }
+.brand { display: flex; align-items: center; gap: 10px; text-decoration: none; font: 600 18px/1 var(--display); letter-spacing: -0.01em; }
+.brand img { width: 32px; height: 32px; }
+.bar nav { display: flex; gap: 22px; margin-left: auto; font-size: 14px; }
+.bar nav a { text-decoration: none; color: var(--muted); }
+.bar nav a:hover { color: var(--ink); }
+.btn { display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 20px; border-radius: 999px; font: 600 15px/1 var(--sans); text-decoration: none; border: 1px solid transparent; cursor: pointer; white-space: nowrap; }
+.btn-dark { background: var(--ink); color: #fff; }
+.btn-dark:hover { background: #000; }
+.btn-line { border-color: var(--line); background: var(--bg); color: var(--ink); }
+.btn-line:hover { border-color: #cfcfd6; }
+.btn-small { height: 36px; padding: 0 16px; font-size: 14px; }
+.btn svg { width: 18px; height: 18px; }
+
+/* ---------- the sky strip and the hanging island */
+.sky {
+  position: relative;
+  background: #f4d2b8 url("assets/wall/morning.jpg") center 30% / cover no-repeat;
+  overflow: hidden;
+}
+.island { position: relative; display: flex; justify-content: center; }
+.island img { width: auto; height: auto; max-width: 100%; }
+.look-oyen { display: none; }
+html[data-look="oyen"] .look-oyen { display: block; }
+html[data-look="oyen"] .look-classic { display: none; }
+
+/* ---------- hero */
+.hero .sky { border-bottom: 1px solid var(--line); }
+.hero-island { min-height: 300px; display: flex; justify-content: center; align-items: flex-start; }
+.hero-island button { all: unset; cursor: pointer; display: block; position: relative; }
+.hero-island .state { transition: opacity 0.25s ease, transform 0.35s cubic-bezier(0.2, 0.9, 0.25, 1.15); transform-origin: 50% 0; }
+.hero-island .open { position: absolute; left: 50%; top: 0; width: min(660px, 92vw); translate: -50% 0; opacity: 0; transform: scale(0.42); pointer-events: none; }
+.hero-island .open img { width: 100%; }
+.hero-island[data-open="true"] .open { opacity: 1; transform: scale(1); }
+.hero-island[data-open="true"] .closed { opacity: 0; transform: scale(1.6, 1.2); }
+.hero-hint { position: absolute; left: 50%; top: 66px; translate: -50% 0; font-size: 13px; color: rgba(23, 23, 23, 0.62); background: rgba(255, 255, 255, 0.62); padding: 6px 12px; border-radius: 999px; backdrop-filter: blur(6px); transition: opacity 0.2s; white-space: nowrap; }
+.hero-island[data-open="true"] .hero-hint { opacity: 0; }
+.hero-copy { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 380px); gap: 40px; align-items: end; padding-block: 56px 64px; }
+.hero h1 { font-size: clamp(40px, 6vw, 68px); line-height: 1.02; }
+.hero h1 span { color: var(--orange); }
+.hero .lead { font-size: 19px; color: #3a3a3e; max-width: 34em; margin-top: 18px; }
+.hero .ctas { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+.hero .small { margin-top: 14px; font-size: 13px; color: var(--muted); }
+.hero-oyen { align-self: end; }
+.look-switch { display: inline-flex; gap: 4px; padding: 4px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); margin-top: 22px; }
+.look-switch button { all: unset; cursor: pointer; padding: 8px 14px; border-radius: 999px; font: 600 13px/1 var(--sans); color: var(--muted); display: inline-flex; align-items: center; gap: 8px; }
+.look-switch button[aria-pressed="true"] { background: var(--bg); color: var(--ink); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08); }
+.look-switch button:focus-visible { outline: 2px solid var(--orange); }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--island); }
+.dot-oyen { background: var(--orange); }
+
+/* ---------- sections */
+section { padding-block: 88px; }
+.head { max-width: 640px; display: grid; gap: 12px; margin-bottom: 40px; }
+.head h2 { font-size: clamp(30px, 4vw, 44px); line-height: 1.08; }
+.head p { font-size: 18px; color: var(--muted); }
+
+/* while it rests: true-size strips */
+.rest-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 330px), 1fr)); gap: 16px; }
+.strip { border-radius: 18px; overflow: hidden; border: 1px solid var(--line); background: var(--panel); }
+.strip .sky { height: 112px; }
+.strip .island { padding-top: 0; }
+.strip figcaption { padding: 14px 16px 16px; display: grid; gap: 2px; }
+.strip strong { font: 600 16px/1.3 var(--display); }
+.strip span { font-size: 14px; color: var(--muted); }
+
+/* pages */
+.music { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 340px); gap: 32px; align-items: center; border-radius: var(--radius); background: var(--panel); padding: 28px; margin-bottom: 16px; }
+.music .sky { border-radius: 16px; padding-bottom: 28px; }
+.music h3 { font-size: 28px; }
+.music p { margin-top: 10px; color: #3a3a3e; }
+.music .oyen-pose { width: 150px; margin-top: 18px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 16px; }
+.card { border-radius: var(--radius); background: var(--panel); padding: 22px 22px 0; display: grid; grid-template-rows: auto auto 1fr; overflow: hidden; }
+.card-top { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 14px; align-items: center; }
+.card-top img { width: 72px; height: 72px; object-fit: contain; }
+.card h3 { font-size: 21px; }
+.card p { font-size: 15px; color: #3a3a3e; margin-top: 2px; }
+.card .shot { margin-top: 18px; border-radius: 14px 14px 0 0; overflow: hidden; align-self: end; }
+.card .shot .sky { padding-bottom: 14px; background-position: center 20%; }
+
+/* the Oyen theme */
+.theme { background: linear-gradient(180deg, var(--bg), var(--cream) 22%, var(--cream) 78%, var(--bg)); }
+.compare { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.pair { border-radius: 18px; background: var(--bg); border: 1px solid #f1dcc1; overflow: hidden; }
+.pair .sky { height: 96px; }
+.pair .sky + .sky { border-top: 1px solid rgba(255, 255, 255, 0.5); }
+.pair .tag { position: absolute; left: 10px; bottom: 8px; font: 600 11px/1 var(--sans); letter-spacing: 0.06em; text-transform: uppercase; color: rgba(23, 23, 23, 0.7); background: rgba(255, 255, 255, 0.7); padding: 5px 8px; border-radius: 999px; }
+.pair figcaption { padding: 14px 16px 16px; display: grid; gap: 2px; }
+.pair strong { font: 600 16px/1.3 var(--display); }
+.pair span { font-size: 14px; color: var(--muted); }
+.theme-notes { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px; margin-top: 40px; align-items: center; }
+.theme-notes ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 12px; }
+.theme-notes li { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 10px; font-size: 16px; }
+.theme-notes li::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--orange); margin-top: 8px; }
+.how { margin-top: 18px; font-size: 15px; color: var(--muted); }
+.how kbd { font: 600 13px/1 var(--sans); background: var(--bg); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 6px; padding: 3px 7px; color: var(--ink); }
+
+/* Oyenza */
+.oyenza { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr); gap: 40px; align-items: center; border-radius: 32px; background: var(--ink); color: #fff; padding: 48px; }
+.oyenza .eyebrow { color: var(--orange); }
+.oyenza h2 { font-size: clamp(28px, 3.6vw, 40px); line-height: 1.1; margin-top: 12px; }
+.oyenza p { color: rgba(255, 255, 255, 0.72); margin-top: 14px; font-size: 17px; }
+.oyenza ul { list-style: none; padding: 0; margin: 22px 0 0; display: grid; gap: 10px; }
+.oyenza li { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 10px; color: rgba(255, 255, 255, 0.86); }
+.oyenza li b { color: #fff; font-weight: 600; }
+.oyenza li::before { content: ""; width: 18px; height: 18px; border-radius: 6px; background: rgba(240, 137, 46, 0.22); border: 1px solid rgba(240, 137, 46, 0.6); margin-top: 3px; }
+.soon { display: inline-block; font: 600 11px/1 var(--sans); letter-spacing: 0.06em; text-transform: uppercase; padding: 6px 10px; border-radius: 999px; background: rgba(240, 137, 46, 0.16); color: var(--orange); margin-left: 10px; vertical-align: middle; }
+.oyenza .fine { font-size: 14px; color: rgba(255, 255, 255, 0.55); margin-top: 22px; }
+
+/* privacy + install */
+.facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.fact { border-top: 2px solid var(--ink); padding-top: 16px; display: grid; gap: 6px; }
+.fact h3 { font-size: 20px; }
+.fact p { color: #3a3a3e; font-size: 15px; }
+.install { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 40px; align-items: start; }
+.steps { list-style: none; padding: 0; margin: 0; display: grid; gap: 14px; counter-reset: s; }
+.steps li { counter-increment: s; display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 12px; align-items: start; }
+.steps li::before { content: counter(s); width: 32px; height: 32px; border-radius: 50%; background: var(--panel); border: 1px solid var(--line); display: grid; place-items: center; font: 600 14px/1 var(--display); }
+.steps b { font-weight: 600; }
+.steps p { color: var(--muted); font-size: 15px; }
+.where { margin-top: 20px; background: var(--panel); border-radius: 16px; padding: 16px 18px; font-size: 14px; color: #3a3a3e; display: grid; gap: 6px; }
+.where code { font: 13px/1.4 ui-monospace, "Cascadia Mono", Consolas, monospace; background: var(--bg); border: 1px solid var(--line); padding: 1px 6px; border-radius: 6px; word-break: break-all; }
+
+footer { padding-block: 40px 56px; color: var(--muted); font-size: 14px; }
+footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 28px; align-items: center; }
+footer .grow { flex: 1 1 auto; }
+footer a { color: var(--muted); }
+
+@media (max-width: 900px) {
+  .hero-copy, .music, .theme-notes, .oyenza, .install { grid-template-columns: minmax(0, 1fr); }
+  .compare, .facts { grid-template-columns: minmax(0, 1fr); }
+  .hero-oyen { max-width: 320px; }
+  .oyenza { padding: 32px 24px; }
+}
+@media (max-width: 640px) {
+  .bar nav { display: none; }
+  .bar .btn { margin-left: auto; }
+  section { padding-block: 64px; }
+  .hero-island { min-height: 200px; }
+  .hero-hint { top: 58px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero-island .state { transition: none; }
+}
+</style>
+</head>
+<body>
+<header class="bar">
+  <div class="wrap">
+    <a class="brand" href="#top"><img src="brand/oyen-poni-logo.svg" alt="" width="32" height="32">Oyen Poni</a>
+    <nav aria-label="Sections">
+      <a href="#features">Features</a>
+      <a href="#oyen">Oyen theme</a>
+      <a href="#oyenza">Oyenza</a>
+      <a href="#install">Install</a>
+      <a href="https://github.com/lucacadalora/poni">GitHub</a>
+    </nav>
+    <a class="btn btn-dark btn-small" href="https://github.com/lucacadalora/poni/releases/latest/download/Oyen-Poni-Setup.exe">Download</a>
+  </div>
+</header>
+
+<main id="top">
+  <div class="hero">
+    <div class="sky">
+      <div class="hero-island" id="heroIsland" data-open="true">
+        <button type="button" id="heroToggle" aria-expanded="true" aria-label="Close the island">
+          <div class="state closed">
+            <img class="look-classic" src="assets/shots/classic/media-activity.webp" alt="The island while music plays: album art and a little equalizer" width="135" height="32">
+            <img class="look-oyen" src="assets/shots/oyen/media-activity.webp" alt="The island in the Oyen theme: album art, and Oyen bobbing to the music" width="135" height="32">
+          </div>
+          <div class="state open">
+            <img class="look-classic" src="assets/shots/classic/page-media.webp" alt="The open island: the Music page with synced lyrics" width="660" height="227">
+            <img class="look-oyen" src="assets/shots/oyen/page-media.webp" alt="The open island in the Oyen theme: the Music page with synced lyrics" width="660" height="227">
+          </div>
+        </button>
+        <span class="hero-hint">Click the island to open it</span>
+      </div>
+    </div>
+    <div class="wrap hero-copy">
+      <div>
+        <p class="eyebrow">For Windows 10 and 11</p>
+        <h1>A living notch <span>for Windows</span></h1>
+        <p class="lead">Oyen Poni hangs a small island from the top of your screen. It shows what is happening, and opens into quick pages when you point at it: music with synced lyrics, a focus timer, water reminders, a file shelf, tasks and your clipboard.</p>
+        <div class="ctas">
+          <a class="btn btn-dark" href="https://github.com/lucacadalora/poni/releases/latest/download/Oyen-Poni-Setup.exe">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 19h14"/></svg>
+            Download for Windows
+          </a>
+          <a class="btn btn-line" href="https://github.com/lucacadalora/poni">Source on GitHub</a>
+        </div>
+        <p class="small">Free and open source (MIT) · About 1.7 MB · No account needed · <a href="https://github.com/lucacadalora/poni/releases">All releases</a></p>
+        <div class="look-switch" role="group" aria-label="Island look">
+          <button type="button" data-look="classic" aria-pressed="true"><span class="dot"></span>Classic</button>
+          <button type="button" data-look="oyen" aria-pressed="false"><span class="dot dot-oyen"></span>Oyen theme</button>
+        </div>
+      </div>
+      <img class="hero-oyen" src="brand/art/oyen-poni-peek.webp" alt="Oyen, an orange plush cat, peeking over the island while a song plays" width="1200" height="661">
+    </div>
+  </div>
+
+  <section id="features">
+    <div class="wrap">
+      <div class="head">
+        <p class="eyebrow">While it rests</p>
+        <h2>The island shows what's happening</h2>
+        <p>Small and quiet at the top edge. It grows only when something needs a moment of your attention, then gets out of the way.</p>
+      </div>
+      <div class="rest-grid">
+        <figure class="strip" style="margin:0">
+          <div class="sky"><div class="island">
+            <img class="look-classic" src="assets/shots/classic/media-activity.webp" alt="Album art and an equalizer" width="135" height="32" loading="lazy">
+            <img class="look-oyen" src="assets/shots/oyen/media-activity.webp" alt="Album art and Oyen bobbing to the music" width="135" height="32" loading="lazy">
+          </div></div>
+          <figcaption><strong>Music playing</strong><span>Album art and a beat. The title peeks in when the song changes.</span></figcaption>
+        </figure>
+        <figure class="strip" style="margin:0">
+          <div class="sky"><div class="island">
+            <img class="look-classic" src="assets/shots/classic/timer-activity.webp" alt="A focus countdown with a progress ring" width="111" height="32" loading="lazy">
+            <img class="look-oyen" src="assets/shots/oyen/timer-activity.webp" alt="A focus countdown with a progress ring" width="111" height="32" loading="lazy">
+          </div></div>
+          <figcaption><strong>Focus timer</strong><span>The countdown keeps going in the island while you work.</span></figcaption>
+        </figure>
+        <figure class="strip" style="margin:0">
+          <div class="sky"><div class="island">
+            <img class="look-classic" src="assets/shots/classic/volume-hud.webp" alt="The volume level" width="331" height="40" loading="lazy">
+            <img class="look-oyen" src="assets/shots/oyen/volume-hud.webp" alt="The volume level" width="331" height="40" loading="lazy">
+          </div></div>
+          <figcaption><strong>Volume and charging</strong><span>A clean pop-up when you change the volume or plug in.</span></figcaption>
+        </figure>
+        <figure class="strip" style="margin:0">
+          <div class="sky"><div class="island">
+            <img class="look-classic" src="assets/shots/classic/bluetooth-hud.webp" alt="Headphones connected, with battery level" width="351" height="46" loading="lazy">
+            <img class="look-oyen" src="assets/shots/oyen/bluetooth-hud.webp" alt="Headphones connected, with battery level" width="351" height="46" loading="lazy">
+          </div></div>
+          <figcaption><strong>Headphones connected</strong><span>Bluetooth headsets say hello, with their battery level.</span></figcaption>
+        </figure>
+        <figure class="strip" style="margin:0">
+          <div class="sky"><div class="island">
+            <img class="look-classic" src="assets/shots/classic/water-notice.webp" alt="A water reminder with a +250 ml button" width="387" height="52" loading="lazy">
+            <img class="look-oyen" src="assets/shots/oyen/water-notice.webp" alt="A water reminder with a +250 ml button" width="387" height="52" loading="lazy">
+          </div></div>
+          <figcaption><strong>Reminders you can answer</strong><span>Log a glass of water with one click, right in the island.</span></figcaption>
+        </figure>
+        <figure class="strip" style="margin:0">
+          <div class="sky"><div class="island">
+            <img class="look-classic" src="assets/shots/classic/idle-clock.webp" alt="The resting island with a clock" width="99" height="30" loading="lazy">
+            <img class="look-oyen" src="assets/shots/oyen/idle-clock.webp" alt="The resting island with a clock and Oyen peeking" width="133" height="30" loading="lazy">
+          </div></div>
+          <figcaption><strong>Resting</strong><span>A clock, a pair of eyes, a blank notch, or nothing until you point.</span></figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <section style="padding-top:0">
+    <div class="wrap">
+      <div class="head">
+        <p class="eyebrow">Point at it</p>
+        <h2>Seven quick pages, one hover away</h2>
+        <p>Point at the island or click it and it opens. Scroll over the header to switch pages.</p>
+      </div>
+      <div class="music">
+        <div class="sky"><div class="island">
+          <img class="look-classic" src="assets/shots/classic/page-media.webp" alt="The Music page: controls and time-synced lyrics" width="660" height="227" loading="lazy">
+          <img class="look-oyen" src="assets/shots/oyen/page-media.webp" alt="The Music page in the Oyen theme" width="660" height="227" loading="lazy">
+        </div></div>
+        <div>
+          <h3>Music, with the words</h3>
+          <p>Controls for whatever is playing: Spotify, Apple Music, YouTube in your browser, or any app that shows up in Windows' media controls. Lyrics scroll along with the song, from the free LRCLIB library, or Apple Music's own synced lyrics if you have a subscription.</p>
+          <img class="oyen-pose" src="brand/art/poses/oyen-music.webp" alt="Oyen in headphones" width="480" height="560" loading="lazy">
+        </div>
+      </div>
+      <div class="cards">
+        <article class="card">
+          <div class="card-top"><img src="brand/art/poses/oyen-focus.webp" alt="" width="480" height="466" loading="lazy"><div><h3>Focus</h3><p>A Pomodoro timer that keeps counting in the island.</p></div></div>
+          <div></div>
+          <div class="shot"><div class="sky"><div class="island">
+            <img class="look-classic" src="assets/shots/classic/page-focus.webp" alt="The Focus page" width="660" height="223" loading="lazy">
+            <img class="look-oyen" src="assets/shots/oyen/page-focus.webp" alt="The Focus page in the Oyen theme" width="660" height="223" loading="lazy">
+          </div></div></div>
+        </article>
+        <article class="card">
+          <div class="card-top"><img src="brand/art/poses/oyen-water.webp" alt="" width="480" height="592" loading="lazy"><div><h3>Water</h3><p>A daily goal, one-tap logging, a week of history and gentle reminders.</p></div></div>
+          <div></div>
+          <div class="shot"><div class="sky"><div class="island">
+            <img class="look-classic" src="assets/shots/classic/page-water.webp" alt="The Water page" width="660" height="223" loading="lazy">
+            <img class="look-oyen" src="assets/shots/oyen/page-water.webp" alt="The Water page in the Oyen theme" width="660" height="223" loading="lazy">
+          </div></div></div>
+        </article>
+        <article class="card">
+          <div class="card-top"><img src="brand/art/poses/oyen-shelf.webp" alt="" width="480" height="660" loading="lazy"><div><h3>Shelf</h3><p>Drop files on the island to keep them handy. Click to open, or drag them back out.</p></div></div>
+          <div></div>
+          <div class="shot"><div class="sky"><div class="island">
+            <img class="look-classic" src="assets/shots/classic/page-shelf.webp" alt="The Shelf page" width="660" height="229" loading="lazy">
+            <img class="look-oyen" src="assets/shots/oyen/page-shelf.webp" alt="The Shelf page in the Oyen theme" width="660" height="229" loading="lazy">
+          </div></div></div>
+        </article>
+        <article class="card">
+          <div class="card-top"><img src="brand/art/poses/oyen-tasks.webp" alt="" width="480" height="577" loading="lazy"><div><h3>Tasks</h3><p>A tiny to-do list for the things you'd otherwise forget.</p></div></div>
+          <div></div>
+          <div class="shot"><div class="sky"><div class="island">
+            <img class="look-classic" src="assets/shots/classic/page-tasks.webp" alt="The Tasks page" width="660" height="279" loading="lazy">
+            <img class="look-oyen" src="assets/shots/oyen/page-tasks.webp" alt="The Tasks page in the Oyen theme" width="660" height="279" loading="lazy">
+          </div></div></div>
+        </article>
+        <article class="card">
+          <div class="card-top"><img src="brand/art/poses/oyen-clipboard.webp" alt="" width="480" height="477" loading="lazy"><div><h3>Clipboard</h3><p>Recent copied text, kept in memory only. It skips anything a password manager marks as private.</p></div></div>
+          <div></div>
+          <div class="shot"><div class="sky"><div class="island">
+            <img class="look-classic" src="assets/shots/classic/page-clipboard.webp" alt="The Clipboard page" width="660" height="283" loading="lazy">
+            <img class="look-oyen" src="assets/shots/oyen/page-clipboard.webp" alt="The Clipboard page in the Oyen theme" width="660" height="283" loading="lazy">
+          </div></div></div>
+        </article>
+        <article class="card">
+          <div class="card-top"><img src="brand/art/poses/oyen-today.webp" alt="" width="480" height="499" loading="lazy"><div><h3>Today</h3><p>The date and calendar, plus CPU, memory, disk and battery at a glance.</p></div></div>
+          <div></div>
+          <div class="shot"><div class="sky"><div class="island">
+            <img class="look-classic" src="assets/shots/classic/page-today.webp" alt="The Today page" width="660" height="243" loading="lazy">
+            <img class="look-oyen" src="assets/shots/oyen/page-today.webp" alt="The Today page in the Oyen theme" width="660" height="243" loading="lazy">
+          </div></div></div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="theme" id="oyen">
+    <div class="wrap">
+      <div class="head">
+        <p class="eyebrow">New in 0.1.4 · Optional</p>
+        <h2>Oyen moves into the island</h2>
+        <p>The island stays black and quiet by default. Switch on the Oyen theme and Oyen, the Oyenza cat, peeks over its edge, the same Oyen as in the Oyenza app.</p>
+      </div>
+      <div class="compare">
+        <figure class="pair" style="margin:0">
+          <div class="sky"><div class="island"><img src="assets/shots/classic/idle-eyes.webp" alt="Classic: two white eyes" width="133" height="30" loading="lazy"></div><span class="tag">Classic</span></div>
+          <div class="sky"><div class="island"><img src="assets/shots/oyen/idle-eyes.webp" alt="Oyen theme: Oyen peeking over the island's edge" width="119" height="36" loading="lazy"></div><span class="tag">Oyen</span></div>
+          <figcaption><strong>Resting</strong><span>He blinks now and then, and watches your pointer when it comes near.</span></figcaption>
+        </figure>
+        <figure class="pair" style="margin:0">
+          <div class="sky"><div class="island"><img src="assets/shots/classic/idle-clock.webp" alt="Classic: the clock" width="99" height="30" loading="lazy"></div><span class="tag">Classic</span></div>
+          <div class="sky"><div class="island"><img src="assets/shots/oyen/idle-clock.webp" alt="Oyen theme: the clock with Oyen beside it" width="133" height="30" loading="lazy"></div><span class="tag">Oyen</span></div>
+          <figcaption><strong>Clock</strong><span>Keep the clock and have Oyen keep you company.</span></figcaption>
+        </figure>
+        <figure class="pair" style="margin:0">
+          <div class="sky"><div class="island"><img src="assets/shots/classic/media-activity.webp" alt="Classic: album art and an equalizer" width="135" height="32" loading="lazy"></div><span class="tag">Classic</span></div>
+          <div class="sky"><div class="island"><img src="assets/shots/oyen/media-activity.webp" alt="Oyen theme: Oyen bobbing to the music" width="135" height="32" loading="lazy"></div><span class="tag">Oyen</span></div>
+          <figcaption><strong>Music</strong><span>Oyen bobs along while a song plays.</span></figcaption>
+        </figure>
+      </div>
+      <div class="theme-notes">
+        <ul>
+          <li><span>Built from the Oyenza logo, so he stays sharp at every size and scaling.</span></li>
+          <li><span>He moves only when something happens and sleeps after midnight. Oyen Poni still uses no CPU while nothing moves.</span></li>
+          <li><span>Oyen's orange becomes the accent colour across the pages: today's date, ticked tasks, the pin.</span></li>
+        </ul>
+        <div>
+          <img src="brand/art/oyen-poni-asleep.webp" alt="Oyen asleep on the island while a song plays" width="900" height="654" loading="lazy" style="width:min(340px,100%)">
+          <p class="how">Right-click the island, then <kbd>Theme</kbd> › <kbd>Oyen</kbd>. Switch back to <kbd>Classic</kbd> any time.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="oyenza">
+    <div class="wrap">
+      <div class="oyenza">
+        <div>
+          <p class="eyebrow">Oyenza account<span class="soon">Coming soon</span></p>
+          <h2>Your Oyenza, at the top of your screen</h2>
+          <p>Sign in with your <a href="https://oyenza.app" style="color:#fff">oyenza.app</a> account and the island can show what Oyenza sees, when you want it to.</p>
+          <ul>
+            <li><span><b>Money as it arrives.</b> A transfer lands and the island opens with who sent it.</span></li>
+            <li><span><b>Bills before they're due.</b> A quiet reminder the day before a subscription renews.</span></li>
+            <li><span><b>Note a spend in a second.</b> Type it in the island and it goes straight to Oyenza.</span></li>
+          </ul>
+          <p class="fine">Signing in will be optional. Oyen Poni keeps working fully without an account, and you can disconnect it from oyenza.app at any time.</p>
+        </div>
+        <img src="brand/art/oyen-poni-sit.webp" alt="Oyen sitting on the island while a song plays" width="893" height="1200" loading="lazy">
+      </div>
+    </div>
+  </section>
+
+  <section style="padding-top:0">
+    <div class="wrap">
+      <div class="head">
+        <p class="eyebrow">Private by design</p>
+        <h2>Your data stays on your PC</h2>
+      </div>
+      <div class="facts">
+        <div class="fact"><h3>No account needed</h3><p>No sign-up and no tracking. Tasks, water and focus history are files in your own user folder.</p></div>
+        <div class="fact"><h3>Clipboard in memory</h3><p>Copied text is never written to disk, and anything a password manager marks private is skipped.</p></div>
+        <div class="fact"><h3>Light on your PC</h3><p>Native Rust, no web view. It uses no CPU while nothing on the island is moving.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="install" style="padding-top:0">
+    <div class="wrap install">
+      <div>
+        <div class="head" style="margin-bottom:24px">
+          <p class="eyebrow">Install</p>
+          <h2>Ready in under a minute</h2>
+        </div>
+        <ol class="steps">
+          <li><div><b>Download the installer</b><p>Oyen-Poni-Setup.exe, from the latest release on GitHub. A portable zip is on the <a href="https://github.com/lucacadalora/poni/releases">Releases</a> page too.</p></div></li>
+          <li><div><b>Run it</b><p>It installs just for you and needs no admin rights.</p></div></li>
+          <li><div><b>If Windows warns you</b><p>Builds aren't code-signed yet, so SmartScreen may say "Windows protected your PC". Choose More info, then Run anyway.</p></div></li>
+        </ol>
+        <div class="ctas" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:24px">
+          <a class="btn btn-dark" href="https://github.com/lucacadalora/poni/releases/latest/download/Oyen-Poni-Setup.exe">Download for Windows</a>
+        </div>
+      </div>
+      <div>
+        <div class="where">
+          <b>Where things live</b>
+          <span>Your data: <code>%APPDATA%\Poni\</code></span>
+          <span>Cache and log: <code>%LOCALAPPDATA%\Poni\</code></span>
+          <span>Uninstalling removes the app, cache and log, and keeps your data.</span>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span class="grow">© 2026 oyenza.com · Website designed by Jatevo Labs Limited</span>
+    <a href="https://github.com/lucacadalora/poni">Open source (MIT)</a>
+    <a href="https://lrclib.net">Lyrics by LRCLIB</a>
+  </div>
+</footer>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  var buttons = document.querySelectorAll('.look-switch button');
+  function setLook(look) {
+    root.setAttribute('data-look', look);
+    buttons.forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.look === look)); });
+    try { localStorage.setItem('oyen-poni-look', look); } catch (e) {}
+  }
+  var saved = null;
+  try { saved = localStorage.getItem('oyen-poni-look'); } catch (e) {}
+  setLook(saved === 'oyen' ? 'oyen' : 'classic');
+  buttons.forEach(function (b) { b.addEventListener('click', function () { setLook(b.dataset.look); }); });
+
+  // The hero island starts open; a click closes it to its resting pill and back.
+  var island = document.getElementById('heroIsland');
+  var toggle = document.getElementById('heroToggle');
+  function open(v) {
+    island.dataset.open = String(v);
+    toggle.setAttribute('aria-expanded', String(v));
+    toggle.setAttribute('aria-label', v ? 'Close the island' : 'Open the island');
+  }
+  toggle.addEventListener('click', function () { open(island.dataset.open !== 'true'); });
+})();
+</script>
+</body>
+</html>
