@@ -1185,7 +1185,7 @@ impl App {
                 self.end_sign_in();
                 self.st.oyenza = crate::state::OyenzaState::default();
                 let (title, subtitle) =
-                    if by_server { ("Oyenza disconnected", "Sign in again from the tray") } else { ("Disconnected from Oyenza", "Sign in again any time from the tray") };
+                    if by_server { ("Oyenza disconnected", "Sign in again in Settings") } else { ("Disconnected from Oyenza", "Sign in again any time in Settings") };
                 self.st.notify(Icon::Unlink, palette::TEXT_DIM, title, subtitle, 6.0, None);
             }
         }
@@ -1325,6 +1325,8 @@ impl App {
                 if let Err(e) = crate::autostart::set_enabled(!on) {
                     pwarn!("autostart toggle failed: {e}");
                 }
+                // The Settings page's switch follows.
+                crate::autostart::report(self.sink.clone(), None);
             }
             OpenSettings => {
                 if !paths::settings_path().exists() {
@@ -1527,6 +1529,7 @@ impl App {
             AppEvent::AppleMusic(status) => self.on_apple_music(status),
             AppEvent::Phone(e) => self.on_phone(e),
             AppEvent::Oyenza(ev) => self.on_oyenza(ev),
+            AppEvent::Autostart(on) => self.st.ui.autostart = Some(on),
             AppEvent::Log(s) => pinfo!("{s}"),
         }
         if let Some(before) = media_before {
@@ -1602,6 +1605,10 @@ impl App {
             self.st.ui.clip_flash = None;
             // Sums shown in the Oyenza tab hide again.
             self.st.oyenza.reveal = false;
+            // Settings closes with the island: it opens again on the page it was opened from.
+            if self.st.page == PageKind::Settings {
+                self.st.page = self.st.ui.before_settings.take().filter(|p| pages::tabs(&self.st).contains(p)).unwrap_or(PageKind::ALL[0]);
+            }
             // A notice that arrived while expanded gets its full time now.
             let min_until = self.st.now + 4.0;
             if let Some(n) = self.st.notice.as_mut() {
@@ -2285,9 +2292,14 @@ impl App {
                 Command::SetPage(p) => {
                     if p != self.st.page {
                         self.st.page = p;
-                        self.st.store.last_page = p.key().to_string();
-                        unsafe {
-                            SetTimer(self.hwnd, TIMER_SAVE, 800, None);
+                        // Settings is never where the island opens next time.
+                        if p != PageKind::Settings {
+                            self.st.store.last_page = p.key().to_string();
+                            unsafe {
+                                SetTimer(self.hwnd, TIMER_SAVE, 800, None);
+                            }
+                        } else {
+                            crate::autostart::report(self.sink.clone(), None);
                         }
                         self.set_stats(p == PageKind::Today && self.expanded);
                         if self.text_focus {
@@ -2308,6 +2320,10 @@ impl App {
                 Command::Play(s) => services::sound::play(s),
                 Command::OpenUrl(u) => shell::open(&u),
                 Command::WantStats(b) => self.set_stats(b),
+                Command::SetAutostart(on) => {
+                    self.st.ui.autostart = Some(on);
+                    crate::autostart::report(self.sink.clone(), Some(on));
+                }
                 Command::Phone(c) => self.phone_cmd(c),
                 Command::Oyenza(c) => self.oyenza(c),
             }
@@ -2535,6 +2551,11 @@ impl App {
     pub fn selftest_hover(&mut self, p: Option<Point>) {
         self.input.mouse = p;
         self.hovering = p.is_some();
+    }
+
+    /// The middle of a widget drawn in the last frame, found by its id.
+    pub fn selftest_hit_center(&self, id: crate::ui::WidgetId) -> Option<Point> {
+        self.hits.iter().find(|h| h.id == id).map(|h| h.rect.center())
     }
 
     pub fn selftest_click(&mut self, p: Point) {
