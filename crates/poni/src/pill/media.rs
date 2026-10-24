@@ -81,6 +81,8 @@ thread_local! {
     static SUNG: Cell<(bool, f64)> = const { Cell::new((false, f64::NEG_INFINITY)) };
     /// The track (a hash of its key) and the widest of its lines so far.
     static WIDEST: Cell<(u64, f32)> = const { Cell::new((0, 0.0)) };
+    /// The song the middle names (a hash of its words) and since when.
+    static SONG: Cell<(u64, f64)> = const { Cell::new((0, f64::NEG_INFINITY)) };
 }
 
 pub fn geom(_st: &AppState) -> Option<Geom> {
@@ -254,6 +256,24 @@ fn draw_song(ui: &mut Ui, st: &AppState, area: Rect, alpha: f32) -> f32 {
     let rest = if rest.is_empty() { String::new() } else { format!(" \u{b7} {rest}") };
     let mw = ui.c.measure(main, &main_st, 10_000.0).0;
     let rw = if rest.is_empty() { 0.0 } else { ui.c.measure(&rest, &rest_st, 10_000.0).0 };
+    // A new song fades in (the old one is gone from the player by now).
+    let mut h = DefaultHasher::new();
+    (main, &rest).hash(&mut h);
+    let song = h.finish();
+    let (was, since) = SONG.get();
+    let since = if was == song {
+        since
+    } else {
+        // The first song since start shows at once (the pill fades in anyway).
+        let since = if was == 0 { f64::NEG_INFINITY } else { st.now };
+        SONG.set((song, since));
+        since
+    };
+    let k = smooth(clamp01(((st.now - since) / HANDOFF) as f32));
+    if k < 1.0 {
+        ui.request_anim();
+    }
+    let alpha = alpha * k;
     if alpha > 0.002 {
         ui.c.with_alpha(alpha, |c| {
             if mw >= area.w {
