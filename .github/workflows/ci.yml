@@ -335,17 +335,13 @@ jobs:
         run: ./tools/ci-smoke.ps1 -Exe target\release\poni.exe -Out smoke-out
 
       # The Pill theme on a real desktop: the island floats below the top
-      # edge, so the smoke run looks for it there. Skipped (with a notice)
-      # until tools/ci-smoke.ps1 takes -Theme.
+      # edge, so the smoke run looks for it there, and the gap above it takes
+      # the mouse while its shadow lets clicks through (no weight check: that
+      # one measures Classic).
       - name: Smoke run, Pill theme
         if: matrix.group == 'classic'
         shell: pwsh
-        run: |
-          if (-not (Select-String -Path tools\ci-smoke.ps1 -Pattern '\$Theme\b' -Quiet)) {
-            "::notice title=Smoke run, Pill theme::skipped: tools/ci-smoke.ps1 has no -Theme parameter yet"
-            exit 0
-          }
-          ./tools/ci-smoke.ps1 -Exe target\release\poni.exe -Out smoke-pill -Theme pill
+        run: ./tools/ci-smoke.ps1 -Exe target\release\poni.exe -Out smoke-pill -Theme pill
 
       # Glass on a real desktop: with its screen copy running, screenshots
       # show what's under the island instead of the island.
