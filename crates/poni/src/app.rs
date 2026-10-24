@@ -1253,7 +1253,7 @@ impl App {
             }
             OyenzaEvent::Health(next) => {
                 if let Some(steps) = self.st.take_health(next) {
-                    self.st.notice = Some(steps_goal_notice(steps, now + 6.0));
+                    self.steps_notice(steps);
                 }
             }
             OyenzaEvent::NoteSaved(saved) => {
@@ -1324,6 +1324,14 @@ impl App {
         } else {
             self.st.notice = Some(notice);
         }
+    }
+
+    /// The step goal notice. While a full-screen app hides the island it waits
+    /// like a money notice (`AppState::show_or_hold`), and shows when the island
+    /// is back if it isn't old by then.
+    fn steps_notice(&mut self, steps: u32) {
+        let notice = steps_goal_notice(steps, self.st.now + oyenza::NOTICE_S);
+        self.st.show_or_hold(notice, self.fullscreen_hidden);
     }
 
     fn show_held_notice(&mut self, now: f64) {

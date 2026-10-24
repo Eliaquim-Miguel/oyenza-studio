@@ -493,6 +493,18 @@ impl AppState {
         reached
     }
 
+    /// Show `n` now or, while a full-screen app hides the island (`hidden`), keep
+    /// it for when the island is back, the way money notices wait
+    /// (`OyenzaState::held`, shown then if no older than `HELD_MAX_S`). One
+    /// notice waits at a time, and a money or bill notice already waiting stays.
+    pub fn show_or_hold(&mut self, n: Notice, hidden: bool) {
+        if !hidden {
+            self.notice = Some(n);
+        } else if self.oyenza.held.as_ref().is_none_or(|(_, at)| self.now - at > poni_core::oyenza::HELD_MAX_S) {
+            self.oyenza.held = Some((n, self.now));
+        }
+    }
+
     pub fn cmd(&mut self, c: Command) {
         self.cmds.push(c);
     }
@@ -595,5 +607,37 @@ mod tests {
         assert_eq!(st.take_health(Some(snap(7900))), None);
         assert_eq!(st.take_health(Some(snap(8010))), Some(8010));
         assert_eq!(st.take_health(Some(snap(8500))), None);
+    }
+
+    #[test]
+    fn the_goal_notice_waits_while_a_full_screen_app_hides_the_island() {
+        let mut st = AppState::new(Settings::default(), Store::default());
+        st.now = 100.0;
+        let notice = |title: &str| Notice {
+            icon: Icon::Steps,
+            color: palette::GREEN,
+            title: title.into(),
+            subtitle: String::new(),
+            until: 0.0,
+            action: None,
+            inline: None,
+            reveal: None,
+        };
+        let held = |st: &AppState| st.oyenza.held.as_ref().map(|(n, at)| (n.title.clone(), *at));
+        // Hidden: it waits for the island instead of expiring unseen.
+        st.show_or_hold(notice("goal"), true);
+        assert!(st.notice.is_none());
+        assert_eq!(held(&st), Some(("goal".into(), 100.0)));
+        // A money notice already waiting stays...
+        st.oyenza.held = Some((notice("money"), 100.0));
+        st.show_or_hold(notice("goal"), true);
+        assert_eq!(held(&st), Some(("money".into(), 100.0)));
+        // ...unless it's too old to show any more.
+        st.now = 100.0 + poni_core::oyenza::HELD_MAX_S + 1.0;
+        st.show_or_hold(notice("goal"), true);
+        assert_eq!(held(&st).map(|h| h.0), Some("goal".into()));
+        // The island on screen: it shows at once.
+        st.show_or_hold(notice("now"), false);
+        assert_eq!(st.notice.as_ref().map(|n| n.title.as_str()), Some("now"));
     }
 }
