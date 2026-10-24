@@ -2,9 +2,10 @@
 //! line being sung in the middle ([`super::lyric`]) or, when there is
 //! none, the song ("Title · artist"), the equalizer in the album's colour
 //! on the right, and a glow of that colour along the bottom edge (ref3).
-//! The pill is as wide as its text (spec 6.5): the song, or the widest
-//! line sung so far in the track, so it settles early in a song instead of
-//! resizing at every line. The text stays centred while it does.
+//! The pill is as wide as its text (spec 6.5): the song (up to the width
+//! the spec gives a title, 6.4), or the widest line sung so far in the
+//! track, so it settles early in a song instead of resizing at every line.
+//! The text stays centred while it does.
 //!
 //! A new track's peek (`st.ui.peek_until`): text always shows here, so the
 //! peek picks which text. The title holds the middle for the peek even
@@ -32,6 +33,13 @@ const H: f32 = 32.0;
 const SIDES: f32 = 88.0;
 const MIN_W: f32 = 240.0;
 const MAX_W: f32 = 520.0;
+/// The song ("Title · artist") is held to the spec's width for a title on
+/// the collapsed pill (6.4's peek): without lyrics it rests there all song
+/// long, so it stays as compact as that; a sung line may take the full
+/// MAX_W (6.5).
+const SONG_MAX_W: f32 = 300.0;
+/// The artist shows whole, or at least this much of it.
+const ARTIST_MIN: f32 = 64.0;
 /// Widths go in steps of this much, so lines a few DIPs apart don't each
 /// morph the pill.
 const W_STEP: f32 = 8.0;
@@ -163,9 +171,9 @@ fn smooth(t: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
-/// The width the pill needs for text `w` wide.
-fn fit(w: f32) -> f32 {
-    (((w + SIDES) / W_STEP).ceil() * W_STEP).clamp(MIN_W, MAX_W)
+/// The width the pill needs for text `w` wide, at most `max`.
+fn fit(w: f32, max: f32) -> f32 {
+    (((w + SIDES) / W_STEP).ceil() * W_STEP).clamp(MIN_W, max)
 }
 
 /// The sung line as `lyric::draw` sets it (13 semibold, like the title it
@@ -206,16 +214,17 @@ fn draw_text(ui: &mut Ui, st: &AppState, area: Rect, paused_a: f32, now: f64) ->
     if k < 1.0 {
         ui.request_anim();
     }
+    let song = Rect::new(area.center().x - (SONG_MAX_W - SIDES) / 2.0, area.y, SONG_MAX_W - SIDES, area.h);
     if !sung {
         // A line that just ended can't be drawn fading out (the lyric lane
         // has let go of it), so the title fades in on its own.
-        return fit(draw_song(ui, st, area, paused_a * k));
+        return fit(draw_song(ui, st, song, paused_a * k), SONG_MAX_W);
     }
     if k < 1.0 {
-        draw_song(ui, st, area, paused_a * (1.0 - k));
+        draw_song(ui, st, song, paused_a * (1.0 - k));
     }
     match super::lyric::current(st) {
-        Some((line, _)) => fit(widest_line(st, ui.c.measure(&line, &line_style(), 10_000.0).0)),
+        Some((line, _)) => fit(widest_line(st, ui.c.measure(&line, &line_style(), 10_000.0).0), MAX_W),
         // The last line is still fading out: it keeps its width until it's gone.
         None => FIT_W.get(),
     }
@@ -237,8 +246,8 @@ fn widest_line(st: &AppState, w: f32) -> f32 {
 }
 
 /// "Title · artist" centred in `area`: the title semibold, the artist dim,
-/// and the artist only when there is room for more than an ellipsis of it.
-/// Returns how wide all of it is.
+/// and the artist only whole or with [`ARTIST_MIN`] of it showing (a stub
+/// such as "The L…" says nothing). Returns how wide what it shows is.
 fn draw_song(ui: &mut Ui, st: &AppState, area: Rect, alpha: f32) -> f32 {
     let Some(m) = st.media.as_ref() else { return 0.0 };
     let (title, artist) = (m.title.trim(), m.artist.trim());
@@ -273,15 +282,15 @@ fn draw_song(ui: &mut Ui, st: &AppState, area: Rect, alpha: f32) -> f32 {
     if k < 1.0 {
         ui.request_anim();
     }
+    let room = area.w - mw;
+    let shown = if room > 0.0 && rw > 0.0 && (rw <= room || room >= ARTIST_MIN) { rw.min(room) } else { 0.0 };
     let alpha = alpha * k;
     if alpha > 0.002 {
         ui.c.with_alpha(alpha, |c| {
-            if mw >= area.w {
+            if room <= 0.0 {
                 c.text(main, area, &main_st.center());
                 return;
             }
-            let room = area.w - mw;
-            let shown = if rw > 0.0 && room >= 32.0 { rw.min(room) } else { 0.0 };
             let x = area.center().x - (mw + shown) / 2.0;
             c.text(main, Rect::new(x, area.y, mw + 2.0, area.h), &main_st);
             if shown > 0.0 {
@@ -291,7 +300,7 @@ fn draw_song(ui: &mut Ui, st: &AppState, area: Rect, alpha: f32) -> f32 {
             }
         });
     }
-    mw + rw
+    mw.min(area.w) + shown
 }
 
 /// The album art, or a note on a soft tile when the player sends none.
@@ -394,16 +403,21 @@ mod tests {
 
     #[test]
     fn the_pill_fits_its_text_in_steps_between_the_spec_widths() {
-        assert_eq!(fit(0.0), MIN_W, "short text: the narrowest pill");
-        assert_eq!(fit(200.0), 288.0, "text + 88, already a whole step");
-        assert_eq!(fit(153.0), 248.0, "241 rounds up to the next 8");
-        assert_eq!(fit(1_000.0), MAX_W, "long text: the widest pill, ellipsized");
-        let mut w = 0.0;
-        while w < 600.0 {
-            let f = fit(w);
-            assert!(f >= w + SIDES || f == MAX_W, "{w} wide text fits in {f}");
-            assert_eq!(f % W_STEP, 0.0, "{f} is a whole step");
-            w += 0.7;
+        assert_eq!(fit(0.0, MAX_W), MIN_W, "short text: the narrowest pill");
+        assert_eq!(fit(200.0, MAX_W), 288.0, "text + 88, already a whole step");
+        assert_eq!(fit(153.0, MAX_W), 248.0, "241 rounds up to the next 8");
+        assert_eq!(fit(1_000.0, MAX_W), MAX_W, "a long line: the widest pill, ellipsized");
+        assert_eq!(fit(1_000.0, SONG_MAX_W), SONG_MAX_W, "a long title stops at the peek's width");
+        assert_eq!(fit(200.0, SONG_MAX_W), 288.0, "a title that fits is the same either way");
+        for max in [SONG_MAX_W, MAX_W] {
+            let mut w = 0.0;
+            while w < 600.0 {
+                let f = fit(w, max);
+                assert!(f >= w + SIDES || f == max, "{w} wide text fits in {f}");
+                // The caps hold every longer text, so they needn't be whole steps.
+                assert!(f % W_STEP == 0.0 || f == max, "{f} is a whole step");
+                w += 0.7;
+            }
         }
     }
 
