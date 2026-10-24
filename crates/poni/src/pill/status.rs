@@ -143,7 +143,9 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, body: Rect) -> bool {
     if st.power.has_battery {
         let p = st.power;
         let pct = format!("{}%", p.percent.min(100));
-        let pct_ts = ts.color(PCT);
+        // Low, the number turns red with the charge (as the clock's badge
+        // does): a sliver of red alone is easy to miss.
+        let pct_ts = ts.color(if low(p.percent, p.charging) { palette::RED } else { PCT });
         let (pw, _) = ui.c.measure(&pct, &pct_ts, 100.0);
         let bx = snap(ui, body.right() - BATT_END - BATT_W);
         let by = snap(ui, cy - BATT.1 / 2.0);
@@ -174,6 +176,11 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, body: Rect) -> bool {
     true
 }
 
+/// The battery runs low (as Classic's clock badge counts it).
+fn low(percent: u8, charging: bool) -> bool {
+    percent <= 20 && !charging
+}
+
 /// Snap a DIP coordinate to the device-pixel grid (a crisp outline at 100 % and 150 %).
 fn snap(ui: &Ui, v: f32) -> f32 {
     let s = ui.c.scale().max(0.1);
@@ -186,7 +193,7 @@ fn snap(ui: &Ui, v: f32) -> f32 {
 // TODO(status): switch to `pill::idle::battery` once the idle lane's lands.
 fn battery(ui: &mut Ui, r: Rect, percent: u8, charging: bool) {
     let p = (percent as f32 / 100.0).clamp(0.0, 1.0);
-    let fill = if percent <= 20 && !charging { palette::RED } else { palette::GREEN };
+    let fill = if low(percent, charging) { palette::RED } else { palette::GREEN };
     let inner = r.inset(2.0, 2.0);
     if p > 0.0 {
         ui.c.fill_rrect(Rect::new(inner.x, inner.y, (inner.w * p).max(2.0), inner.h), 1.5, fill);
