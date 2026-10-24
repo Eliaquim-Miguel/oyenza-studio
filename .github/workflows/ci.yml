@@ -3,9 +3,17 @@ name: ci
 on:
   push:
   workflow_dispatch:
+    inputs:
+      release_dry_run:
+        description: Also go through the release jobs as checks only (no tag, release, issue or website deploy)
+        type: boolean
+        default: false
 
+# A newer push cancels an older run of the same branch. A manual run (such as
+# a release dry run) has its own group, so it never cancels a push run, least
+# of all a tag's release run.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 env:
@@ -28,8 +36,10 @@ jobs:
           cargo fetch --locked
           python3 tools/make_notices.py --check
 
+  # poni.exe is built once, here. The unit tests, the self-tests and the
+  # installer each run on their own machine, side by side.
   windows:
-    name: Build, self-test, smoke-run and package (Windows)
+    name: Build poni.exe (Windows)
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v4
@@ -39,9 +49,31 @@ jobs:
       - name: Build release
         run: cargo build -p poni --release
 
+      - name: Upload poni.exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: poni-exe
+          path: target/release/poni.exe
+          if-no-files-found: error
+
+  # The tests compile the app again, in test mode. They need the same
+  # dependencies as the build, so they use its cache (its key is the job id
+  # "windows"); only the build saves it.
+  unit-tests:
+    name: Unit tests (Windows)
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows
+          save-if: false
+
       - name: Unit tests
         run: cargo test --workspace --release
 
+      # Runs one more test from the build above, so it stays on this machine.
       - name: Apple Music's own slider and back button (a stand-in window)
         shell: pwsh
         run: |
@@ -59,9 +91,33 @@ jobs:
             Get-Content $env:PONI_FAKE_AM_LOG -ErrorAction SilentlyContinue
           }
 
+  # The self-tests and smoke runs on three machines at once, from the
+  # poni.exe built above. Each step is the same as when one machine ran them
+  # all in a row; `group` says which machine runs it:
+  #   classic: the scripted self-test, the add-on on/off run, Japanese lyrics
+  #   glass:   the Glass self-tests and the Glass smoke run
+  #   smoke:   the smoke run, the software renderer, the Inno Setup check
+  # On CI's software GPU a slow frame doesn't fail a self-test; it shows as a
+  # warning on the run page.
+  selftest:
+    name: Self-tests, ${{ matrix.group }} (Windows)
+    needs: windows
+    runs-on: windows-2025
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [classic, glass, smoke]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: poni-exe
+          path: target/release
+
       # The runner is an admin, so Show over games' frame count runs on Oyen
       # Poni's own frames here: Windows' frame log must deliver them.
       - name: Self-test (scripted screenshots)
+        if: matrix.group == 'classic'
         shell: pwsh
         env:
           # Also download the Prayer times add-on's files from their release
@@ -89,6 +145,10 @@ jobs:
 
           "---- report.json"
           if (Test-Path selftest-out\report.json) { Get-Content selftest-out\report.json -Raw } else { "(missing)" }
+          if (Test-Path selftest-out\report.json) {
+            $r = Get-Content selftest-out\report.json -Raw | ConvertFrom-Json
+            if ($r.slow_frames) { "::warning title=Slow frames on CI's software GPU (not counted)::$($r.slow_frames -join '; ')" }
+          }
           "---- screenshots"
           Get-ChildItem selftest-out -Filter *.png | ForEach-Object { "  $($_.Name)  $($_.Length) bytes" }
 
@@ -102,6 +162,7 @@ jobs:
       # settings; its worker must download the files from their release and
       # report ready. Then start it with Prayer times off: the files must go.
       - name: Add-on switched on, then off (Prayer times)
+        if: matrix.group == 'classic'
         shell: pwsh
         run: |
           $dir = New-Item -ItemType Directory -Force -Path addon-home
@@ -137,6 +198,7 @@ jobs:
       # Every line must read (kanji lines too), from a worker thread like the
       # real lyrics lookup.
       - name: Self-test, Oyen theme, Japanese lyrics
+        if: matrix.group == 'classic'
         shell: pwsh
         env:
           PONI_SELFTEST_THEME: oyen
@@ -156,6 +218,7 @@ jobs:
           if (Test-Path selftest-oyen-ja\report.json) {
             $r = Get-Content selftest-oyen-ja\report.json -Raw | ConvertFrom-Json
             "renderer: $($r.renderer); states passed: $($r.states_passed)/$($r.states_total); failed: $($r.failed_checks -join ', ')"
+            if ($r.slow_frames) { "::warning title=Slow frames on CI's software GPU (not counted)::$($r.slow_frames -join '; ')" }
           }
           "---- pronunciation (poni.log)"
           Select-String -Path selftest-oyen-ja\home\cache\poni.log -Pattern 'selftest: \[ja\]|fonts:|reading analyzer' -ErrorAction SilentlyContinue | ForEach-Object { $_.Line }
@@ -168,6 +231,7 @@ jobs:
       # reads it (most Windows 11 PCs outside Japan): with Oyen Poni's own
       # dictionary. Every line must read here too.
       - name: Self-test, Japanese lyrics with Oyen Poni's own dictionary
+        if: matrix.group == 'classic'
         shell: pwsh
         env:
           PONI_SELFTEST_THEME: oyen
@@ -187,6 +251,7 @@ jobs:
           if (Test-Path selftest-ja-own\report.json) {
             $r = Get-Content selftest-ja-own\report.json -Raw | ConvertFrom-Json
             "renderer: $($r.renderer); states passed: $($r.states_passed)/$($r.states_total); failed: $($r.failed_checks -join ', ')"
+            if ($r.slow_frames) { "::warning title=Slow frames on CI's software GPU (not counted)::$($r.slow_frames -join '; ')" }
           }
           "---- pronunciation (poni.log)"
           Select-String -Path selftest-ja-own\home\cache\poni.log -Pattern 'selftest: \[ja\]|reading' -ErrorAction SilentlyContinue | ForEach-Object { $_.Line }
@@ -200,6 +265,7 @@ jobs:
       # in light mode (small glass flips dark, the open island stays light).
       # The glass shader runs here (WARP); Wine on a dev box draws smoked glass.
       - name: Self-test, Glass theme
+        if: matrix.group == 'glass'
         shell: pwsh
         run: |
           Add-Type -AssemblyName System.Windows.Forms
@@ -220,6 +286,7 @@ jobs:
             if (Test-Path "$dir\report.json") {
               $r = Get-Content "$dir\report.json" -Raw | ConvertFrom-Json
               "renderer: $($r.renderer); states passed: $($r.states_passed)/$($r.states_total); failed: $($r.failed_checks -join ', ')"
+              if ($r.slow_frames) { "::warning title=Slow Glass ($run) frames on CI's software GPU (not counted)::$($r.slow_frames -join '; ')" }
             }
             Select-String -Path "$dir\home\cache\poni.log" -Pattern 'glass:' -ErrorAction SilentlyContinue | Select-Object -First 6 | ForEach-Object { $_.Line }
             if ($code -ne 0) {
@@ -230,18 +297,21 @@ jobs:
           exit $failed
 
       - name: Smoke run (real desktop, hover, idle CPU/RAM)
+        if: matrix.group == 'smoke'
         shell: pwsh
         run: ./tools/ci-smoke.ps1 -Exe target\release\poni.exe -Out smoke-out
 
       # Glass on a real desktop: with its screen copy running, screenshots
       # show what's under the island instead of the island.
       - name: Smoke run, Glass theme (left out of screenshots)
+        if: matrix.group == 'glass'
         shell: pwsh
         run: ./tools/ci-smoke-glass.ps1 -Exe target\release\poni.exe -Out smoke-glass
 
       # The GPU renderer is the default (runners draw with WARP). The software
       # renderer is its fallback (no DirectComposition, device loss): test it too.
       - name: Self-test and smoke run, software renderer
+        if: matrix.group == 'smoke'
         shell: pwsh
         env:
           PONI_RENDERER: software
@@ -267,6 +337,7 @@ jobs:
           ./tools/ci-smoke.ps1 -Exe target\release\poni.exe -Out smoke-soft
 
       - name: Build installer (Inno Setup)
+        if: matrix.group == 'smoke'
         shell: pwsh
         run: |
           choco install innosetup -y --no-progress
@@ -285,7 +356,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: poni-screens
+          name: poni-screens-${{ matrix.group }}
           path: |
             selftest-out
             selftest-oyen-ja
@@ -299,19 +370,27 @@ jobs:
             smoke-soft
           if-no-files-found: warn
 
-      - name: Upload poni.exe
-        uses: actions/upload-artifact@v4
-        with:
-          name: poni-exe
-          path: target/release/poni.exe
-          if-no-files-found: error
-
       - name: Upload the Inno Setup build (a check; releases ship the NSIS one)
+        if: matrix.group == 'smoke'
         uses: actions/upload-artifact@v4
         with:
           name: poni-setup-inno
           path: dist/Oyen-Poni-Setup-${{ env.PONI_VERSION }}.exe
           if-no-files-found: error
+
+  # The three machines' screenshots and logs as one poni-screens download,
+  # the same as when one machine ran every self-test.
+  screens:
+    name: Screenshots and logs in one download
+    needs: selftest
+    if: ${{ !cancelled() && needs.selftest.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/upload-artifact/merge@v4
+        with:
+          name: poni-screens
+          pattern: poni-screens-*
+          delete-merged: true
 
   installer:
     name: NSIS installer and portable zip (what releases ship)
@@ -365,16 +444,20 @@ jobs:
           path: installer-out
           if-no-files-found: warn
 
+  # A tag push publishes. A manual run with release_dry_run goes through the
+  # same jobs and checks and publishes nothing: no tag, release or issue, and
+  # no website deploy. It says what a tag would publish instead.
   release:
     name: GitHub Release (tags v*)
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [core, windows, installer, install-test]
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.release_dry_run
+    needs: [core, windows, unit-tests, selftest, installer, install-test]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
       - name: The tag matches PONI_VERSION
+        if: startsWith(github.ref, 'refs/tags/v')
         run: test "$GITHUB_REF_NAME" = "v$PONI_VERSION"
       - uses: actions/download-artifact@v4
         with:
@@ -383,6 +466,7 @@ jobs:
       - name: Copy the installer to a fixed name for the README's download link
         run: cp "dist/Oyen-Poni-Setup-$PONI_VERSION.exe" dist/Oyen-Poni-Setup.exe
       - name: Publish as the latest release
+        if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
           name: Oyen Poni ${{ env.PONI_VERSION }}
@@ -394,13 +478,30 @@ jobs:
             dist/Oyen-Poni-Setup.exe
             dist/Oyen-Poni-${{ env.PONI_VERSION }}-portable.zip
           fail_on_unmatched_files: true
+      - name: What a tag would publish (dry run, nothing is published)
+        if: github.event_name != 'push'
+        run: |
+          notes="docs/release-notes/v$PONI_VERSION.md"
+          if [ ! -s "$notes" ]; then
+            echo "::error file=$notes::Missing: a v$PONI_VERSION tag would publish without release notes."
+            exit 1
+          fi
+          {
+            echo "### Release dry run: nothing was published"
+            echo
+            echo "A \`v$PONI_VERSION\` tag would publish **Oyen Poni $PONI_VERSION** as the latest release, with \`$notes\` as its text and these files:"
+            echo
+            echo '```'
+            (cd dist && sha256sum "Oyen-Poni-Setup-$PONI_VERSION.exe" Oyen-Poni-Setup.exe "Oyen-Poni-$PONI_VERSION-portable.zip" && ls -l "Oyen-Poni-Setup-$PONI_VERSION.exe" Oyen-Poni-Setup.exe "Oyen-Poni-$PONI_VERSION-portable.zip")
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
 
   # Every release updates the website too (AGENTS.md). If the page on main names
   # this version, start the Website workflow, which has held it until now;
-  # otherwise open a "Landing page not updated" issue.
+  # otherwise open a "Landing page not updated" issue. A dry run only says which.
   site:
     name: Website shows the release (tags v*)
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.release_dry_run
     needs: release
     runs-on: ubuntu-latest
     permissions:
@@ -413,6 +514,17 @@ jobs:
         with:
           ref: main
       - name: Put the page live, or open an issue
+        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
         run: tools/ci-site-check.sh release "$GITHUB_REF_NAME"
+      - name: What a tag would do to the website (dry run, nothing changes)
+        if: github.event_name != 'push'
+        run: |
+          page=$(tools/ci-site-check.sh version)
+          if [ "$page" = "$PONI_VERSION" ]; then
+            msg="The page on main names $page, so a v$PONI_VERSION tag would start the Website workflow and put it live."
+          else
+            msg="The page on main names ${page:-no version}, so a v$PONI_VERSION tag would open the issue \"Landing page not updated for v$PONI_VERSION\"."
+          fi
+          echo "$msg" | tee -a "$GITHUB_STEP_SUMMARY"

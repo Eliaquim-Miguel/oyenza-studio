@@ -26,3 +26,5 @@ Put the website change in the release PR, or merge it to main just before you pu
 Merges, tags and releases happen only when the maintainer says so.
 
 The version lives in several files: copy the last "Release x.y.z" commit (`git log --grep '^Release '`). Add `docs/release-notes/vX.md`, which becomes the release text, and the website change above. Then push an annotated tag `vX`. The `ci` workflow builds, tests and publishes the release from the tag. The `mac` workflow builds the Mac app from the same tag and, once the release is up, adds `Oyen-Poni-X-mac.dmg` and `Oyen-Poni-Mac.dmg` (the name the Mac download buttons use) to it.
+
+To try the release path without releasing, run `ci` by hand with `release_dry_run` on (`gh workflow run ci.yml --ref <branch> -f release_dry_run=true`). It runs every job a tag runs and publishes nothing: no tag, release or issue, and no website deploy. Its summary says what a tag would publish and what would happen to the website.
