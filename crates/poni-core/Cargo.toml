@@ -3,6 +3,8 @@ name = "poni-core"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+license.workspace = true
+repository.workspace = true
 description = "Platform-independent models and logic for the Poni island (pure Rust, unit-tested on any OS)."
 
 [dependencies]
