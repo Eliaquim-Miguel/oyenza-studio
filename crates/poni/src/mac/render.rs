@@ -262,6 +262,8 @@ fn render_morph(gfx: &mut Gfx, theme: Theme, notch: Option<Notch>, path: &Path) 
             {
                 let mut c = gfx.canvas(bmp.ctx());
                 c.translate(x, y);
+                // Each frame keeps to its cell (the notch is drawn from above it).
+                c.clip(Rect::new(0.0, 0.0, cell_w, cell_h));
                 let border = Some(c.look().border);
                 if island.floating() {
                     notch::draw_pill_body(&mut c, body, geom.r, shoulder, detach, palette::ISLAND, border);
@@ -284,6 +286,7 @@ fn render_morph(gfx: &mut Gfx, theme: Theme, notch: Option<Notch>, path: &Path) 
                 }
                 let label = format!("{} {:.0} ms", if to == 1 { "open" } else { "close" }, f as f32 * 1000.0 / 60.0);
                 c.unthemed(|c| c.text(&label, Rect::new(10.0, cell_h - 22.0, 160.0, 16.0), &crate::gfx::TextStyle::caption().color(Color::white(0.92))));
+                c.unclip();
                 c.reset_transform();
             }
         }
