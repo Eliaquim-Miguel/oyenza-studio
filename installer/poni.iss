@@ -1,7 +1,7 @@
 ; Poni installer (Inno Setup 6.3+).
 ;
 ; Build after `cargo build -p poni --release`:
-;   iscc installer\poni.iss                      -> dist\Poni-Setup-0.1.0.exe
+;   iscc installer\poni.iss                      -> dist\Poni-Setup-0.1.1.exe
 ;   iscc /DAppVersion=0.2.0 installer\poni.iss   (another version)
 ;
 ; Per-user install: no admin rights and no UAC prompt. The app goes to
@@ -9,7 +9,7 @@
 ; survive uninstalling (only the cache in %LOCALAPPDATA%\Poni is removed).
 
 #ifndef AppVersion
-  #define AppVersion "0.1.0"
+  #define AppVersion "0.1.1"
 #endif
 #ifndef ExeSource
   #define ExeSource "..\target\release\poni.exe"

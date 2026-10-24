@@ -55,15 +55,22 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect);  // draw + handle input
 * Immediate mode: `ui.button(id, rect) -> Resp { hovered, pressed, clicked, rclicked, drag }`.
   Ids from `wid("name")` / `wid_n("row", i)`; must be unique per frame.
   A click arrives on the frame after mouse-up (the app repaints automatically).
-* Widgets: `icon_button`, `pill_button`, `progress_bar` (returns seek fraction),
-  `text_input` (returns submitted/cancelled), `wheel_in(rect)`.
+* Widgets: `icon_button`, `pill`, `progress_bar` (returns seek fraction),
+  `text_input` / `text_input_row` (return submitted/cancelled), `wheel_in(rect)`.
 * Drawing: `ui.c` is a `Canvas`: `fill_rrect`, `stroke_rrect`, `fill_circle`,
   `ring`, `arc`, `line`, `text(s, rect, &TextStyle)`, `measure`, `image`,
   `icon(Icon, rect, color)`, `clip/unclip`, `with_alpha`.
 * Text: `TextStyle::new(size).weight(Weight::Semibold).color(c).center()/.right().tabular().wrap().top()`.
   Single-line text is ellipsized automatically.
 * Colours: `poni_core::geom::palette` (island is pure black; text is white at
-  0.96 / 0.62 / 0.38; accents GREEN, ORANGE, RED, BLUE, CYAN, PURPLE, YELLOW).
+  0.96 / 0.62 / 0.50, disabled 0.30; accents GREEN, ORANGE, RED, BLUE, CYAN,
+  PURPLE, YELLOW).
+* Type scale: `gfx::ts` (11 / 12 / 13 / 15 / 18 / 30 / 50) via `TextStyle::caption()`,
+  `footnote()`, `body()`, `headline()`, `value()`, `display()`, `hero()`. Nothing below 11.
+* Buttons: `ui.pill(id, rect, label, icon, PillStyle::Utility | Neutral | Primary(c) | UtilityAccent(c))`
+  at `PILL_SMALL` (28) or `PILL_REGULAR` (34) height, `PILL_GAP` 8 apart.
+* Timed page changes (an Undo pill lapsing) report their deadline through
+  `pages::next_wake` so the app wakes exactly then instead of polling.
   `st.accent` = Windows accent (lightened); `st.media_accent()` = album-art colour.
 * Continuous animation: call `ui.request_anim()` while something must move
   every frame (lyrics scroll, progress bar while playing). Never animate idle.
