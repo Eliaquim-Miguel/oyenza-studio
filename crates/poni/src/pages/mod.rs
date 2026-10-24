@@ -11,11 +11,11 @@
 
 pub mod clipboard;
 pub mod focus;
+pub mod health;
 pub mod media;
 pub mod shelf;
 pub mod tasks;
 pub mod today;
-pub mod water;
 
 use crate::commands::Command;
 use crate::gfx::{TextStyle, Weight};
@@ -44,7 +44,7 @@ pub fn header_rect(body: Rect) -> Rect {
 pub enum PageKind {
     Media,
     Focus,
-    Water,
+    Health,
     Shelf,
     Tasks,
     Clipboard,
@@ -53,13 +53,13 @@ pub enum PageKind {
 
 impl PageKind {
     pub const ALL: [PageKind; 7] =
-        [PageKind::Media, PageKind::Focus, PageKind::Water, PageKind::Shelf, PageKind::Tasks, PageKind::Clipboard, PageKind::Today];
+        [PageKind::Media, PageKind::Focus, PageKind::Health, PageKind::Shelf, PageKind::Tasks, PageKind::Clipboard, PageKind::Today];
 
     pub fn key(self) -> &'static str {
         match self {
             PageKind::Media => "media",
             PageKind::Focus => "focus",
-            PageKind::Water => "water",
+            PageKind::Health => "health",
             PageKind::Shelf => "shelf",
             PageKind::Tasks => "tasks",
             PageKind::Clipboard => "clipboard",
@@ -68,14 +68,16 @@ impl PageKind {
     }
 
     pub fn from_key(s: &str) -> PageKind {
-        Self::ALL.into_iter().find(|p| p.key().eq_ignore_ascii_case(s.trim())).unwrap_or(PageKind::Media)
+        // Health took the Water page's place in the tab row.
+        let s = if s.trim().eq_ignore_ascii_case("water") { "health" } else { s.trim() };
+        Self::ALL.into_iter().find(|p| p.key().eq_ignore_ascii_case(s)).unwrap_or(PageKind::Media)
     }
 
     pub fn title(self) -> &'static str {
         match self {
             PageKind::Media => "Music",
             PageKind::Focus => "Focus",
-            PageKind::Water => "Water",
+            PageKind::Health => "Health",
             PageKind::Shelf => "Shelf",
             PageKind::Tasks => "Tasks",
             PageKind::Clipboard => "Clipboard",
@@ -87,7 +89,7 @@ impl PageKind {
         match self {
             PageKind::Media => Icon::Music,
             PageKind::Focus => Icon::Timer,
-            PageKind::Water => Icon::Drop,
+            PageKind::Health => Icon::Steps,
             PageKind::Shelf => Icon::Tray,
             PageKind::Tasks => Icon::ListChecks,
             PageKind::Clipboard => Icon::Clipboard,
@@ -117,7 +119,7 @@ pub fn content_height(p: PageKind, st: &AppState) -> f32 {
     match p {
         PageKind::Media => media::height(st),
         PageKind::Focus => focus::height(st),
-        PageKind::Water => water::height(st),
+        PageKind::Health => health::height(st),
         PageKind::Shelf => shelf::height(st),
         PageKind::Tasks => tasks::height(st),
         PageKind::Clipboard => clipboard::height(st),
@@ -213,7 +215,7 @@ fn draw_page(ui: &mut Ui, st: &mut AppState, area: Rect, page: PageKind) {
     match page {
         PageKind::Media => media::draw(ui, st, area),
         PageKind::Focus => focus::draw(ui, st, area),
-        PageKind::Water => water::draw(ui, st, area),
+        PageKind::Health => health::draw(ui, st, area),
         PageKind::Shelf => shelf::draw(ui, st, area),
         PageKind::Tasks => tasks::draw(ui, st, area),
         PageKind::Clipboard => clipboard::draw(ui, st, area),

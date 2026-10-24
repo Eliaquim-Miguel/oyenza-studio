@@ -1,7 +1,6 @@
 //! User settings, stored as JSON next to the data store.
 
 use crate::pomodoro::PomodoroConfig;
-use crate::water::WaterConfig;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -68,12 +67,11 @@ pub struct Settings {
     pub hud_bluetooth: bool,
     pub clipboard_history: bool,
     pub sounds: bool,
-    /// Page shown first when expanding ("media", "focus", "water", "shelf", "tasks", "clipboard", "today").
+    /// Page shown first when expanding ("media", "focus", "health", "shelf", "tasks", "clipboard", "today").
     pub start_page: String,
     /// Remember the last page instead of `start_page`.
     pub remember_page: bool,
     pub pomodoro: PomodoroConfig,
-    pub water: WaterConfig,
 }
 
 impl Default for Settings {
@@ -98,7 +96,6 @@ impl Default for Settings {
             start_page: "media".into(),
             remember_page: true,
             pomodoro: PomodoroConfig::default(),
-            water: WaterConfig::default(),
         }
     }
 }
@@ -125,12 +122,6 @@ impl Settings {
         p.short_break_min = p.short_break_min.clamp(1, 60);
         p.long_break_min = p.long_break_min.clamp(1, 120);
         p.long_every = p.long_every.min(12);
-        let w = &mut self.water;
-        w.goal_ml = w.goal_ml.clamp(250, 10_000);
-        w.cup_ml = w.cup_ml.clamp(50, 2000);
-        w.interval_min = w.interval_min.min(600);
-        w.start_hour = w.start_hour.min(23);
-        w.end_hour = w.end_hour.min(24);
         self
     }
 }
@@ -141,10 +132,9 @@ mod tests {
 
     #[test]
     fn partial_json_fills_defaults() {
+        // An old file's "water" block (the page Health replaced) is ignored.
         let s: Settings = serde_json::from_str(r#"{"idle_style":"eyes","water":{"goal_ml":1500}}"#).unwrap();
         assert_eq!(s.idle_style, IdleStyle::Eyes);
-        assert_eq!(s.water.goal_ml, 1500);
-        assert_eq!(s.water.cup_ml, 250);
         assert_eq!(s.pomodoro.focus_min, 25);
     }
 

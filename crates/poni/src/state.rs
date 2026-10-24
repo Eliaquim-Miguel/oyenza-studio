@@ -10,6 +10,7 @@ use crate::pages::PageKind;
 use poni_core::cliphist::ClipHistory;
 use poni_core::datetime::LocalDateTime;
 use poni_core::geom::{palette, Color};
+use poni_core::health::HealthSnapshot;
 use poni_core::lrc::Lyrics;
 use poni_core::pomodoro::Pomodoro;
 use poni_core::settings::Settings;
@@ -125,8 +126,6 @@ pub enum NoticeAction {
 /// A one-click action shown as a small pill inside a notice (doesn't expand).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InlineAction {
-    /// Log one cup of water.
-    LogWater,
     /// Start the idle Pomodoro phase.
     StartFocus,
 }
@@ -154,8 +153,6 @@ pub struct PageUiState {
     pub lyric_track: String,
     /// Clipboard row that just got copied (index, mono time) for a "Copied" flash.
     pub clip_flash: Option<(usize, f64)>,
-    /// Water: mono time of the last "+cup" for a little bounce.
-    pub water_bump: f64,
     /// Volume HUD bar position, gliding toward the real level.
     pub hud_level: f32,
     /// Collapsed media pill shows the track title until this mono time.
@@ -184,7 +181,8 @@ pub struct AppState {
     pub ui: PageUiState,
     /// System accent colour (falls back to blue).
     pub accent: Color,
-    pub water_last_reminded: Option<i64>,
+    /// Steps from the person's phone, sent by Oyenza (None until connected).
+    pub health: Option<HealthSnapshot>,
     /// The page currently shown when expanded.
     pub page: PageKind,
     /// When playback went from playing to paused (the pill lingers 30 s).
@@ -222,7 +220,7 @@ impl AppState {
             shelf_thumbs: HashMap::new(),
             ui: PageUiState::default(),
             accent: palette::BLUE,
-            water_last_reminded: None,
+            health: None,
             page,
             media_paused_at: None,
             pinned: false,

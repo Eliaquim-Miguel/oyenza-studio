@@ -12,13 +12,14 @@ use crate::oyen;
 use crate::pages::{self, PageKind};
 use crate::paths;
 use crate::services::{self, Services};
-use crate::state::{AppState, HudKind, InlineAction, LyricsState, LyricsStatus, NoticeAction};
+use crate::state::{AppState, HudKind, InlineAction, LyricsState, LyricsStatus, Notice, NoticeAction};
 use crate::tray::{self, Tray};
 use crate::ui::{wid, CursorKind, Hit, Input, KeyInput, MouseButton, Ui};
 use crate::window::{self, FrameClock, FrameTick, MonitorInfo};
 use crate::{dragdrop, selftest, shell};
 use poni_core::frametime::{ambient_divisor, MotionStats};
 use poni_core::geom::{palette, Color, Point, Rect};
+use poni_core::health::fmt_steps;
 use poni_core::settings::{IdleStyle, Settings, Theme};
 use poni_core::settings::MonitorChoice;
 use poni_core::store::{load_json, parse_json, save_json_atomic, LoadOutcome, Store};
@@ -44,7 +45,6 @@ const TIMER_STATS: usize = 5;
 const TIMER_MINUTE: usize = 6;
 pub const TIMER_SELFTEST: usize = 7;
 const TIMER_TRAY: usize = 8;
-const TIMER_WATER: usize = 9;
 
 const WM_CAPTURECHANGED_: u32 = 0x0215;
 const WM_WTSSESSION_CHANGE_: u32 = 0x02B1;
@@ -471,9 +471,6 @@ impl App {
             self.st.cmds.push(Command::LoadThumb(p));
         }
         self.schedule_minute_timer();
-        unsafe {
-            SetTimer(self.hwnd, TIMER_WATER, 60_000, None); // water reminder check
-        }
         if let Some(t) = self.selftest.as_mut() {
             t.begin(&mut self.st);
             unsafe { SetTimer(self.hwnd, TIMER_SELFTEST, 50, None) };
@@ -981,7 +978,6 @@ impl App {
             TIMER_MINUTE => {
                 self.schedule_minute_timer();
             }
-            TIMER_WATER => self.check_water_reminder(),
             TIMER_TRAY => {
                 unsafe {
                     let _ = KillTimer(self.hwnd, TIMER_TRAY);
@@ -1111,7 +1107,6 @@ impl App {
             ToggleIdleStyle(style) => s.idle_style = style,
             SetTheme(theme) => s.theme = theme,
             ToggleClipboard => s.clipboard_history = !s.clipboard_history,
-            ToggleWater => s.water.enabled = !s.water.enabled,
             ToggleLyrics => s.lyrics = !s.lyrics,
             ToggleHideFullscreen => s.hide_in_fullscreen = !s.hide_in_fullscreen,
             ToggleSounds => s.sounds = !s.sounds,
@@ -1938,22 +1933,6 @@ impl App {
         }
     }
 
-    fn check_water_reminder(&mut self) {
-        self.refresh_time();
-        let st = &mut self.st;
-        if poni_core::water::reminder_due(&st.settings.water, &st.store.water, &st.local, st.unix, st.water_last_reminded) {
-            st.water_last_reminded = Some(st.unix);
-            let total = st.store.water.total(&st.local.day_key());
-            let goal = st.settings.water.goal_ml;
-            st.notify(Icon::DropFill, palette::CYAN, "Time for some water", water_subtitle(total, goal), 6.0, Some(NoticeAction::OpenPage(PageKind::Water)));
-            st.set_notice_inline(InlineAction::LogWater);
-            st.chime();
-        }
-        // Keep the log small.
-        let today = st.local;
-        st.store.water.prune(&today, 120);
-    }
-
     /// Run a notice's inline action in place (the island stays collapsed),
     /// then show a check mark in the pill briefly before the notice leaves.
     fn run_inline_action(&mut self, a: InlineAction) {
@@ -1964,22 +1943,6 @@ impl App {
             return;
         }
         match a {
-            InlineAction::LogWater => {
-                // Same as the Water page's cup button.
-                let day = st.day_key();
-                let (cup, goal) = (st.settings.water.cup_ml, st.settings.water.goal_ml);
-                let before = st.store.water.total(&day);
-                st.store.water.add(&day, st.unix, cup);
-                st.ui.water_bump = st.now;
-                st.save();
-                let total = before.saturating_add(cup);
-                if before < goal && total >= goal {
-                    st.chime();
-                }
-                if let Some(n) = st.notice.as_mut() {
-                    n.subtitle = water_subtitle(total, goal);
-                }
-            }
             InlineAction::StartFocus => st.pomodoro.start(st.now),
         }
         let until = st.now + INLINE_DONE_S;
@@ -2197,17 +2160,16 @@ fn motion_name(from: &Mode, to: &Mode) -> &'static str {
     }
 }
 
-/// "1.25 of 2.0 L today": litres to the centilitre, like the Water page.
-pub(crate) fn water_subtitle(total_ml: u32, goal_ml: u32) -> String {
-    format!("{} of {} L today", fmt_litres(total_ml), fmt_litres(goal_ml))
-}
-
-/// Centilitres rounded, so 1250 -> "1.25", 2000 -> "2.0", 330 -> "0.33".
-fn fmt_litres(ml: u32) -> String {
-    let cl = ml.saturating_add(5) / 10;
-    if cl.is_multiple_of(10) {
-        format!("{}.{}", cl / 100, (cl / 10) % 10)
-    } else {
-        format!("{}.{:02}", cl / 100, cl % 100)
+/// The island's notice for the moment new numbers from the phone put today
+/// over the step goal (see `poni_core::health::goal_reached`).
+pub(crate) fn steps_goal_notice(steps: u32, until: f64) -> Notice {
+    Notice {
+        icon: Icon::Steps,
+        color: palette::GREEN,
+        title: format!("{} steps today", fmt_steps(steps)),
+        subtitle: "Daily step goal reached".into(),
+        until,
+        action: Some(NoticeAction::OpenPage(PageKind::Health)),
+        inline: None,
     }
 }

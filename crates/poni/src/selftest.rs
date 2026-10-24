@@ -15,12 +15,12 @@
 use crate::app::App;
 use crate::clock;
 use crate::gfx::{Image, ImageData};
-use crate::icons::Icon;
 use crate::pages::PageKind;
 use crate::paths;
 use crate::png;
-use crate::state::{AppState, Hud, HudKind, LyricsState, LyricsStatus, MediaSession, Notice, NoticeAction, PowerState, SysStats, VolumeState};
+use crate::state::{AppState, Hud, HudKind, LyricsState, LyricsStatus, MediaSession, PowerState, SysStats, VolumeState};
 use poni_core::geom::{palette, Color, Point, Rect};
+use poni_core::health::{HealthDay, HealthSnapshot, HealthSource};
 use poni_core::lrc::parse_lrc;
 use poni_core::pomodoro::{Phase as PomoPhase, RunState};
 use poni_core::settings::{IdleStyle, Theme};
@@ -129,7 +129,7 @@ enum Scene {
     VolumeHud,
     ChargingHud,
     BluetoothHud,
-    WaterNotice,
+    HealthNotice,
     Page(PageKind),
     /// The shelf while files are dragged over the island.
     ShelfDrop,
@@ -146,10 +146,10 @@ const SCENES: [Scene; 18] = [
     Scene::VolumeHud,
     Scene::ChargingHud,
     Scene::BluetoothHud,
-    Scene::WaterNotice,
+    Scene::HealthNotice,
     Scene::Page(PageKind::Media),
     Scene::Page(PageKind::Focus),
-    Scene::Page(PageKind::Water),
+    Scene::Page(PageKind::Health),
     Scene::Page(PageKind::Shelf),
     Scene::ShelfDrop,
     Scene::Page(PageKind::Tasks),
@@ -169,7 +169,7 @@ impl Scene {
             Scene::VolumeHud => "volume-hud".into(),
             Scene::ChargingHud => "charging-hud".into(),
             Scene::BluetoothHud => "bluetooth-hud".into(),
-            Scene::WaterNotice => "water-notice".into(),
+            Scene::HealthNotice => "health-notice".into(),
             Scene::Page(p) => format!("page-{}", p.key()),
             Scene::ShelfDrop => "page-shelf-drop".into(),
             Scene::TabClick => "tab-click-media".into(),
@@ -293,7 +293,7 @@ const ANIMS: [(&str, Scene, Scene); 5] = [
     ("page", Scene::Page(PageKind::Media), Scene::Page(PageKind::Focus)),
     ("collapse", Scene::Page(PageKind::Media), Scene::Media),
     ("hud", Scene::Media, Scene::VolumeHud),
-    ("notice", Scene::IdleClock, Scene::WaterNotice),
+    ("notice", Scene::IdleClock, Scene::HealthNotice),
 ];
 /// Frames recorded per transition (~16 ms apart).
 const ANIM_FRAMES: usize = 40;
@@ -340,7 +340,6 @@ impl SelfTest {
         st.settings.hud_bluetooth = true;
         st.accent = palette::BLUE;
         st.pinned = false;
-        st.water_last_reminded = Some(st.unix);
         st.volume = VolumeState { level: 0.64, muted: false, known: true };
         st.power = fake_power(false);
         st.stats = fake_stats();
@@ -359,7 +358,7 @@ impl SelfTest {
         self.lyrics = LyricsState { track_key: self.track_key.clone(), status: LyricsStatus::Found, lyrics: Some(parsed), source: "Sample".into() };
 
         seed_tasks(st);
-        seed_water(st);
+        st.health = Some(sample_health(st));
         seed_clipboard(st);
         let today = st.day_key();
         st.store.focus_sessions.insert(today, 2);
@@ -546,18 +545,9 @@ impl SelfTest {
             _ => None,
         };
         st.notice = match scene {
-            Scene::WaterNotice => {
-                let total = st.store.water.total(&st.local.day_key());
-                let goal = st.settings.water.goal_ml;
-                Some(Notice {
-                    icon: Icon::DropFill,
-                    color: palette::CYAN,
-                    title: "Time for some water".into(),
-                    subtitle: crate::app::water_subtitle(total, goal),
-                    until,
-                    action: Some(NoticeAction::OpenPage(PageKind::Water)),
-                    inline: Some(crate::state::InlineAction::LogWater),
-                })
+            Scene::HealthNotice => {
+                let steps = st.health.as_ref().map_or(0, |h| h.steps_on(&st.local.day_key()));
+                Some(crate::app::steps_goal_notice(steps, until))
             }
             _ => None,
         };
@@ -844,27 +834,24 @@ fn seed_tasks(st: &mut AppState) {
     }
 }
 
-fn seed_water(st: &mut AppState) {
-    let unix = st.unix;
-    let day_start = st.day_start_unix();
+/// A week of steps as Oyenza would send it: today just over the goal.
+fn sample_health(st: &AppState) -> HealthSnapshot {
     let today = st.local;
-    // Today: 1250 ml, the last cup 20 minutes ago (so no reminder fires).
-    for (k, (ago_min, ml)) in [(250, 250), (170, 500), (85, 250), (20, 250)].into_iter().enumerate() {
-        let at = (unix - ago_min * 60).max(day_start + 60 + k as i64);
-        st.store.water.add(&today.day_key(), at, ml);
-    }
-    // The six days before.
-    for (back, total) in [(1i64, 1750u32), (2, 2000), (3, 1500), (4, 2250), (5, 1000), (6, 1900)] {
-        let key = today.add_days(-back).day_key();
-        let mut left = total;
-        let mut at = day_start - back * 86_400 + 8 * 3600;
-        while left > 0 {
-            let ml = left.min(250);
-            st.store.water.add(&key, at, ml);
-            left -= ml;
-            at += 55 * 60;
-        }
-    }
+    let week = [5210u32, 9120, 7480, 3960, 10230, 6840, 8412];
+    let days = week
+        .iter()
+        .enumerate()
+        .map(|(i, &steps)| {
+            let last = i + 1 == week.len();
+            HealthDay {
+                date: today.add_days(i as i64 + 1 - week.len() as i64).day_key(),
+                steps,
+                distance_m: last.then_some(6140),
+                active_kcal: last.then_some(342),
+            }
+        })
+        .collect();
+    HealthSnapshot { goal: 8000, source: HealthSource::AppleHealth, updated_at: st.unix - 8 * 60, days }
 }
 
 fn seed_clipboard(st: &mut AppState) {

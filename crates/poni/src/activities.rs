@@ -9,7 +9,7 @@ use crate::icons::Icon;
 use crate::island::Geom;
 use crate::oyen;
 use crate::pages::{self, PageKind};
-use crate::state::{AppState, HudKind, InlineAction, Notice};
+use crate::state::{AppState, HudKind, InlineAction};
 use crate::ui::{wid, PillStyle, Ui, PILL_SMALL};
 use poni_core::datetime::{fmt_clock, fmt_countdown};
 use poni_core::geom::{clamp01, palette, Color, Point, Rect};
@@ -52,9 +52,6 @@ const MEDIA_PEEK_W: f32 = 300.0;
 const PEEK_TAIL: f64 = 1.0;
 /// The one neutral track under every progress ring.
 const RING_TRACK: Color = Color::white(0.14);
-/// How long a notice's inline pill shows its check mark after the action
-/// (the app sets `notice.until = now + 0.6`).
-const INLINE_DONE: f64 = 0.6;
 /// Right padding of HUD content (the left icons sit 16 DIPs in).
 const HUD_PAD: f32 = 16.0;
 /// Bolt icon box and its visible extent (the path spans x 5..19 of 24).
@@ -528,31 +525,10 @@ fn battery_badge(ui: &mut Ui, right: f32, cy: f32, percent: u8, color: Color) ->
     x
 }
 
-/// "+250 ml", "+1 L", "+1.25 L": the same label as the Water page's cup button.
-fn fmt_cup(ml: u32) -> String {
-    if ml < 1000 {
-        return format!("+{ml} ml");
-    }
-    let cl = ml.saturating_add(5) / 10;
-    if cl.is_multiple_of(100) {
-        format!("+{} L", cl / 100)
-    } else if cl.is_multiple_of(10) {
-        format!("+{}.{} L", cl / 100, (cl / 10) % 10)
-    } else {
-        format!("+{}.{:02} L", cl / 100, cl % 100)
-    }
-}
-
 /// The inline action already happened: the pill shows a check until the
-/// notice leaves (the app gives it `INLINE_DONE` more seconds).
-fn inline_done(st: &AppState, n: &Notice, a: InlineAction) -> bool {
-    let window = INLINE_DONE + 0.05;
+/// notice leaves (the app gives it 0.6 s more).
+fn inline_done(st: &AppState, a: InlineAction) -> bool {
     match a {
-        InlineAction::LogWater => {
-            let bumped = st.ui.water_bump > 0.0 && st.now - st.ui.water_bump < window;
-            let logged = n.until - st.now <= window && st.store.water.last_drink_unix().is_some_and(|t| t >= st.unix - 1);
-            bumped || logged
-        }
         InlineAction::StartFocus => st.pomodoro.is_active(),
     }
 }
@@ -567,7 +543,6 @@ fn draw_notice(ui: &mut Ui, st: &mut AppState, body: Rect) {
 
     let inline = n.inline.map(|a| {
         let (label, icon, color) = match a {
-            InlineAction::LogWater => (fmt_cup(st.settings.water.cup_ml), Icon::DropFill, palette::CYAN),
             // Orange for focus; a break starts in its own green.
             InlineAction::StartFocus => ("Start".to_string(), Icon::Play, phase_color(st.pomodoro.phase)),
         };
@@ -586,7 +561,7 @@ fn draw_notice(ui: &mut Ui, st: &mut AppState, body: Rect) {
     // inline pill is registered after it so it wins the hit test.
     ui.button(wid("notice"), body);
     if let Some((a, label, icon, color, r)) = inline {
-        if inline_done(st, &n, a) {
+        if inline_done(st, a) {
             ui.c.fill_rrect(r, r.h / 2.0, color.with_alpha(0.20));
             ui.c.icon(Icon::Check, Rect::from_center(r.center(), 14.0, 14.0), color);
         } else {
