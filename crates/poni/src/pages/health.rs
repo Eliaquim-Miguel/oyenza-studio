@@ -150,10 +150,11 @@ fn draw_not_connected(ui: &mut Ui, r: Rect, center_y: f32, signed_in: bool) {
     let body = if signed_in {
         "You're signed in to Oyenza. Your steps show here once Oyenza on your iPhone or Android can send them from Apple Health or Health Connect."
     } else {
-        "Oyenza on your iPhone or Android reads them from Apple Health or Health Connect. Sign in with your Oyenza account to see them here."
+        "Oyenza on your iPhone or Android reads them from Apple Health or Health Connect. Soon they'll show here when you're signed in to Oyenza."
     };
-    // Not a button yet: Oyenza on the phone doesn't send the steps yet.
-    let label = if signed_in { "Steps from Oyenza · coming soon" } else { "Sign in with Oyenza · coming soon" };
+    // Not a button yet: Oyenza on the phone doesn't send the steps yet. Signing in itself
+    // already works (tray › Oyenza), so the tag names the steps either way.
+    let label = "Steps from Oyenza · coming soon";
     let title_st = TextStyle::headline().wrap().top();
     let body_st = TextStyle::footnote().color(palette::TEXT_DIM).wrap().top();
     let tag_st = TextStyle::caption().weight(Weight::Semibold).color(palette::TEXT_DIM);
