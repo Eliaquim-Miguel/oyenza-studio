@@ -9,7 +9,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Keep in sync with Cargo.toml's workspace version and installer/poni.iss.
+  # Keep in sync with Cargo.toml's workspace version, installer/poni.nsi and installer/poni.iss.
   PONI_VERSION: "0.1.1"
 
 jobs:
@@ -104,34 +104,90 @@ jobs:
           path: target/release/poni.exe
           if-no-files-found: error
 
-      - name: Upload installer
+      - name: Upload the Inno Setup build (a check; releases ship the NSIS one)
         uses: actions/upload-artifact@v4
         with:
-          name: poni-setup
+          name: poni-setup-inno
           path: dist/Oyen-Poni-Setup-${{ env.PONI_VERSION }}.exe
           if-no-files-found: error
 
-  release:
-    name: GitHub Release (tags v*)
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [core, windows]
+  installer:
+    name: NSIS installer and portable zip (what releases ship)
+    needs: windows
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           name: poni-exe
           path: dist
+      - name: Build
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq nsis zip > /dev/null
+          makensis -V2 -DEXE="$PWD/dist/poni.exe" -DOUTDIR="$PWD/dist" installer/poni.nsi
+          # Portable build inside its own folder, as tools/package.sh makes it.
+          ( cd dist && mkdir Poni && cp poni.exe Poni/ && zip -qr "Oyen-Poni-$PONI_VERSION-portable.zip" Poni && rm -rf Poni )
+          ls -la dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: oyen-poni-setup
+          path: |
+            dist/Oyen-Poni-Setup-${{ env.PONI_VERSION }}.exe
+            dist/Oyen-Poni-${{ env.PONI_VERSION }}-portable.zip
+          if-no-files-found: error
+
+  install-test:
+    name: Install over 0.1.1, check and uninstall (Windows)
+    needs: installer
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: poni-setup
+          name: oyen-poni-setup
           path: dist
-      - name: Attach poni.exe and the installer
+      - name: Fetch the release to upgrade from
+        shell: pwsh
+        # 0.1.1 is the installer people have today; the check upgrades from it.
+        run: Invoke-WebRequest -Uri "https://github.com/lucacadalora/poni/releases/download/v0.1.1/Poni-Setup-0.1.1.exe" -OutFile previous-setup.exe
+      - name: Install, check, uninstall
+        shell: pwsh
+        run: ./tools/ci-installer.ps1 -Setup "dist\Oyen-Poni-Setup-$env:PONI_VERSION.exe" -Version $env:PONI_VERSION -Previous previous-setup.exe -Out installer-out
+      - name: Upload screenshots and results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-check
+          path: installer-out
+          if-no-files-found: warn
+
+  release:
+    name: GitHub Release (tags v*)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [core, windows, installer, install-test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: The tag matches PONI_VERSION
+        run: test "$GITHUB_REF_NAME" = "v$PONI_VERSION"
+      - uses: actions/download-artifact@v4
+        with:
+          name: oyen-poni-setup
+          path: dist
+      - name: Copy the installer to a fixed name for the README's download link
+        run: cp "dist/Oyen-Poni-Setup-$PONI_VERSION.exe" dist/Oyen-Poni-Setup.exe
+      - name: Publish as the latest release
         uses: softprops/action-gh-release@v2
         with:
+          name: Oyen Poni ${{ env.PONI_VERSION }}
+          body_path: docs/release-notes/${{ github.ref_name }}.md
+          prerelease: false
+          make_latest: "true"
           files: |
-            dist/poni.exe
             dist/Oyen-Poni-Setup-${{ env.PONI_VERSION }}.exe
+            dist/Oyen-Poni-Setup.exe
+            dist/Oyen-Poni-${{ env.PONI_VERSION }}-portable.zip
           fail_on_unmatched_files: true
-          generate_release_notes: true
