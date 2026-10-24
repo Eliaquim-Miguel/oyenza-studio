@@ -6,6 +6,7 @@ import {
   deriveKeys, signMsg, verifyMsg, ReplayCache, randomSid, cleanName, secretOk,
   FRAME, HIGH_WATER, LOW_WATER, MAX_FILES, MAX_TOTAL,
 } from './drop-core.js';
+import { setIsland, islandProgress, pose, carrying } from './island.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -179,6 +180,17 @@ function svg(name) {
   return s;
 }
 
+// "Send to" + the PC's name on its own line, sized so a long name still fits.
+function titleWithName(id, lead, name) {
+  const h = $(id);
+  h.textContent = '';
+  h.appendChild(document.createTextNode(`${lead} `));
+  const n = el('span', 'pcname', name);
+  const len = [...name].length;
+  n.dataset.len = len > 18 ? 'xl' : len > 12 ? 'l' : 's';
+  h.appendChild(n);
+}
+
 function el(tag, cls, text) {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
@@ -245,10 +257,26 @@ function safeFileName(name, fallback = 'file') {
   return [...one].slice(0, 200).join('') || fallback;
 }
 
-function fileRow(name, size, action) {
+function fileRow(name, size, action, file) {
   const li = el('li', 'file');
-  const kind = el('span', 'kind');
-  kind.appendChild(svg(kindOf(name)));
+  const k = kindOf(name, file && file.type);
+  const kind = el('span', `kind ${k}`);
+  if (file && /^image\/(jpeg|png|gif|webp|avif)$/.test(file.type || '') && file.size < 40e6) {
+    // A real thumbnail of the photo (decoded, then the blob URL is let go).
+    const url = URL.createObjectURL(file);
+    const img = el('img', 'thumb');
+    img.alt = '';
+    img.decoding = 'async';
+    img.addEventListener('load', () => URL.revokeObjectURL(url), { once: true });
+    img.addEventListener('error', () => {
+      URL.revokeObjectURL(url);
+      img.replaceWith(svg(k));
+    }, { once: true });
+    img.src = url;
+    kind.appendChild(img);
+  } else {
+    kind.appendChild(svg(k));
+  }
   li.appendChild(kind);
   const text = el('span', 'name');
   text.appendChild(el('b', '', name));
@@ -260,6 +288,7 @@ function fileRow(name, size, action) {
 
 function setStatus(prefix, text, kind = 'wait') {
   const box = $(`${prefix}-status`);
+  islandNews(prefix, kind, text);
   if (!text) {
     box.hidden = true;
     return;
@@ -274,8 +303,16 @@ function setStatus(prefix, text, kind = 'wait') {
 // Progress bar for a send: "Sending 2 of 3" and "1.2 MB of 3.0 MB".
 function showProgress(prefix, done, total, files) {
   const box = $(prefix === 'send' ? 'progress' : 'share-progress');
-  box.hidden = false;
   const f = Math.max(0, Math.min(1, total ? done / total : 1));
+  const sub = `${Math.round(f * 100)}% · ${fmt(Math.min(done, total))} of ${fmt(total)}`;
+  if (box.hidden) {
+    const kinds = new Set(files.map((x) => kindOf(x.name, x.type)));
+    setIsland('busy', { title: `Sending ${describe(files)}`, sub, progress: f, thumb: files[0], icon: kinds.size === 1 && kinds.has('photo') ? 'photo' : 'file' });
+    carrying(prefix === 'send' ? 'pc-oyen' : 'share-oyen', true);
+  } else {
+    islandProgress(f, sub);
+  }
+  box.hidden = false;
   $(prefix === 'send' ? 'bar' : 'share-bar').style.transform = `scaleX(${f})`;
   let i = 0;
   let sum = 0;
@@ -285,8 +322,39 @@ function showProgress(prefix, done, total, files) {
 }
 
 function hideProgress(prefix) {
-  $(prefix === 'send' ? 'progress' : 'share-progress').hidden = true;
+  const box = $(prefix === 'send' ? 'progress' : 'share-progress');
+  if (!box.hidden) {
+    carrying(prefix === 'send' ? 'pc-oyen' : 'share-oyen', false);
+    restoreIsland();
+  }
+  box.hidden = true;
 }
+
+// ---------------------------------------------------------------- the island
+
+// What the island shows when nothing is on the move, per view.
+let islandRest = () => setIsland('idle');
+
+function restoreIsland() {
+  islandRest();
+}
+
+// A finished send, a save, a problem: short news on the island.
+function islandNews(prefix, kind, text) {
+  if (!text || (kind !== 'ok' && kind !== 'bad')) return;
+  const who = pcv.pair ? PcName(pcv.pair) : '';
+  if (kind === 'ok') {
+    if (prefix === 'send' || prefix === 'share') {
+      setIsland('done', { title: 'On the Shelf', sub: who, hold: 3200 });
+      pose(prefix === 'send' ? 'pc-oyen' : 'share-oyen', 'shelf', 'hop');
+    } else if (prefix === 'save') {
+      setIsland('done', { title: 'Saved', sub: 'On this phone', hold: 2400 });
+    }
+  } else if (prefix === 'send' || prefix === 'share' || prefix === 'save') {
+    setIsland('oops', { title: prefix === 'save' ? 'Not saved' : 'Not sent', sub: 'Nothing was kept', hold: 3600 });
+  }
+}
+
 
 // ---------------------------------------------------------------- wake lock
 
@@ -869,6 +937,11 @@ function showView(name) {
   if (view === 'pc' && name !== 'pc') closePcLink();
   view = name;
   for (const v of ['pair', 'home', 'pc', 'share']) $(`v-${v}`).hidden = v !== name;
+  document.body.dataset.view = name;
+  if (name !== 'pc') {
+    islandRest = () => setIsland('idle');
+    islandRest();
+  }
   document.title = name === 'pc' && pcv.pair ? `${PcName(pcv.pair)} · Oyen Poni` : 'Oyen Poni';
   if (name === 'home' || name === 'share') startPolling();
   else stopPolling();
@@ -945,19 +1018,29 @@ function setPairState(state, detail) {
   $('pair-done').hidden = true;
   $('pair-retry').hidden = true;
   $('pair-home').hidden = true;
+  $('v-pair').dataset.state = state;
   if (state === 'working') {
+    pose('pair-oyen', 'peek');
+    setIsland('wait', { title: 'Pairing…' });
     title.textContent = 'Pairing with your PC…';
     sub.textContent = 'This takes a few seconds.';
     sub.hidden = false;
     setStatus('pair', 'Waiting for your PC to answer.', 'wait');
   } else if (state === 'done') {
-    title.textContent = `Paired with ${detail}`;
+    pose('pair-oyen', 'sit', 'hop');
+    islandRest = () => setIsland('idle');
+    setIsland('idle');
+    setIsland('done', { title: 'Paired', sub: detail, hold: 3200 });
+    titleWithName('pair-title', 'Paired with', detail);
     sub.textContent = `Send photos and files to ${detail} from anywhere, whenever Oyen Poni is running on it.`;
     sub.hidden = false;
     setStatus('pair', '');
     $('pair-done').hidden = false;
     renderKeep();
   } else {
+    pose('pair-oyen', 'asleep');
+    setIsland('idle');
+    setIsland('oops', { title: 'Couldn\'t pair', hold: 3600 });
     title.textContent = 'Couldn\'t pair';
     sub.hidden = true;
     const text = {
@@ -968,7 +1051,7 @@ function setPairState(state, detail) {
       network: 'Can\'t reach the internet. Check your connection and try again.',
       'slow-down': 'Too many tries at once. Wait a minute and try again.',
     }[detail] || 'Your PC didn\'t answer. Keep Shelf › Phone › Pair a phone open on the PC and scan again.';
-    setStatus('pair', text, 'bad');
+    setStatus('pair', text, ['offline', 'network', 'slow-down'].includes(detail) ? 'nap' : 'bad');
     $('pair-retry').hidden = detail === 'link' || detail === 'gone' || detail === 'bad';
     store = readStore();
     $('pair-home').hidden = !store.pairs.length;
@@ -1076,9 +1159,14 @@ function stateLine(st) {
   return line;
 }
 
-function pcIcon() {
-  const i = el('span', 'pc-icon');
-  i.appendChild(svg('pc'));
+// A PC is drawn as its island, lit when it's online.
+function pcIcon(st) {
+  const i = el('span', `pc-icon${st && st.state === 'online' ? ' on' : ''}`);
+  const screen = el('span', 'mini-screen');
+  const isl = el('span', 'mini-island');
+  isl.appendChild(el('i'));
+  screen.appendChild(isl);
+  i.append(screen, el('span', 'mini-stand'));
   return i;
 }
 
@@ -1087,6 +1175,9 @@ function renderHome() {
   const list = $('pcs');
   list.textContent = '';
   const any = store.pairs.length > 0;
+  pose('home-oyen', any ? 'peek' : 'note');
+  $('home-title').textContent = any ? 'Your PCs' : 'Let\'s pair your PC';
+  $('home-sub').textContent = any ? 'Tap one to send photos and files to its Shelf.' : 'Pair once, then send to it from anywhere.';
   $('pcs-card').hidden = !any;
   $('empty').hidden = any;
   $('home-foot').hidden = !any;
@@ -1108,14 +1199,14 @@ function renderHome() {
         forgetPair(p.k);
         renderHome();
       });
-      row.append(pcIcon(), text, forget);
+      row.append(pcIcon(st), text, forget);
       li.appendChild(row);
     } else {
       const b = el('button', 'pc-open');
       b.type = 'button';
       const chev = el('span', 'chev');
       chev.appendChild(svg('chev'));
-      b.append(pcIcon(), text, chev);
+      b.append(pcIcon(st), text, chev);
       b.addEventListener('click', () => openPc(p.k));
       li.appendChild(b);
     }
@@ -1185,7 +1276,7 @@ function openPc(k, push = true) {
   pcv.session += 1;
   $('pick').value = '';
   showView('pc');
-  $('pc-title').textContent = `Send to ${PcName(p)}`;
+  titleWithName('pc-title', 'Send to', PcName(p));
   $('pc-error').hidden = true;
   $('pc-retry').hidden = true;
   setStatus('send', '');
@@ -1208,6 +1299,15 @@ function setRoad(kind) {
     off: ['off', 'Not connected', true],
   };
   const [icon, text, quiet] = ROADS[kind] || ROADS.off;
+  const who = pcv.pair ? PcName(pcv.pair) : 'Your PC';
+  const SHORT = { wifi: 'Over your Wi-Fi', internet: 'Across the internet', relay: 'Through the relay', connected: 'Connected' };
+  islandRest = () => {
+    if (kind === 'connecting') setIsland('wait', { title: who, sub: 'Connecting…' });
+    else if (SHORT[kind]) setIsland('link', { title: who, sub: SHORT[kind], icon: icon === 'check' ? 'wifi' : icon, live: true });
+    else setIsland('off', { title: who, sub: kind === 'paused' ? 'Resting' : 'Not connected' });
+  };
+  if (view === 'pc' && $('progress').hidden) islandRest();
+  if (SHORT[kind]) pose('pc-oyen', 'shelf');
   const box = $('road-icon');
   box.textContent = '';
   box.appendChild(icon ? svg(icon) : el('span', 'spin'));
@@ -1250,7 +1350,7 @@ function ensureLink() {
   l.onname = (name) => {
     renamePair(p.k, name);
     p.name = cleanName(name);
-    if (pcv.link === l && view === 'pc') $('pc-title').textContent = `Send to ${PcName(p)}`;
+    if (pcv.link === l && view === 'pc') titleWithName('pc-title', 'Send to', PcName(p));
   };
   l.onclose = (why, wasReady) => {
     if (pcv.link !== l) return;
@@ -1285,7 +1385,9 @@ function showPcError(code) {
   const p = pcv.pair;
   if (code === 'gone' || code === 'bad') statusByK.set(p.k, { state: code, seen: null });
   setRoad('off');
+  if (['offline', 'no-answer', 'no-route', 'network'].includes(code)) pose('pc-oyen', 'asleep');
   $('pc-error').hidden = false;
+  $('pc-error').className = `status ${['offline', 'no-answer', 'no-route', 'network', 'busy'].includes(code) ? 'nap' : 'bad'}`;
   $('pc-error-text').textContent = problemText(code, PcName(p));
   $('pc-retry').hidden = code === 'gone' || code === 'bad';
   if (pcv.shelf === null) renderShelf('Not connected.');
@@ -1308,7 +1410,7 @@ function renderChosen() {
   let total = 0;
   for (const f of pcv.chosen) {
     total += f.size;
-    list.appendChild(fileRow(f.name, f.size));
+    list.appendChild(fileRow(f.name, f.size, undefined, f));
   }
   const any = pcv.chosen.length > 0;
   list.hidden = !any;
@@ -1545,7 +1647,7 @@ async function openShare(id) {
   let total = 0;
   for (const f of files) {
     total += f.size;
-    list.appendChild(fileRow(f.name || 'file', f.size));
+    list.appendChild(fileRow(f.name || 'file', f.size, undefined, f));
   }
   $('share-count').textContent = describe(files);
   $('share-size').textContent = fmt(total);

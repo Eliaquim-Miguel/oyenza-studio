@@ -4,8 +4,12 @@
 // POST /share (multipart/form-data, field "files") goes into IndexedDB
 // ("oyen-drop" / "shared"), then the page opens at /?share=<id>.
 
-const CACHE = 'oyen-drop-shell-v1';
-const SHELL = ['/', '/app.js', '/app.css', '/drop-core.js', '/manifest.webmanifest', '/icon-192.png', '/icon-512.png', '/apple-touch-icon.png'];
+const CACHE = 'oyen-drop-shell-v2';
+const SHELL = [
+  '/', '/app.js', '/app.css', '/drop-core.js', '/island.js', '/manifest.webmanifest', '/icon-192.png', '/icon-512.png', '/apple-touch-icon.png',
+  '/oyen-peek.webp', '/oyen-sit.webp', '/oyen-asleep.webp', '/oyen-shelf.webp', '/oyen-note.webp',
+  '/outfit-400.woff2', '/outfit-500.woff2', '/outfit-600.woff2', '/outfit-700.woff2',
+];
 const DAY = 24 * 3600 * 1000;
 
 self.addEventListener('install', (event) => {
