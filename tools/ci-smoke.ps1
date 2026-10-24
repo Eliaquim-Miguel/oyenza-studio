@@ -162,7 +162,9 @@ if (-not $pill) {
     # the GPU renderer (its hit mask leaves the shadow out).
     $bottom = $mid
     while ($bottom - $mid -lt (Px 120) -and (ClassAt $cx ($bottom + 1)) -eq "Poni.Island") { $bottom += 1 }
-    $shadow = @(@(($right + (Px 3)), $mid), @(($left - (Px 3)), $mid), @($cx, ($bottom + (Px 3)))) | ForEach-Object { "($($_[0]), $($_[1]))=$(ClassAt $_[0] $_[1])" }
+    $shadow = @(
+        @(($right + (Px 3)), $mid), @(($left - (Px 3)), $mid), @($cx, ($bottom + (Px 3)))
+    ) | ForEach-Object { "($($_[0]), $($_[1]))=$(ClassAt $_[0] $_[1])" }
     if (-not $soft) {
         Expect "pill-height" (($bottom - $gap) -ge (Px 20) -and ($bottom - $gap) -le (Px 60)) "the pill takes the mouse from y $gap to $bottom"
         Expect "shadow-click-through" (($shadow | Where-Object { $_ -like "*=Poni.Island" }).Count -eq 0) "windows at $($shadow -join ', ')"
