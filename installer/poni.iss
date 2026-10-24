@@ -1,7 +1,9 @@
-; Poni installer (Inno Setup 6.3+).
+; Oyen Poni installer (Inno Setup 6.5.2+, for the PNG wizard images).
+;
+; Releases ship installer/poni.nsi (NSIS), which 0.1.x installs came from; CI builds this one too as a check.
 ;
 ; Build after `cargo build -p poni --release`:
-;   iscc installer\poni.iss                      -> dist\Poni-Setup-0.1.1.exe
+;   iscc installer\poni.iss                      -> dist\Oyen-Poni-Setup-0.1.1.exe
 ;   iscc /DAppVersion=0.2.0 installer\poni.iss   (another version)
 ;
 ; Per-user install: no admin rights and no UAC prompt. The app goes to
@@ -14,7 +16,9 @@
 #ifndef ExeSource
   #define ExeSource "..\target\release\poni.exe"
 #endif
-#define AppName "Poni"
+#define AppName "Oyen Poni"
+; Folder, data and Run value names stay "Poni" (the app and 0.1.x installs use them).
+#define AppDir "Poni"
 #define AppPublisher "Jatevo Labs"
 #define AppExe "poni.exe"
 ; The island window's class (crates/poni/src/window.rs), used to ask a running copy to quit.
@@ -33,7 +37,7 @@ VersionInfoCompany={#AppPublisher}
 VersionInfoDescription={#AppName} Setup
 VersionInfoProductName={#AppName}
 PrivilegesRequired=lowest
-DefaultDirName={localappdata}\Programs\{#AppName}
+DefaultDirName={localappdata}\Programs\{#AppDir}
 DisableDirPage=yes
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
@@ -41,11 +45,15 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
 OutputDir=..\dist
-OutputBaseFilename=Poni-Setup-{#AppVersion}
+OutputBaseFilename=Oyen-Poni-Setup-{#AppVersion}
 SetupIconFile=..\crates\poni\res\poni.ico
 UninstallDisplayIcon={app}\{#AppExe}
 UninstallDisplayName={#AppName}
 WizardStyle=modern
+; Oyen hanging from the island on the finish page, Poni's logo in the header (both from tools/make_brand.py).
+; Setup picks the file closest to its image area: 100%, 150% and 200% scaling.
+WizardImageFile=art\wizard-202x386.png,art\wizard-336x643.png,art\wizard-430x824.png
+WizardSmallImageFile=art\wizard-small-58.png,art\wizard-small-77.png,art\wizard-small-97.png,art\wizard-small-116.png,art\wizard-small-124.png,art\wizard-small-143.png,art\wizard-small-159.png
 Compression=lzma2/max
 SolidCompression=yes
 ; A running copy is asked to quit in PrepareToInstall; Restart Manager is the safety net.
@@ -66,7 +74,7 @@ Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"; Comment: "A livi
 
 [Registry]
 ; Same value the app writes from its "Start with Windows" menu item (autostart.rs): the quoted exe path.
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "{#AppName}"; ValueData: """{app}\{#AppExe}"""; Flags: uninsdeletevalue; Tasks: autostart
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "{#AppDir}"; ValueData: """{app}\{#AppExe}"""; Flags: uninsdeletevalue; Tasks: autostart
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
@@ -77,7 +85,7 @@ Filename: "{sys}\taskkill.exe"; Parameters: "/IM {#AppExe} /F"; Flags: runhidden
 
 [UninstallDelete]
 ; Cache and log only (lyrics, poni.log); settings and data in %APPDATA%\Poni are kept.
-Type: filesandordirs; Name: "{localappdata}\{#AppName}"
+Type: filesandordirs; Name: "{localappdata}\{#AppDir}"
 
 [Code]
 const
@@ -111,7 +119,7 @@ procedure CurStepChanged(CurStep: TSetupStep);
 begin
   { Unticking "Start with Windows" on a reinstall turns it off, even if the app's menu turned it on. }
   if (CurStep = ssPostInstall) and not WizardIsTaskSelected('autostart') then
-    RegDeleteValue(HKEY_CURRENT_USER, RunKey, '{#AppName}');
+    RegDeleteValue(HKEY_CURRENT_USER, RunKey, '{#AppDir}');
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
@@ -121,5 +129,5 @@ begin
     StopPoni();
   { The app may have written the Run value itself; never leave it pointing at a removed exe. }
   if CurUninstallStep = usPostUninstall then
-    RegDeleteValue(HKEY_CURRENT_USER, RunKey, '{#AppName}');
+    RegDeleteValue(HKEY_CURRENT_USER, RunKey, '{#AppDir}');
 end;

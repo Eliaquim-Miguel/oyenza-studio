@@ -1,4 +1,8 @@
-# Poni
+<p align="center"><img src="docs/brand/oyen-poni-logo.svg" width="128" alt="Oyen Poni logo: an orange tile with the black island at the top playing music, and a white Oyen below"></p>
+
+<h1 align="center">Oyen Poni</h1>
+
+<p align="center"><a href="https://github.com/lucacadalora/poni/releases/latest/download/Oyen-Poni-Setup.exe"><b>Download for Windows</b></a></p>
 
 **A living notch for Windows 10 and 11.** A small black island hangs from the top of your screen. It shows what's happening (music, timers, volume, headphones connecting), and when you point at it, it opens into a set of quick pages.
 
@@ -46,7 +50,9 @@ Right-click the island or the tray icon for options:
 
 ## Install
 
-Download the latest installer from [Releases](https://github.com/lucacadalora/poni/releases) and run it. It installs just for you and needs no admin rights. A portable zip is there too.
+<img src="docs/brand/art/oyen-poni-peek.webp" width="260" align="right" alt="Oyen peeking over the island while it plays music">
+
+**[Download Oyen-Poni-Setup.exe](https://github.com/lucacadalora/poni/releases/latest/download/Oyen-Poni-Setup.exe)** and run it. It installs just for you and needs no admin rights. Older versions and a portable zip are on the [Releases](https://github.com/lucacadalora/poni/releases) page.
 
 Builds aren't code-signed yet, so Windows SmartScreen may say "Windows protected your PC". Click **More info → Run anyway**.
 
@@ -54,7 +60,7 @@ Your data lives in `%APPDATA%\Poni\`, and cache plus log in `%LOCALAPPDATA%\Poni
 
 ## Build
 
-Poni is a Cargo workspace:
+Oyen Poni is a Cargo workspace:
 
 | Crate | What |
 |---|---|
@@ -95,9 +101,9 @@ Early, but in daily use on Windows 11. Most rough edges are in places a test mac
 
 ## Credits
 
-- Synced lyrics come from [LRCLIB](https://lrclib.net), a free and open lyrics database. Poni fetches them only while a song plays and caches them on your PC.
+- Synced lyrics come from [LRCLIB](https://lrclib.net), a free and open lyrics database. Oyen Poni fetches them only while a song plays and caches them on your PC.
 - Built with [windows-rs](https://github.com/microsoft/windows-rs) and [serde](https://serde.rs).
 
 ## License
 
-[MIT](LICENSE)
+The code is [MIT](LICENSE). The Oyen Poni name, its logo and the Oyen character (the files in `docs/brand`, `installer/art` and the app icon) are not covered by the MIT license, so please don't reuse them in other projects.

@@ -85,7 +85,7 @@ jobs:
           if (-not $iscc) { Write-Error "ISCC.exe not found after installing Inno Setup"; exit 1 }
           & $iscc "/DAppVersion=$env:PONI_VERSION" installer\poni.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Get-Item "dist\Poni-Setup-$env:PONI_VERSION.exe" | Format-List Name, Length
+          Get-Item "dist\Oyen-Poni-Setup-$env:PONI_VERSION.exe" | Format-List Name, Length
 
       - name: Upload screenshots and logs
         if: always()
@@ -108,7 +108,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: poni-setup
-          path: dist/Poni-Setup-${{ env.PONI_VERSION }}.exe
+          path: dist/Oyen-Poni-Setup-${{ env.PONI_VERSION }}.exe
           if-no-files-found: error
 
   release:
@@ -132,6 +132,6 @@ jobs:
         with:
           files: |
             dist/poni.exe
-            dist/Poni-Setup-${{ env.PONI_VERSION }}.exe
+            dist/Oyen-Poni-Setup-${{ env.PONI_VERSION }}.exe
           fail_on_unmatched_files: true
           generate_release_notes: true
