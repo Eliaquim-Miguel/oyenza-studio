@@ -65,9 +65,9 @@ pub fn pivot(body: Rect) -> Point {
 }
 
 /// How far the outgoing content, laid out at its old size `was`, has shrunk
-/// with the outline `now`: by the narrower of the two axes (Classic: the
-/// width), so the picture shrinks inside the outline instead of being cut
-/// by its rounded top corners. Never below `min`, never grown.
+/// with the outline `now`: as much as the axis that has shrunk more (Classic
+/// follows the width), so the picture shrinks inside the outline instead of
+/// being cut by its rounded top corners. Never below `min`, never grown.
 pub fn ghost_scale(now: Geom, was: Geom, min: f32) -> f32 {
     (now.w / was.w.max(1.0)).min(now.h / was.h.max(1.0)).clamp(min, 1.0)
 }
