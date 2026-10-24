@@ -214,3 +214,36 @@ fn battery(ui: &mut Ui, r: Rect, percent: u8, charging: bool) {
     ui.c.stroke_rrect(r.inset(stroke / 2.0, stroke / 2.0), 3.0 - stroke / 2.0, OUTLINE, stroke);
     ui.c.fill_rrect(Rect::new(r.right() + NUB.0, r.center().y - NUB.2 / 2.0, NUB.1, NUB.2), 0.75, OUTLINE);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use poni_core::settings::Settings;
+    use poni_core::store::Store;
+
+    #[test]
+    fn status_is_the_pill_themes_own() {
+        assert_eq!(looks(Theme::Pill).last(), Some(&IdleStyle::Status));
+        assert_eq!(shown(Theme::Pill, IdleStyle::Status), IdleStyle::Status);
+        for theme in [Theme::Classic, Theme::Oyen, Theme::Glass] {
+            assert_eq!(looks(theme), &looks(Theme::Pill)[..4], "{theme:?}");
+            // They draw the clock for it, so a picker marks Clock.
+            assert_eq!(shown(theme, IdleStyle::Status), IdleStyle::Clock, "{theme:?}");
+            assert_eq!(shown(theme, IdleStyle::Eyes), IdleStyle::Eyes, "{theme:?}");
+        }
+    }
+
+    #[test]
+    fn the_bar_is_a_capsule_that_makes_room_for_the_battery() {
+        let mut st = AppState::new(Settings { theme: Theme::Pill, idle_style: IdleStyle::Status, ..Settings::default() }, Store::default());
+        st.volume.known = true;
+        st.power.has_battery = false;
+        let bare = geom(&st).unwrap();
+        assert_eq!((bare.h, bare.r), (32.0, 16.0));
+        st.power.has_battery = true;
+        let with = geom(&st).unwrap();
+        assert!(with.w >= bare.w + PCT_GAP + BATT_GAP + BATT_W, "{} vs {}", with.w, bare.w);
+        // Even widths keep the centred body on whole pixels at 100 %.
+        assert_eq!((with.w % 2.0, bare.w % 2.0), (0.0, 0.0));
+    }
+}
