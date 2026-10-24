@@ -1474,7 +1474,8 @@ impl SelfTest {
             clock::hold(Some(now));
             self.apply(app, Scene::Page(PageKind::Media));
             if let Some(m) = app.st.media.as_mut() {
-                m.timeline = Timeline::new(SCROLL_FROM_S, TRACK_LEN_S, start, true);
+                // Sampled at `now`: a timeline sampled later doesn't run backwards.
+                m.timeline = Timeline::new(SCROLL_FROM_S + (now - start), TRACK_LEN_S, now, true);
             }
             let (w, h, px, _) = app.selftest_capture();
             let Some(k) = i.checked_sub(pre) else { continue };
