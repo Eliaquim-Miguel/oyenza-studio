@@ -166,9 +166,11 @@ fn fit(w: f32) -> f32 {
     (((w + SIDES) / W_STEP).ceil() * W_STEP).clamp(MIN_W, MAX_W)
 }
 
-/// The sung line as the lyric lane draws it (spec 6.5), to size the pill.
+/// The sung line as `lyric::draw` sets it (13 semibold, like the title it
+/// takes turns with), to size the pill. Once both lanes are in, this can be
+/// `super::lyric::style()`.
 fn line_style() -> TextStyle {
-    TextStyle::body().weight(Weight::Medium)
+    TextStyle::body().weight(Weight::Semibold)
 }
 
 /// Run `f` with everything it draws `a` times as opaque.
@@ -180,15 +182,18 @@ fn faded<R>(ui: &mut Ui, a: f32, f: impl FnOnce(&mut Ui) -> R) -> R {
     r
 }
 
-/// The middle: the line being sung, or the song. The two cross-fade when
-/// one takes over from the other. Returns the pill width the text needs.
-fn draw_text(ui: &mut Ui, st: &AppState, area: Rect, alpha: f32, now: f64) -> f32 {
-    // The title holds the middle while a new track peeks.
+/// The middle: the line being sung, or the song (dimmed by `paused_a` while
+/// paused). The two cross-fade when one takes over from the other. Returns
+/// the pill width the text needs.
+fn draw_text(ui: &mut Ui, st: &AppState, area: Rect, paused_a: f32, now: f64) -> f32 {
+    // The title holds the middle while a new track peeks. The line still
+    // draws then, unseen, so the lyric lane keeps its fade state frame to
+    // frame; it dims a paused line itself.
     let peeking = now < st.ui.peek_until;
     let (was_sung, since) = SUNG.get();
     let k = smooth(clamp01(((now - since) / HANDOFF) as f32));
-    let line_a = if was_sung { k } else { 0.0 };
-    let sung = !peeking && faded(ui, alpha * line_a, |ui| super::lyric::draw(ui, st, area));
+    let line_a = if was_sung && !peeking { k } else { 0.0 };
+    let sung = faded(ui, line_a, |ui| super::lyric::draw(ui, st, area)) && !peeking;
     let since = if sung == was_sung {
         since
     } else {
@@ -202,10 +207,10 @@ fn draw_text(ui: &mut Ui, st: &AppState, area: Rect, alpha: f32, now: f64) -> f3
     if !sung {
         // A line that just ended can't be drawn fading out (the lyric lane
         // has let go of it), so the title fades in on its own.
-        return fit(draw_song(ui, st, area, alpha * k));
+        return fit(draw_song(ui, st, area, paused_a * k));
     }
     if k < 1.0 {
-        draw_song(ui, st, area, alpha * (1.0 - k));
+        draw_song(ui, st, area, paused_a * (1.0 - k));
     }
     match super::lyric::current(st) {
         Some((line, _)) => fit(widest_line(st, ui.c.measure(&line, &line_style(), 10_000.0).0)),
