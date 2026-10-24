@@ -281,9 +281,11 @@ enum Scene {
     OyenzaSignIn,
     /// The Oyenza tab right after a spend was saved (Undo showing).
     OyenzaSaved,
+    /// The Health page signed in to Oyenza, before the phone sends any steps.
+    HealthSignedIn,
 }
 
-const SCENES: [Scene; 29] = [
+const SCENES: [Scene; 30] = [
     Scene::IdleClock,
     Scene::IdleEyes,
     Scene::Media,
@@ -314,6 +316,7 @@ const SCENES: [Scene; 29] = [
     Scene::Page(PageKind::Oyenza),
     Scene::OyenzaSignIn,
     Scene::OyenzaSaved,
+    Scene::HealthSignedIn,
 ];
 
 impl Scene {
@@ -341,6 +344,7 @@ impl Scene {
             Scene::OyenzaBill => "oyenza-bill".into(),
             Scene::OyenzaSignIn => "page-oyenza-signin".into(),
             Scene::OyenzaSaved => "page-oyenza-saved".into(),
+            Scene::HealthSignedIn => "page-health-signed-in".into(),
         }
     }
 
@@ -351,6 +355,7 @@ impl Scene {
             Scene::TabClick => Some(PageKind::ALL[0]),
             Scene::HealthSignedOut => Some(PageKind::Health),
             Scene::OyenzaSignIn | Scene::OyenzaSaved => Some(PageKind::Oyenza),
+            Scene::HealthSignedIn => Some(PageKind::Health),
             _ => None,
         }
     }
@@ -360,7 +365,13 @@ impl Scene {
     fn oyenza(self) -> bool {
         matches!(
             self,
-            Scene::OyenzaMoney | Scene::OyenzaMoneyShown | Scene::OyenzaBill | Scene::OyenzaSignIn | Scene::OyenzaSaved | Scene::Page(PageKind::Oyenza)
+            Scene::OyenzaMoney
+                | Scene::OyenzaMoneyShown
+                | Scene::OyenzaBill
+                | Scene::OyenzaSignIn
+                | Scene::OyenzaSaved
+                | Scene::Page(PageKind::Oyenza)
+                | Scene::HealthSignedIn
         )
     }
 
@@ -755,7 +766,7 @@ impl SelfTest {
         st.volume = VolumeState { level: 0.64, muted: false, known: true };
         st.pinned = false;
         st.drag_hover = scene == Scene::ShelfDrop;
-        st.health = if scene == Scene::HealthSignedOut { None } else { self.health.clone() };
+        st.health = if matches!(scene, Scene::HealthSignedOut | Scene::HealthSignedIn) { None } else { self.health.clone() };
         st.phone = fake_phone(scene);
         st.store.shelf.items = if scene == Scene::ShelfEmpty { Vec::new() } else { self.shelf_items.clone() };
         if scene != Scene::ShelfEmpty {
