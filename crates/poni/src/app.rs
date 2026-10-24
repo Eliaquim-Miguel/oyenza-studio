@@ -333,12 +333,16 @@ pub struct App {
     display_off: bool,
     tray_retries: u32,
     /// Content of the previous mode, fading out while the outline morphs:
-    /// (mode, start time, its geometry).
-    outgoing: Option<(Mode, f64, Geom)>,
+    /// (mode, start time, its geometry, the opacity it fades from).
+    outgoing: Option<(Mode, f64, Geom, f32)>,
     /// A page switch in progress: (from page, start time, slide direction).
     page_anim: Option<(PageKind, f64, f32)>,
     /// Where the hover (dwell) timer was last armed; None when it isn't.
     hover_arm: Option<Point>,
+    /// The pointer left the open island: close it on the next frame.
+    collapse_due: bool,
+    /// When the pointer last closed the island by leaving it.
+    left_at: f64,
     /// Phone drop's web server while the Shelf's phone panel is open.
     phone: Option<services::phonedrop::PhoneDrop>,
     /// The Shelf paths last handed to it (to notice changes).
@@ -367,6 +371,14 @@ const PAGE_SWITCH: f64 = 0.26;
 /// Pointer travel (DIPs) that restarts the hover dwell: the island opens
 /// only once the pointer rests on it, not when it brushes past.
 const DWELL_SLOP: f32 = 4.0;
+/// The pointer coming back onto the island this soon after leaving it
+/// (while it is still shrinking) opens it again at once, from where the
+/// outline is: overshooting an edge costs no close-and-reopen.
+const REOPEN_S: f64 = 0.3;
+/// A hold that kept the island open (typing, a file drag, Phone drop, the
+/// pin) ended while the pointer is elsewhere: close after this grace, so
+/// the change can be seen.
+const HOLD_GRACE_MS: u32 = 380;
 /// Collapsed pill growth (w, h, radius) while the pointer is on it.
 const HOVER_LIFT: (f32, f32, f32) = (12.0, 4.0, 2.0);
 /// How long the inline notice pill shows its check mark (seconds).
@@ -377,6 +389,13 @@ const CONTENT_SCALE_FROM: f32 = 0.94;
 const CONTENT_DROP: f32 = 6.0;
 /// Smallest scale the outgoing content shrinks to as the outline narrows.
 const GHOST_MIN_SCALE: f32 = 0.6;
+
+/// How much of the outgoing content still shows `age` seconds into its fade
+/// (a smoothstep: it holds, then leaves).
+fn outgoing_left(age: f64) -> f32 {
+    let t = ((age / OUTGOING_FADE) as f32).clamp(0.0, 1.0);
+    1.0 - t * t * (3.0 - 2.0 * t)
+}
 
 impl App {
     #[allow(clippy::too_many_arguments)]
@@ -459,6 +478,8 @@ impl App {
             outgoing: None,
             page_anim: None,
             hover_arm: None,
+            collapse_due: false,
+            left_at: f64::NEG_INFINITY,
             phone: None,
             phone_offer: Vec::new(),
         })
@@ -654,7 +675,7 @@ impl App {
                         self.hovering = false;
                         self.input.mouse = None;
                         self.cancel_hover();
-                        self.maybe_schedule_collapse();
+                        self.pointer_left();
                         self.request_frame();
                     }
                     return Some(LRESULT(0));
@@ -662,12 +683,16 @@ impl App {
                 self.input.mouse = Some(p);
                 if !self.hovering {
                     self.hovering = true;
+                    self.collapse_due = false;
                     unsafe {
                         let mut tme = TRACKMOUSEEVENT { cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32, dwFlags: TME_LEAVE, hwndTrack: self.hwnd, dwHoverTime: 0 };
                         let _ = TrackMouseEvent(&mut tme);
                         let _ = KillTimer(self.hwnd, TIMER_COLLAPSE);
                     }
-                    if !self.expanded {
+                    if !self.expanded && clock::mono() - self.left_at < REOPEN_S {
+                        // Back onto the island while it is still closing.
+                        self.expand();
+                    } else if !self.expanded {
                         self.arm_hover(p);
                     }
                 } else if let Some(p0) = self.hover_arm.filter(|_| !self.expanded) {
@@ -684,7 +709,7 @@ impl App {
                 self.hovering = false;
                 self.input.mouse = None;
                 self.cancel_hover();
-                self.maybe_schedule_collapse();
+                self.pointer_left();
                 self.request_frame();
                 Some(LRESULT(0))
             }
@@ -744,7 +769,8 @@ impl App {
                     self.input.mouse = None;
                 }
                 if !self.hovering {
-                    self.maybe_schedule_collapse();
+                    // Released outside after a press inside (a slider drag).
+                    self.pointer_left();
                 }
                 self.request_frame();
                 Some(LRESULT(0))
@@ -755,7 +781,7 @@ impl App {
                     self.input.down = false;
                     self.input.pressed_id = None;
                     if !self.hovering {
-                        self.maybe_schedule_collapse();
+                        self.pointer_left();
                     }
                     self.request_frame();
                 }
@@ -975,7 +1001,7 @@ impl App {
                 unsafe {
                     let _ = KillTimer(self.hwnd, TIMER_COLLAPSE);
                 }
-                if !self.hovering && !self.st.pinned && !self.text_focus && !self.drag_hover && self.input.pressed_id.is_none() && !self.phone_holds() {
+                if self.free_to_collapse() {
                     self.collapse();
                 }
             }
@@ -1585,10 +1611,34 @@ impl App {
         self.request_frame();
     }
 
+    /// Nothing holds the open island: no pointer on it, no pin, typing,
+    /// file drag, press or Phone drop.
+    fn free_to_collapse(&self) -> bool {
+        !self.hovering && !self.st.pinned && !self.text_focus && !self.drag_hover && self.input.pressed_id.is_none() && !self.phone_holds()
+    }
+
+    /// The pointer left the open island: it starts closing on the next frame,
+    /// or after `collapse_delay_ms` when the user set a grace.
+    fn pointer_left(&mut self) {
+        if !self.expanded || !self.free_to_collapse() {
+            return;
+        }
+        match self.st.settings.collapse_delay_ms {
+            0 => {
+                self.collapse_due = true;
+                self.request_frame();
+            }
+            ms => unsafe {
+                SetTimer(self.hwnd, TIMER_COLLAPSE, ms, None);
+            },
+        }
+    }
+
+    /// A hold ended (see [`HOLD_GRACE_MS`]): close soon unless the pointer is on the island.
     fn maybe_schedule_collapse(&mut self) {
         if self.expanded && !self.hovering && !self.st.pinned && !self.text_focus && !self.drag_hover && !self.phone_holds() {
             unsafe {
-                SetTimer(self.hwnd, TIMER_COLLAPSE, self.st.settings.collapse_delay_ms.max(50), None);
+                SetTimer(self.hwnd, TIMER_COLLAPSE, HOLD_GRACE_MS.max(self.st.settings.collapse_delay_ms), None);
             }
         }
     }
@@ -1778,12 +1828,27 @@ impl App {
         self.tick();
         let now = self.st.now;
 
+        // The pointer left the open island since the last frame: the close
+        // starts on this frame, no timer in between.
+        if std::mem::take(&mut self.collapse_due) && self.expanded && self.free_to_collapse() {
+            self.collapse();
+            self.left_at = clock::mono();
+        }
+
         let target = self.target_mode();
         let mut retarget = false;
         if target != self.mode {
             let new_content = activities::content_key(&target) != activities::content_key(&self.mode);
+            // A morph turned around mid-fade (the pointer came back while the
+            // island closed): the content coming back is the one still fading
+            // out, and it fades back in from where it is, not from nothing.
+            let back = self
+                .outgoing
+                .filter(|o| new_content && activities::content_key(&o.0) == activities::content_key(&target))
+                .map(|(_, t0, _, from)| from * outgoing_left(now - t0));
             if new_content {
-                self.outgoing = Some((self.mode, now, self.island.target()));
+                // The leaving content fades from how visible it is now.
+                self.outgoing = Some((self.mode, now, self.island.target(), self.island.content_alpha()));
             }
             if let (Mode::Expanded(a), Mode::Expanded(b)) = (self.mode, target) {
                 if a != b {
@@ -1793,6 +1858,9 @@ impl App {
             }
             self.motion_name = motion_name(&self.mode, &target);
             self.island.set_target(self.geom_for(&target), now, new_content);
+            if let Some(a) = back {
+                self.island.resume_content(a);
+            }
             self.mode = target;
             retarget = true;
         } else {
@@ -1885,13 +1953,12 @@ impl App {
                 // shrinking with the outline instead of being sliced, and
                 // fading out on a smoothstep (it holds, then leaves). Drawn as
                 // one layer, so it shrinks as a picture. Ghost input: no clicks.
-                if let Some((m, t0, g)) = self.outgoing {
-                    let t = ((now - t0) / OUTGOING_FADE) as f32;
-                    if t >= 1.0 {
+                if let Some((m, t0, g, from)) = self.outgoing {
+                    if now - t0 >= OUTGOING_FADE {
                         self.outgoing = None;
                     } else {
                         let old_body = Rect::new(body.center().x - g.w / 2.0, body.y, g.w, g.h);
-                        let alpha = 1.0 - t * t * (3.0 - 2.0 * t);
+                        let alpha = from * outgoing_left(now - t0);
                         let xf = scale_about(pivot, (geom.w / g.w.max(1.0)).clamp(GHOST_MIN_SCALE, 1.0));
                         let st = &mut self.st;
                         canvas.layered(old_body, alpha, xf, |c| {
