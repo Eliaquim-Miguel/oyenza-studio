@@ -1,0 +1,58 @@
+name: store
+
+# The Microsoft Store package (MSIX). Its own workflow so it never collides
+# with release work in ci.yml; it builds poni.exe from the same commit.
+on:
+  push:
+    branches: [main, "store-*"]
+    tags: ["v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: store-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  msix:
+    name: Build, install and self-test the Store package (Windows)
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build release
+        run: cargo build -p poni --release
+
+      - name: Version (from Cargo.toml)
+        shell: pwsh
+        run: |
+          $v = ((cargo metadata --no-deps --format-version 1 | ConvertFrom-Json).packages | Where-Object name -eq "poni").version
+          if (-not $v) { Write-Error "no version for poni in cargo metadata"; exit 1 }
+          "PONI_VERSION=$v" >> $env:GITHUB_ENV
+
+      - name: Build the Store package
+        shell: pwsh
+        run: |
+          python -m pip install --quiet --disable-pip-version-check pillow
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./tools/make_msix.ps1 -Exe target\release\poni.exe -Version $env:PONI_VERSION -OutDir dist
+
+      - name: Install it and self-test it inside the package
+        shell: powershell
+        run: ./tools/ci-msix-test.ps1 -Msix "dist\Oyen-Poni-$env:PONI_VERSION.msix" -Out msix-out
+
+      - name: Upload screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: msix-check
+          path: msix-out
+          if-no-files-found: warn
+
+      - name: Upload the Store package
+        uses: actions/upload-artifact@v4
+        with:
+          name: oyen-poni-msix
+          path: dist/Oyen-Poni-${{ env.PONI_VERSION }}.msix
+          if-no-files-found: error

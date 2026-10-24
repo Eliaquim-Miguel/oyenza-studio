@@ -9,7 +9,8 @@
 //! only two kinds are handed to the shell: existing absolute local or UNC
 //! file-system paths, and `http`/`https` URLs. Anything else (`ms-settings:`,
 //! `javascript:`, `shell:`, relative names that would be searched on `PATH`)
-//! is logged and refused.
+//! is logged and refused. The one fixed exception is Settings > Apps >
+//! Startup ([`open_startup_settings`]), a constant URI.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use windows::core::{w, HSTRING};
@@ -47,6 +48,18 @@ pub fn open(target: &str) {
         let r = unsafe { ShellExecuteW(None, w!("open"), &t, None, None, SW_SHOWNORMAL) };
         if (r.0 as isize) <= 32 {
             crate::pwarn!("open failed ({}): {}", r.0 as isize, for_log(&target));
+        }
+    });
+}
+
+/// Open Settings > Apps > Startup (asynchronously). The Store build sends
+/// people there when they turned Poni's startup task off in Windows, the only
+/// place it can be turned back on.
+pub fn open_startup_settings() {
+    run("open", || {
+        let r = unsafe { ShellExecuteW(None, w!("open"), w!("ms-settings:startupapps"), None, None, SW_SHOWNORMAL) };
+        if (r.0 as isize) <= 32 {
+            crate::pwarn!("open failed ({}): ms-settings:startupapps", r.0 as isize);
         }
     });
 }
