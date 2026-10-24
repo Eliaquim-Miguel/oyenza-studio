@@ -45,6 +45,9 @@ ln -s /Applications "$staging/Applications"
 cat > "$staging/How to open.txt" <<EOF
 Oyenza Studio $version for Mac (test build)
 
+Had Oyen Poni (its name before 0.2.0)? Quit it first: menu bar icon > Quit
+Oyen Poni. Oyenza Studio moves the old app to the Trash when it first opens.
+
 1. Drag Oyenza Studio into Applications.
 2. Open it. macOS says it can't check the app: this build isn't signed with
    Apple yet. Click Done.
