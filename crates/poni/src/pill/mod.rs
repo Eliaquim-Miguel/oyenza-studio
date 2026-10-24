@@ -82,6 +82,7 @@ pub fn is_live(m: &Mode, st: &AppState) -> Option<bool> {
     }
     match m {
         Mode::Activity(Activity::Media) => media::is_live(st),
+        Mode::Activity(a) => live::is_live(*a, st),
         _ => None,
     }
 }

@@ -102,8 +102,6 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, a: Activity, body: Rect) -> bool {
 /// Nothing in these pills moves on its own; Classic keeps the frame clock
 /// running for music with the timer while the song plays (a leftover from
 /// when that pill had an equalizer), which the Pill one doesn't need.
-// Unused until `pill::is_live` routes the live activities here.
-#[allow(dead_code)]
 pub fn is_live(a: Activity, _st: &AppState) -> Option<bool> {
     match a {
         Activity::MediaTimer => Some(false),
