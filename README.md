@@ -2,7 +2,7 @@
 
 <h1 align="center">Oyen Poni</h1>
 
-<p align="center"><b>A living notch for Windows 10 and 11.</b><br>Music with synced lyrics, a focus timer, water reminders, a file shelf, tasks and your clipboard, one hover away.</p>
+<p align="center"><b>A living notch for Windows 10 and 11.</b><br>Music with synced lyrics, a focus timer, your steps, a file shelf, tasks and your clipboard, one hover away.</p>
 
 <p align="center">
   <a href="https://github.com/lucacadalora/poni/releases/latest/download/Oyen-Poni-Setup.exe"><b>Download for Windows</b></a>
@@ -22,7 +22,7 @@ Native Rust, no web view, no runtime, around 1.7 MB, and **zero CPU while nothin
 |---|---|
 | ![Music playing](docs/screenshots/03-media-activity.png) | ![Music and a focus timer](docs/screenshots/05-media-timer.png) |
 | ![Volume](docs/screenshots/06-volume-hud.png) | ![Headphones connected](docs/screenshots/08-bluetooth-hud.png) |
-| ![Water reminder with a one-click action](docs/screenshots/09-water-notice.png) | |
+| ![Daily step goal reached](docs/screenshots/09-health-notice.png) | |
 
 ## What it does
 
@@ -30,14 +30,14 @@ Native Rust, no web view, no runtime, around 1.7 MB, and **zero CPU while nothin
 - Album art and an equalizer while music plays. The title peeks for a moment when the song changes.
 - A focus-timer countdown.
 - Pop-ups for volume, charging and Bluetooth headsets, with battery level.
-- Reminders with one-click actions, such as **+250 ml** on the water reminder.
+- With your Oyenza account (coming soon), a notice when the steps from your phone reach the daily goal.
 
 **Point at the island (or click it) to open it.** Scroll over the header to switch pages.
 
 <table>
 <tr><td width="84" align="center"><img src="docs/brand/art/poses/oyen-music.webp" width="64" alt=""></td><td><b>Music</b><br>Controls for whatever is playing (Spotify, Apple Music, YouTube in your browser, any app in Windows' media controls), with time-synced lyrics from <a href="https://lrclib.net">LRCLIB</a>, or Apple Music's own lyrics if you add <a href="#apple-music-lyrics">your Apple Music token</a></td></tr>
 <tr><td width="84" align="center"><img src="docs/brand/art/poses/oyen-focus.webp" width="64" alt=""></td><td><b>Focus</b><br>A Pomodoro timer that keeps counting in the island</td></tr>
-<tr><td width="84" align="center"><img src="docs/brand/art/poses/oyen-water.webp" width="64" alt=""></td><td><b>Water</b><br>A daily goal, one-tap logging, a week of history and gentle reminders</td></tr>
+<tr><td width="84" align="center"><img src="docs/brand/art/poses/oyen-health.webp" width="64" alt=""></td><td><b>Health</b><br>Today's steps against your goal, distance, active energy and your week, from Apple Health or Health Connect on your phone through your Oyenza account (sign-in coming soon)</td></tr>
 <tr><td width="84" align="center"><img src="docs/brand/art/poses/oyen-shelf.webp" width="64" alt=""></td><td><b>Shelf</b><br>Drop files on the island to keep them handy; click to open or drag them back out</td></tr>
 <tr><td width="84" align="center"><img src="docs/brand/art/poses/oyen-tasks.webp" width="64" alt=""></td><td><b>Tasks</b><br>A tiny to-do list</td></tr>
 <tr><td width="84" align="center"><img src="docs/brand/art/poses/oyen-clipboard.webp" width="64" alt=""></td><td><b>Clipboard</b><br>Recent copied text, kept in memory only. It skips anything password managers mark as private.</td></tr>
@@ -46,7 +46,7 @@ Native Rust, no web view, no runtime, around 1.7 MB, and **zero CPU while nothin
 
 | | |
 |---|---|
-| ![Focus](docs/screenshots/11-page-focus.png) | ![Water](docs/screenshots/12-page-water.png) |
+| ![Focus](docs/screenshots/11-page-focus.png) | ![Health](docs/screenshots/12-page-health.png) |
 | ![Shelf](docs/screenshots/13-page-shelf.png) | ![Tasks](docs/screenshots/15-page-tasks.png) |
 | ![Clipboard](docs/screenshots/16-page-clipboard.png) | ![Today](docs/screenshots/17-page-today.png) |
 
@@ -59,7 +59,7 @@ The island stays black by default. Switch on the Oyen theme (right-click › **T
 Right-click the island or the tray icon for options:
 - the theme: Classic or Oyen
 - the idle look: clock, eyes (Oyen in his theme), minimal, or hidden until you hover
-- lyrics, water reminders, clipboard history and sounds
+- lyrics, clipboard history and sounds
 - hide in full-screen apps
 - start with Windows, and quit
 
@@ -93,7 +93,7 @@ Oyen Poni is a Cargo workspace:
 
 | Crate | What |
 |---|---|
-| `crates/poni-core` | Pure logic (springs, lyrics parsing, Pomodoro, water log, tasks, settings…). Unit-tested on any OS. |
+| `crates/poni-core` | Pure logic (springs, lyrics parsing, Pomodoro, steps, tasks, settings…). Unit-tested on any OS. |
 | `crates/poni` | The Windows app: Win32 + Direct2D + WinRT through [windows-rs](https://github.com/microsoft/windows-rs). |
 
 On Windows, with Rust stable and the MSVC toolchain:

@@ -17,7 +17,6 @@
 
 use crate::shelf::Shelf;
 use crate::todo::TaskList;
-use crate::water::WaterLog;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -34,7 +33,10 @@ pub const STORE_VERSION: u32 = 1;
 pub struct Store {
     pub version: u32,
     pub tasks: TaskList,
-    pub water: WaterLog,
+    /// Drinks logged by the old Water page, which Health replaced. Kept
+    /// exactly as it was, so an update never throws a person's history away.
+    #[serde(skip_serializing_if = "serde_json::Value::is_null")]
+    pub water: serde_json::Value,
     pub shelf: Shelf,
     /// Day key → completed focus sessions.
     pub focus_sessions: BTreeMap<String, u32>,
@@ -46,7 +48,7 @@ impl Default for Store {
         Self {
             version: STORE_VERSION,
             tasks: TaskList::default(),
-            water: WaterLog::default(),
+            water: serde_json::Value::Null,
             shelf: Shelf::default(),
             focus_sessions: BTreeMap::new(),
             last_page: String::new(),
@@ -337,11 +339,27 @@ mod tests {
         let p = d.join("store.json");
         let mut s = Store::default();
         s.tasks.add("hello", 1);
-        s.water.add("2026-10-24", 5, 250);
+        s.water = serde_json::json!({"days": {"2026-10-24": [{"at_unix": 5, "ml": 250}]}});
         save_json_atomic(&p, &s).unwrap();
         let (back, outcome): (Store, _) = load_json(&p);
         assert_eq!(outcome, LoadOutcome::Loaded);
         assert_eq!(back, s);
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn old_water_history_survives_a_save() {
+        let d = tmpdir("water");
+        let p = d.join("store.json");
+        fs::write(&p, r#"{"version":1,"water":{"days":{"2026-10-20":[{"at_unix":7,"ml":300}]}},"last_page":"water"}"#).unwrap();
+        let (s, outcome): (Store, _) = load_json(&p);
+        assert_eq!(outcome, LoadOutcome::Loaded);
+        save_json_atomic(&p, &s).unwrap();
+        let back: serde_json::Value = serde_json::from_str(&fs::read_to_string(&p).unwrap()).unwrap();
+        assert_eq!(back["water"]["days"]["2026-10-20"][0]["ml"], 300);
+        // A store that never had water keeps no "water" key.
+        save_json_atomic(&p, &Store::default()).unwrap();
+        assert!(!fs::read_to_string(&p).unwrap().contains("water"));
         let _ = fs::remove_dir_all(&d);
     }
 
