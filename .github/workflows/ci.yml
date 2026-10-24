@@ -42,6 +42,35 @@ jobs:
       - name: Unit tests
         run: cargo test --workspace --release
 
+      - name: Lyrics film (qa only)
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Windows.Forms
+          Add-Type -Namespace PoniFilm -Name User32 -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);'
+          $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          [PoniFilm.User32]::SetCursorPos([int]($b.Width / 2), [int]($b.Height / 2)) | Out-Null
+          $env:PONI_SELFTEST_SCROLL = "144"
+          foreach ($run in @(@{ dir = "film-100"; dpi = "" }, @{ dir = "film-150"; dpi = "144" })) {
+            if ($run.dpi) { $env:PONI_SELFTEST_DPI = $run.dpi } else { Remove-Item Env:PONI_SELFTEST_DPI -ErrorAction SilentlyContinue }
+            New-Item -ItemType Directory -Force -Path $run.dir | Out-Null
+            $p = Start-Process -FilePath target\release\poni.exe -ArgumentList "--selftest",$run.dir -PassThru
+            $null = $p.Handle
+            if (-not $p.WaitForExit(180000)) { Stop-Process -Id $p.Id -Force }
+            "$($run.dir): exit $($p.ExitCode), $((Get-ChildItem $run.dir -Filter scroll-lyrics-*.png).Count) frames"
+          }
+
+      - name: Upload the lyrics film
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lyrics-film
+          path: |
+            film-100/scroll-lyrics*
+            film-150/scroll-lyrics*
+            film-100/home/cache/poni.log
+            film-150/home/cache/poni.log
+
       - name: Self-test (scripted screenshots)
         shell: pwsh
         env:
