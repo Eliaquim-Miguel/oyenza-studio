@@ -124,3 +124,7 @@ job_id,step,run_id,attempt,started_at,branch,workflow,release,file
 120941285325,Fetch the release to upgrade from,40116633426,1,2026-10-24T17:42:56Z,oyenza-live,ci.yml,v0.1.1,Poni-Setup-0.1.1.exe
 120942042037,Fetch the release to upgrade from,40116861307,1,2026-10-24T17:45:57Z,main,ci.yml,v0.1.1,Poni-Setup-0.1.1.exe
 120944291169,Fetch the release to upgrade from,40117455198,1,2026-10-24T17:55:48Z,glass-tint-median,ci.yml,v0.1.1,Poni-Setup-0.1.1.exe
+120944721219,Fetch the release to upgrade from,40117498631,1,2026-10-24T17:57:48Z,prayer-times,ci.yml,v0.1.1,Poni-Setup-0.1.1.exe
+120948229351,Fetch the release to upgrade from,40118602754,1,2026-10-24T18:13:00Z,main,ci.yml,v0.1.1,Poni-Setup-0.1.1.exe
+120948414420,Fetch the release to upgrade from,40118697012,1,2026-10-24T18:13:49Z,oyenza-live,ci.yml,v0.1.1,Poni-Setup-0.1.1.exe
+120950071060,Fetch the release to upgrade from,40119312662,1,2026-10-24T18:21:00Z,game-stats,ci.yml,v0.1.1,Poni-Setup-0.1.1.exe

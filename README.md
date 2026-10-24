@@ -43,7 +43,7 @@
 <summary>How we count</summary>
 
 - GitHub counts every download of a release file. The Download button on the [website](https://lucacadalora.github.io/poni/) and in the README always fetches `Oyen-Poni-Setup.exe` from the newest release; the versioned installer and the portable zip are on each release's page.
-- Our CI downloads Poni-Setup-0.1.1.exe (0.1.1) while it tests each push, and GitHub counts those too: 125 so far, left out of every number here ([ci-downloads.csv](data/ci-downloads.csv) lists each one). GitHub's own counters add up to 238.
+- Our CI downloads Poni-Setup-0.1.1.exe (0.1.1) while it tests each push, and GitHub counts those too: 129 so far, left out of every number here ([ci-downloads.csv](data/ci-downloads.csv) lists each one). GitHub's own counters add up to 242.
 - GitHub updates its counters every few minutes, so for a while a counter may not show a CI download that is already taken off. Each file's number keeps its highest reading, so numbers only go up.
 - Still in the numbers: our own check of each new release (one download through the Download button) and any bots. GitHub can't tell those apart.
 - Oyen Poni itself sends nothing: no accounts, no tracking. These are GitHub's download counters, read every hour.
@@ -52,4 +52,4 @@
 
 </details>
 
-<sub>Updated 24 Oct 2026, 17:59 UTC by [Download stats](https://github.com/lucacadalora/poni/actions/workflows/metrics.yml), every hour · Data: [downloads](data/downloads.csv), [CI downloads](data/ci-downloads.csv), [stars](data/repo.csv), [summary.json](summary.json)</sub>
+<sub>Updated 24 Oct 2026, 18:23 UTC by [Download stats](https://github.com/lucacadalora/poni/actions/workflows/metrics.yml), every hour · Data: [downloads](data/downloads.csv), [CI downloads](data/ci-downloads.csv), [stars](data/repo.csv), [summary.json](summary.json)</sub>
