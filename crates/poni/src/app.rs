@@ -13,8 +13,8 @@ use crate::pages::{self, PageKind};
 use crate::paths;
 use crate::services::{self, Services};
 use crate::state::{
-    AppState, HudKind, InlineAction, Locate, LyricsState, LyricsStatus, Notice, NoticeAction, OyenzaLink, PairedPhone, PhoneAsk, PhoneDrop, PhoneTransfer,
-    PhoneView, PrayerState,
+    AppState, FpsAccess, HudKind, InlineAction, Locate, LyricsState, LyricsStatus, Notice, NoticeAction, OyenzaLink, PairedPhone, PhoneAsk, PhoneDrop,
+    PhoneTransfer, PhoneView, PrayerState,
 };
 use crate::tray::{self, Tray};
 use crate::ui::{wid, CursorKind, Hit, Input, KeyInput, MouseButton, Ui};
@@ -87,6 +87,10 @@ pub enum Deferred {
 
 pub fn main_entry() -> i32 {
     let args: Vec<String> = std::env::args().collect();
+    // Show over games' one-time OK runs this exe elevated, just for this.
+    if let Some(i) = args.iter().position(|a| a == services::frames::ALLOW_ARG) {
+        return services::frames::allow_main(args.get(i + 1).map_or("", String::as_str));
+    }
     let selftest_dir = args.iter().position(|a| a == "--selftest").map(|i| args.get(i + 1).cloned().unwrap_or_else(|| "selftest-out".into()));
     if let Some(dir) = &selftest_dir {
         let home = std::path::Path::new(dir).join("home");
@@ -337,8 +341,14 @@ pub struct App {
     sysmon: Option<services::sysmon::SysMon>,
     /// The System page is open (its readings come each second).
     sysmon_on: bool,
+    /// What the System reader was last told about nobody being there and battery saver.
+    sysmon_rest: poni_core::sysmon::Rest,
     /// The Oyenza page is on screen: its day list stays live (`services::oyenza`).
     oyenza_watch: bool,
+    /// Show over games: the game's frames, counted while the readout shows.
+    frames: Option<services::frames::Frames>,
+    /// The process whose frames count (the full-screen app).
+    game_pid: Option<u32>,
     /// App icons the System page asked for and hasn't got yet (the Shelf's
     /// thumbnail worker answers both pages with the same event).
     icon_wait: HashSet<String>,
@@ -502,7 +512,10 @@ impl App {
             stats_on: false,
             sysmon: None,
             sysmon_on: false,
+            sysmon_rest: poni_core::sysmon::Rest::default(),
             oyenza_watch: false,
+            frames: None,
+            game_pid: None,
             icon_wait: HashSet::new(),
             tray: None,
             taskbar_created_msg,
@@ -543,6 +556,12 @@ impl App {
             if self.st.settings.system_history {
                 self.start_sysmon();
             }
+            // A frame count left running by a Poni that crashed, and whether
+            // Windows lets this sign-in read frames (the System page shows it).
+            services::frames::stop_stale();
+            if self.st.settings.game_stats {
+                self.check_fps();
+            }
             self.try_add_tray();
             services::power::register_session(self.helper);
         }
@@ -563,6 +582,8 @@ impl App {
 
     fn shutdown(&mut self) -> i32 {
         self.save_now();
+        // Stops the frame count's trace session (it would outlive Poni).
+        self.frames = None;
         self.glass.stop(self.hwnd, &mut self.gfx);
         if let Some(p) = self.phone.take() {
             p.stop();
@@ -770,6 +791,7 @@ impl App {
                 let p = self.mouse_dip(lp);
                 self.input.mouse = Some(p);
                 self.input.down = true;
+                self.input.just_pressed = true;
                 self.input.press_pos = Some(p);
                 self.input.pressed_id = self.hit_at(p).map(|h| h.id);
                 unsafe { SetCapture(self.hwnd) };
@@ -1016,6 +1038,7 @@ impl App {
                 let p = services::power::query();
                 self.on_event(AppEvent::Power(p));
                 self.tell_oyenza_activity();
+                self.tell_sysmon_rest();
                 self.request_frame();
                 Some(LRESULT(1))
             }
@@ -1026,12 +1049,18 @@ impl App {
                     _ => {}
                 }
                 self.tell_oyenza_activity();
+                self.tell_sysmon_rest();
                 self.request_frame();
                 Some(LRESULT(0))
             }
             WM_QUERYENDSESSION => Some(LRESULT(1)),
             WM_ENDSESSION => {
                 self.save_now();
+                // Windows ends Poni without shutdown(): stop the frame count's
+                // trace session now, or it would outlive the sign-in.
+                if wp.0 != 0 {
+                    self.frames = None;
+                }
                 Some(LRESULT(0))
             }
             WM_DISPLAYCHANGE | WM_SETTINGCHANGE => {
@@ -1384,6 +1413,8 @@ impl App {
 
     /// Apply side effects of a settings change (from the menu, a reload or a page).
     fn settings_changed(&mut self, before: &Settings) {
+        // Show over games and Hide in full-screen apps follow each other.
+        self.st.settings.pair_game_stats(before);
         let now = &self.st.settings;
         if before.theme != now.theme {
             self.st.accent = theme_accent(now.theme);
@@ -1436,6 +1467,12 @@ impl App {
                 }
             }
         }
+        if before.game_stats != self.st.settings.game_stats {
+            if self.st.settings.game_stats && self.st.game.access == FpsAccess::Unknown {
+                self.check_fps();
+            }
+            self.sync_game();
+        }
         let history = self.st.settings.system_history;
         if before.system_history != history && self.selftest.is_none() {
             match &self.sysmon {
@@ -1444,7 +1481,7 @@ impl App {
                 None => {}
             }
             // Off while the page is closed: the kept minute goes, so the next opening starts fresh.
-            if !history && !self.sysmon_on {
+            if !history && !self.sysmon_on && !self.st.game.active {
                 self.st.system.clear();
             }
         }
@@ -1462,6 +1499,7 @@ impl App {
             ToggleLyrics => s.lyrics = !s.lyrics,
             TogglePronunciation => s.lyrics_pronunciation = !s.lyrics_pronunciation,
             SetHideFullscreen(hide) => s.hide_in_fullscreen = hide,
+            ToggleGameStats => s.game_stats = !s.game_stats,
             ToggleSounds => s.sounds = !s.sounds,
             TogglePinned => self.st.pinned = !self.st.pinned,
             ToggleAutostart => {
@@ -1648,6 +1686,7 @@ impl App {
                     // a full-screen app is not raised by showing it.
                     self.start_raises();
                 }
+                self.sync_game();
             }
             AppEvent::Foreground => self.start_raises(),
             AppEvent::ShelfAdd(paths) => {
@@ -1688,9 +1727,25 @@ impl App {
             AppEvent::Stats(s) => self.st.stats = s,
             AppEvent::System(m) => {
                 // A reading still on its way when the page closed is dropped.
-                if self.sysmon_on {
+                if self.sysmon_on || self.st.game.active {
                     self.st.system = *m;
                 }
+                // Over a game the frame rate goes with each reading, once a second.
+                if self.st.game.active {
+                    self.st.game.rate = self.frames.as_ref().and_then(|f| f.rate());
+                    let fps = self.st.game.rate.map(|r| r.fps);
+                    self.st.game.history.push(fps);
+                }
+            }
+            AppEvent::FpsAccess(a) => {
+                if self.st.game.access == FpsAccess::Asking {
+                    self.blur_text();
+                }
+                if a != self.st.game.access {
+                    pinfo!("show over games: frames {a:?}");
+                }
+                self.st.game.access = a;
+                self.sync_game();
             }
             AppEvent::ClipboardText(t) => {
                 if self.own_clip.as_deref() == Some(t.as_str()) {
@@ -1877,16 +1932,113 @@ impl App {
         if let Some(s) = &self.sysmon {
             s.open(on);
         }
-        if !on && !self.st.settings.system_history {
+        // The readout over a game still draws from them.
+        if !on && !self.st.settings.system_history && !self.st.game.active {
             self.st.system.clear();
         }
     }
 
     fn start_sysmon(&mut self) {
-        match services::sysmon::SysMon::start(self.sink.clone(), self.st.settings.system_history) {
+        self.sysmon_rest = self.rest_now();
+        match services::sysmon::SysMon::start(self.sink.clone(), self.st.settings.system_history, self.sysmon_rest) {
             Ok(s) => self.sysmon = Some(s),
             Err(e) => pwarn!("sysmon: couldn't start ({e})"),
         }
+    }
+
+    /// Nobody at the PC (locked, or the display off) and battery saver.
+    fn rest_now(&self) -> poni_core::sysmon::Rest {
+        poni_core::sysmon::Rest { away: self.locked || self.display_off, saver: self.st.power.saver }
+    }
+
+    /// The System reader rests while nobody is at the PC, and its kept minute
+    /// also on battery saver (`poni_core::sysmon::reads`). What it drops, the
+    /// page drops too, so a minute from before never shows as the last one.
+    fn tell_sysmon_rest(&mut self) {
+        let rest = self.rest_now();
+        if rest == self.sysmon_rest || self.selftest.is_some() {
+            return;
+        }
+        self.sysmon_rest = rest;
+        if let Some(s) = &self.sysmon {
+            s.rest(rest);
+        }
+        if !poni_core::sysmon::reads(self.sysmon_on, self.st.game.active, self.st.settings.system_history, rest) {
+            self.st.system.clear();
+        }
+    }
+
+    /// Show over games: the readout shows while the setting is on and a
+    /// full-screen app has the island's monitor with the island over it.
+    /// It follows the full-screen app; the readings and the frame count run
+    /// only meanwhile.
+    fn sync_game(&mut self) {
+        let want = self.st.settings.game_stats && self.fullscreen_on && !self.fullscreen_hidden && self.selftest.is_none();
+        if want != self.st.game.active {
+            self.st.game.active = want;
+            if want && self.sysmon.is_none() {
+                self.start_sysmon();
+            }
+            // A failure last time is tried again with each new game.
+            if want && matches!(self.st.game.access, FpsAccess::Failed(_)) {
+                self.st.game.access = FpsAccess::Unknown;
+            }
+            if let Some(s) = &self.sysmon {
+                s.game(want);
+            }
+            if !want {
+                self.frames = None;
+                self.game_pid = None;
+                self.st.game.rate = None;
+                self.st.game.app = None;
+                if !self.sysmon_on && !self.st.settings.system_history {
+                    self.st.system.clear();
+                }
+            }
+            pinfo!("show over games: readout {}", if want { "on" } else { "off" });
+        }
+        if !want {
+            return;
+        }
+        let pid = services::fullscreen::fullscreen_pid();
+        if pid != self.game_pid {
+            self.game_pid = pid;
+            self.st.game.app = pid.and_then(services::sysmon::app_name);
+            self.st.game.rate = None;
+            self.st.game.history = Default::default();
+            if let (Some(f), Some(p)) = (&self.frames, pid) {
+                f.set_target(p);
+            }
+            pinfo!("show over games: {} in front", self.st.game.app.as_deref().unwrap_or("an app"));
+        }
+        let Some(pid) = pid else { return };
+        if self.frames.is_none() && matches!(self.st.game.access, FpsAccess::Unknown | FpsAccess::Ready) {
+            match services::frames::Frames::start(pid) {
+                Ok(f) => {
+                    self.frames = Some(f);
+                    self.st.game.access = FpsAccess::Ready;
+                }
+                // Tells the one-time OK apart from a sign-out still to come
+                // (once: a check that said yes isn't asked again).
+                Err(services::frames::StartError::NoAccess) if self.st.game.access == FpsAccess::Ready => {
+                    self.st.game.access = FpsAccess::NeedsOk;
+                }
+                Err(services::frames::StartError::NoAccess) => self.check_fps(),
+                Err(services::frames::StartError::Failed(why)) => {
+                    pwarn!("frames: couldn't start ({why})");
+                    self.st.game.access = FpsAccess::Failed(why);
+                }
+            }
+        }
+    }
+
+    /// Asks (off the UI thread) whether Windows lets Poni read frames.
+    fn check_fps(&mut self) {
+        if self.selftest.is_some() || matches!(self.st.game.access, FpsAccess::Checking | FpsAccess::Asking) {
+            return;
+        }
+        self.st.game.access = FpsAccess::Checking;
+        services::frames::check_async(self.sink.clone());
     }
 
     /// Puts the island back on top after another window came forward. Apps
@@ -2806,6 +2958,14 @@ impl App {
                 Command::OpenSystem(m) => {
                     self.st.ui.system_module = m;
                     self.set_page(PageKind::System);
+                }
+                Command::CheckFps => self.check_fps(),
+                Command::AllowFps => {
+                    // The island takes the focus for Windows' prompt (a
+                    // background app's prompt waits in the taskbar), as for typing.
+                    self.focus_text();
+                    self.st.game.access = FpsAccess::Asking;
+                    services::frames::request_access(self.sink.clone(), SendHwnd::new(self.hwnd));
                 }
                 Command::LoadAppIcon(path) => {
                     if !self.st.app_icons.contains_key(&path) {

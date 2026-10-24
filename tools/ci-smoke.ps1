@@ -132,7 +132,7 @@ for ($i = 0; $i -lt 3; $i++) {
 
 $alive = -not $p.HasExited
 "still running: $alive" | Tee-Object -FilePath $metrics -Append
-if ($alive) { Stop-Process -Id $p.Id -Force }
+if ($alive) { Stop-Process -Id $p.Id -Force; $p.WaitForExit(10000) | Out-Null }
 
 $log = Join-Path $env:PONI_HOME "cache\poni.log"
 Copy-Item -Path $log -Destination (Join-Path $Out "poni.log") -ErrorAction SilentlyContinue
@@ -142,3 +142,10 @@ if (Test-Path $log) {
 }
 if (-not $alive) { Write-Error "Poni exited during the smoke test"; exit 1 }
 if ($failures.Count -gt 0) { Write-Error "smoke checks failed: $($failures -join ', ')"; exit 1 }
+
+# What it costs (size, memory, CPU, wake-ups, at rest and with music playing)
+# against tools/weight-budget.json, on the default renderer only.
+if (-not $env:PONI_RENDERER) {
+    & (Join-Path $PSScriptRoot "ci-weight.ps1") -Exe $Exe -Out (Join-Path $Out "weight")
+    if ($LASTEXITCODE) { exit $LASTEXITCODE }
+}

@@ -9,6 +9,9 @@ pub enum MediaCmd {
     Prev,
     /// Seek to absolute position in seconds.
     Seek(f64),
+    /// The pointer reached the progress bar or the back button: get ready
+    /// (Apple Music's own controls are looked up before the press, not during it).
+    Prepare,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -98,6 +101,11 @@ pub enum Command {
     OpenSystem(poni_core::sysmon::Module),
     /// Request an app's icon for the System page (arrives in `AppState::app_icons`).
     LoadAppIcon(String),
+    /// Show over games: find out whether Windows lets Poni read frames
+    /// (the answer lands in `AppState::game.access`).
+    CheckFps,
+    /// Show over games: ask Windows once for the right to read frames.
+    AllowFps,
     Phone(PhoneCmd),
     Pair(PairCmd),
     Oyenza(OyenzaCmd),

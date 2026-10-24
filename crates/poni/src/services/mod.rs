@@ -4,10 +4,12 @@
 pub mod addons;
 pub mod adzan;
 pub mod applemusic;
+pub mod applemusic_ui;
 pub mod audio;
 pub mod backdrop;
 pub mod bluetooth;
 pub mod clipboard;
+pub mod frames;
 pub mod fullscreen;
 pub mod http;
 pub mod imaging;

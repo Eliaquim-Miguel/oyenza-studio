@@ -6,14 +6,22 @@
 //! columns: a dashboard of rings and gauges with the details under it
 //! (coloured dots name each part), the usage history with a second chart
 //! under it, and the processes using the most. Readings arrive once a second
-//! from `services::sysmon`, which keeps the minute while the page is closed
-//! (tray › Keep System page history); the page itself never asks for frames.
+//! from `services::sysmon` (Windows' or the Mac's), which keeps the minute
+//! while the page is closed (on Windows, tray › Keep System page history);
+//! the page itself never asks for frames. Where macOS names a thing
+//! differently (swap, Low Power Mode, the GPU's renderer and tiler), the
+//! Mac's page says it its way.
+//!
+//! The last module, Games (Windows only), holds Show over games: its switch,
+//! whether Windows lets Poni read frames (with the one-time OK), the frame
+//! rate's last minute and what's in front.
 
 use crate::commands::Command;
 use crate::gfx::{Image, ImageData, TextStyle, Weight};
 use crate::icons::Icon;
-use crate::state::AppState;
-use crate::ui::{wid_n, Ui};
+use crate::state::{AppState, FpsAccess};
+use crate::ui::{wid, wid_n, PillStyle, Ui, PILL_SMALL};
+use poni_core::frames::{fmt_fps, fmt_frame_ms};
 use poni_core::geom::{palette, Color, Point, Rect};
 use poni_core::svgpath::Seg;
 use poni_core::sysmon::{
@@ -53,6 +61,10 @@ const BOX_R: f32 = 6.0;
 const ICON_FILL: f32 = 0.72;
 const APP_ICON: f32 = 16.0;
 const PLACEHOLDER: &str = "–";
+/// Built for a Mac: macOS's words where they differ from Windows'.
+const MAC: bool = cfg!(target_os = "macos");
+/// What the page says of a module the system gives no reading for.
+const UNREPORTED: &str = if MAC { "macOS doesn't report this on this Mac" } else { "Windows doesn't report this on this PC" };
 
 // Stats' colours: Windows' own time red, apps blue; performance cores indigo,
 // efficiency cores teal; reads and downloads blue, writes and uploads red.
@@ -74,6 +86,7 @@ const ENGINE_3D_C: Color = palette::BLUE;
 const COPY_C: Color = palette::ORANGE;
 const DECODE_C: Color = palette::GREEN;
 const ENCODE_C: Color = palette::PURPLE;
+const TILER_C: Color = palette::ORANGE;
 const BOX_C: Color = Color::white(0.06);
 const GRID_C: Color = Color::white(0.07);
 const RULE_C: Color = Color::white(0.12);
@@ -89,7 +102,9 @@ fn modules(st: &AppState) -> Vec<Module> {
         Some(r) => (r.battery.is_some(), r.gpu.is_some()),
         None => (st.power.has_battery, st.ui.system_gpu),
     };
-    Module::ALL.into_iter().filter(|m| (*m != Module::Battery || battery) && (*m != Module::Gpu || gpu)).collect()
+    // Games is Windows' (it reads Windows' frame log).
+    let games = cfg!(windows);
+    Module::ALL.into_iter().filter(|m| (*m != Module::Battery || battery) && (*m != Module::Gpu || gpu) && (*m != Module::Games || games)).collect()
 }
 
 pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
@@ -104,6 +119,10 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
     let module = if mods.contains(&st.ui.system_module) { st.ui.system_module } else { Module::Cpu };
     draw_strip(ui, st, &mods, module, Rect::new(area.x, area.y, area.w, STRIP_H));
     let body = Rect::new(area.x, area.y + STRIP_H + STRIP_GAP, area.w, HEIGHT - STRIP_H - STRIP_GAP);
+    if module == Module::Games {
+        draw_games(ui, st, &Cols::new(body));
+        return;
+    }
     let Some(r) = st.system.latest.clone() else {
         ui.c.text("Reading…", body, &TextStyle::footnote().color(palette::TEXT_FAINT).center());
         return;
@@ -117,9 +136,10 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
         Module::Drives => (!r.drives.is_empty() || r.disk.is_some()).then(|| draw_drives(ui, st, &r, &h, &cols)),
         Module::Network => r.network.as_ref().map(|n| draw_network(ui, n, &h, &cols)),
         Module::Battery => r.battery.as_ref().map(|b| draw_battery(ui, b, &cols)),
+        Module::Games => None,
     };
     if shown.is_none() {
-        ui.c.text("Windows doesn't report this on this PC", body, &TextStyle::footnote().color(palette::TEXT_FAINT).center());
+        ui.c.text(UNREPORTED, body, &TextStyle::footnote().color(palette::TEXT_FAINT).center());
     }
 }
 
@@ -150,14 +170,49 @@ enum Spark {
     Rate(Series),
     /// A level (the battery's charge).
     Level(f32, Color),
+    /// Frames per second, against the nearest common refresh rate above the minute's peak.
+    Fps(Series),
+}
+
+/// The widest value each chip can show, so its width never changes as
+/// the value does.
+fn widest_value(m: Module) -> &'static str {
+    match m {
+        Module::Drives | Module::Network => "999 MB/s",
+        Module::Games => "999 fps",
+        _ => "100%",
+    }
+}
+
+/// Each chip's width: all the same when every chip's title and widest value
+/// fit that way (six chips at the default width), else each gets what its
+/// own needs and an even share of the rest.
+fn chip_widths(ui: &mut Ui, mods: &[Module], avail: f32) -> Vec<f32> {
+    let n = mods.len().max(1) as f32;
+    let even = (avail / n).max(0.0);
+    let title = TextStyle::caption().weight(Weight::Semibold);
+    let value = TextStyle::body().weight(Weight::Semibold).tabular();
+    let needs: Vec<f32> =
+        mods.iter().map(|&m| ui.c.measure(m.title(), &title, 400.0).0.max(ui.c.measure(widest_value(m), &value, 400.0).0) + 22.0).collect();
+    let total: f32 = needs.iter().sum();
+    if needs.iter().all(|w| *w <= even) || total <= 0.0 {
+        return vec![even; mods.len()];
+    }
+    if total > avail {
+        return needs.iter().map(|w| w * avail / total).collect();
+    }
+    let share = (avail - total) / n;
+    needs.iter().map(|w| w + share).collect()
 }
 
 fn draw_strip(ui: &mut Ui, st: &mut AppState, mods: &[Module], module: Module, r: Rect) {
     let n = mods.len().max(1) as f32;
-    let w = ((r.w - CHIP_GAP * (n - 1.0)) / n).max(0.0);
+    let widths = chip_widths(ui, mods, (r.w - CHIP_GAP * (n - 1.0)).max(0.0));
     let accent = st.accent;
-    for (i, &m) in mods.iter().enumerate() {
-        let chip = Rect::new(r.x + i as f32 * (w + CHIP_GAP), r.y, w, r.h);
+    let mut x = r.x;
+    for (i, (&m, &w)) in mods.iter().zip(&widths).enumerate() {
+        let chip = Rect::new(x, r.y, w, r.h);
+        x += w + CHIP_GAP;
         let resp = ui.button(wid_n("system-module", i as u64), chip);
         let selected = m == module;
         let fill = if selected {
@@ -177,6 +232,7 @@ fn draw_strip(ui: &mut Ui, st: &mut AppState, mods: &[Module], module: Module, r
         match spark {
             Some(Spark::Share(s)) => plot(ui, &s, 1.0, accent.with_alpha(if selected { 0.9 } else { 0.55 }), band, Fill::Faint),
             Some(Spark::Rate(s)) => plot(ui, &s, nice_ceiling(s.max()), accent.with_alpha(if selected { 0.9 } else { 0.55 }), band, Fill::Faint),
+            Some(Spark::Fps(s)) => plot(ui, &s, fps_ceiling(s.max()), accent.with_alpha(if selected { 0.9 } else { 0.55 }), band, Fill::Faint),
             Some(Spark::Level(f, c)) => {
                 let bar = Rect::new(chip.x + 10.0, chip.bottom() - 9.0, chip.w - 20.0, 3.0);
                 ui.c.fill_rrect(bar, 1.5, palette::TRACK);
@@ -191,6 +247,13 @@ fn draw_strip(ui: &mut Ui, st: &mut AppState, mods: &[Module], module: Module, r
 }
 
 fn chip_value(st: &AppState, m: Module) -> (String, Option<Spark>) {
+    if m == Module::Games {
+        return match (st.settings.game_stats, st.game.active, st.game.rate) {
+            (false, ..) => ("Off".into(), None),
+            (true, true, Some(r)) => (format!("{} fps", fmt_fps(r.fps)), Some(Spark::Fps(st.game.history.clone()))),
+            (true, ..) => ("On".into(), None),
+        };
+    }
     let Some(r) = &st.system.latest else { return (PLACEHOLDER.into(), None) };
     let h = &st.system.history;
     let v = match m {
@@ -206,6 +269,7 @@ fn chip_value(st: &AppState, m: Module) -> (String, Option<Spark>) {
             }
         }),
         Module::Battery => r.battery.as_ref().map(|b| (format!("{}%", b.percent.min(100)), Some(Spark::Level(f32::from(b.percent.min(100)) / 100.0, battery_color(b))))),
+        Module::Games => None,
     };
     v.unwrap_or_else(|| (PLACEHOLDER.into(), None))
 }
@@ -291,19 +355,29 @@ fn draw_gpu(ui: &mut Ui, st: &mut AppState, g: &GpuReading, h: &History, cols: &
     let ring = Ring { parts: vec![(g.util, accent)], value: fmt_pct(g.util) };
     let (dash, rest) = cols.dash.split_top(DASH_H);
     dashboard(ui, dash, &left, &ring, &right);
-    let rows = [
-        Row::dot(ENGINE_3D_C, "3D", fmt_pct(g.engine_3d)),
-        Row::dot(COPY_C, "Copy", fmt_pct(g.copy)),
-        Row::dot(DECODE_C, "Video decode", fmt_pct(g.video_decode)),
-        Row::dot(ENCODE_C, "Video encode", fmt_pct(g.video_encode)),
-        Row::plain(if g.integrated { "Shared memory" } else { "Memory" }, format!("{} / {}", fmt_bytes(g.mem_used), fmt_bytes(g.mem_total))),
-    ];
+    let memory = Row::plain(if g.integrated { "Shared memory" } else { "Memory" }, format!("{} / {}", fmt_bytes(g.mem_used), fmt_bytes(g.mem_total)));
+    // Apple's GPUs report their renderer (pixels) and tiler (geometry), as Stats shows them.
+    let rows = if MAC {
+        vec![Row::dot(ENGINE_3D_C, "Renderer", fmt_pct(g.engine_3d)), Row::dot(TILER_C, "Tiler", fmt_pct(g.tiler)), memory]
+    } else {
+        vec![
+            Row::dot(ENGINE_3D_C, "3D", fmt_pct(g.engine_3d)),
+            Row::dot(COPY_C, "Copy", fmt_pct(g.copy)),
+            Row::dot(DECODE_C, "Video decode", fmt_pct(g.video_decode)),
+            Row::dot(ENCODE_C, "Video encode", fmt_pct(g.video_encode)),
+            memory,
+        ]
+    };
     details(ui, rest, "ENGINES", &rows);
 
     let (chart, sub) = history_column(ui, cols.mid, "USAGE HISTORY", "ENGINES");
     chart_box(ui, chart);
     plot(ui, &h.gpu, 1.0, accent, chart.inset(1.0, 1.0), Fill::Gradient);
-    labelled_bars(ui, sub, &[(g.engine_3d, ENGINE_3D_C, "3D"), (g.copy, COPY_C, "Copy"), (g.video_decode, DECODE_C, "Decode"), (g.video_encode, ENCODE_C, "Encode")]);
+    if MAC {
+        labelled_bars(ui, sub, &[(g.engine_3d, ENGINE_3D_C, "Renderer"), (g.tiler, TILER_C, "Tiler")]);
+    } else {
+        labelled_bars(ui, sub, &[(g.engine_3d, ENGINE_3D_C, "3D"), (g.copy, COPY_C, "Copy"), (g.video_decode, DECODE_C, "Decode"), (g.video_encode, ENCODE_C, "Encode")]);
+    }
 
     // The card itself.
     let (head, rest) = cols.top.split_top(SEP_H);
@@ -311,7 +385,8 @@ fn draw_gpu(ui: &mut Ui, st: &mut AppState, g: &GpuReading, h: &History, cols: &
     let name_st = TextStyle::footnote().weight(Weight::Semibold).wrap().top().line_spacing(1.25);
     let (name_r, rest) = rest.split_top(36.0);
     ui.c.text(&g.name, name_r.inset(0.0, 2.0), &name_st);
-    let mut rows = vec![Row::plain("Type", if g.integrated { "Built into the CPU".into() } else { "Dedicated".into() })];
+    let built_in = if MAC { "Built into the chip" } else { "Built into the CPU" };
+    let mut rows = vec![Row::plain("Type", if g.integrated { built_in.into() } else { "Dedicated".into() })];
     if let Some(rpm) = g.fan_rpm {
         rows.push(Row::plain("Fan", format!("{rpm} RPM")));
     }
@@ -337,10 +412,14 @@ fn draw_memory(ui: &mut Ui, st: &mut AppState, m: &MemoryReading, r: &Reading, h
     let share = |p: MemPart| parts.iter().find(|(k, _)| *k == p).map_or(0, |(_, v)| *v);
     let frac = |b: u64| if m.total == 0 { 0.0 } else { b as f32 / m.total as f32 };
     let pressure = m.pressure();
+    // macOS swaps to files it adds as it needs them: none yet is 0 MB, never off.
+    let page_label = if MAC { "Swap" } else { "Page file" };
     let right = if m.page_total > 0 {
-        Gauge { frac: Some(m.page_used as f32 / m.page_total as f32), value: compact_bytes(m.page_used), label: "Page file", color: palette::YELLOW }
+        Gauge { frac: Some(m.page_used as f32 / m.page_total as f32), value: compact_bytes(m.page_used), label: page_label, color: palette::YELLOW }
+    } else if MAC {
+        Gauge { frac: Some(0.0), value: compact_bytes(0), label: page_label, color: palette::YELLOW }
     } else {
-        Gauge { frac: None, value: "Off".into(), label: "Page file", color: palette::YELLOW }
+        Gauge { frac: None, value: "Off".into(), label: page_label, color: palette::YELLOW }
     };
     let ring = Ring {
         parts: vec![(frac(share(MemPart::App)), APP_C), (frac(share(MemPart::Wired)), WIRED_C), (frac(share(MemPart::Compressed)), COMPRESSED_C)],
@@ -372,7 +451,8 @@ fn draw_memory(ui: &mut Ui, st: &mut AppState, m: &MemoryReading, r: &Reading, h
         .iter()
         .map(|(p, c)| (frac(share(*p)), *c))
         .collect();
-    let committed = if m.commit_limit > 0 { format!("Committed {} of {}", fmt_bytes(m.committed), fmt_bytes(m.commit_limit)) } else { String::new() };
+    // macOS has no commit charge to show (its gauge reads the kernel's own pressure level).
+    let committed = if m.commit_limit > 0 && !MAC { format!("Committed {} of {}", fmt_bytes(m.committed), fmt_bytes(m.commit_limit)) } else { String::new() };
     stacked_meter(ui, sub, &segments, &fmt_bytes(m.used), &format!("of {}", fmt_bytes(m.total)), &committed);
 
     processes(ui, st, cols.top, &r.top_memory, |a| fmt_bytes(a.memory), "");
@@ -533,7 +613,7 @@ fn draw_battery(ui: &mut Ui, b: &BatteryReading, cols: &Cols) {
         Row::plain("Source", if b.on_ac { "Power adapter".into() } else { "Battery".into() }),
         Row::plain("State", state.into()),
         Row::plain("Time left", time),
-        Row::plain("Battery saver", if b.saver { "On".into() } else { "Off".into() }),
+        Row::plain(if MAC { "Low Power Mode" } else { "Battery saver" }, if b.saver { "On".into() } else { "Off".into() }),
     ];
     details(ui, rest, "DETAILS", &rows);
 
@@ -580,6 +660,109 @@ fn battery_glyph(ui: &mut Ui, center: Point, percent: u8, color: Color, plugged:
     }
     if plugged {
         ui.c.icon(Icon::Bolt, Rect::from_center(inner.center(), 18.0, 18.0), palette::ON_ACCENT);
+    }
+}
+
+// ------------------------------------------------------------------ games
+
+/// Frame rate charts top out at the nearest common refresh rate above the peak.
+const FPS_TOPS: [f32; 8] = [30.0, 60.0, 75.0, 120.0, 144.0, 165.0, 240.0, 360.0];
+
+fn fps_ceiling(peak: f32) -> f32 {
+    FPS_TOPS.into_iter().find(|t| peak <= *t).unwrap_or_else(|| (peak / 120.0).ceil().max(1.0) * 120.0)
+}
+
+/// Show over games: the switch and whether Windows lets Poni read frames on
+/// the left, the frame rate's minute in the middle, what's in front on the
+/// right.
+fn draw_games(ui: &mut Ui, st: &mut AppState, cols: &Cols) {
+    let accent = st.accent;
+    let note = TextStyle::caption().color(palette::TEXT_DIM).wrap().top().line_spacing(1.2);
+
+    // The switch, and the frames' access with its one button.
+    let (head, rest) = cols.dash.split_top(SEP_H);
+    separator(ui, head, "OVER GAMES");
+    let (row, rest) = rest.split_top(28.0);
+    let on = st.settings.game_stats;
+    if crate::pages::settings::switch_row(ui, wid("system.games.switch"), row, "Show over games", Some(on), accent) {
+        st.settings.game_stats = !on;
+        st.cmd(Command::SaveSettings);
+    }
+    let (about, rest) = rest.split_top(32.0);
+    ui.c.text("FPS, GPU and CPU on the island while a game fills the screen.", about.inset(0.0, 3.0), &note);
+    let (head, rest) = rest.split_top(SEP_H);
+    separator(ui, head, "FPS");
+    if st.game.access == FpsAccess::Unknown {
+        st.cmd(Command::CheckFps);
+    }
+    let (text, action) = match &st.game.access {
+        FpsAccess::Unknown | FpsAccess::Checking => ("Checking with Windows\u{2026}".to_string(), None),
+        FpsAccess::Ready => ("Ready. Counted from Windows' own log of each frame; nothing loads into the game.".to_string(), None),
+        FpsAccess::NeedsOk => ("Needs a one-time OK from Windows, as Xbox Game Bar does.".to_string(), Some(("Allow FPS", Command::AllowFps))),
+        FpsAccess::Asking => ("Answer Windows' prompt to allow it.".to_string(), None),
+        FpsAccess::SignOut => ("Allowed. Sign out of Windows and back in, and FPS shows.".to_string(), None),
+        // Why goes to poni.log; the page says it plainly.
+        FpsAccess::Failed(_) => ("Windows didn't allow it this time.".to_string(), Some(("Check again", Command::CheckFps))),
+    };
+    let (text_r, rest) = rest.split_top(44.0);
+    ui.c.text(&text, text_r.inset(0.0, 3.0), &note);
+    if let Some((label, cmd)) = action {
+        let w = ui.pill_width(label, false, true);
+        let r = Rect::new(rest.x, rest.y + 2.0, w, PILL_SMALL);
+        if ui.pill(wid("system.games.fps"), r, label, None, PillStyle::Primary(accent)).clicked {
+            st.cmd(cmd);
+        }
+    }
+
+    // The frame rate's last minute, and the frame times under it.
+    let (chart, sub) = history_column(ui, cols.mid, "FRAMES PER SECOND", "FRAME TIME");
+    chart_box(ui, chart);
+    let h = st.game.history.clone();
+    if h.values().any(f32::is_finite) {
+        let top = fps_ceiling(h.max());
+        plot(ui, &h, top, accent, chart.inset(1.0, 1.0), Fill::Gradient);
+        let scale = TextStyle::caption().tabular().color(palette::TEXT_FAINT);
+        ui.c.text(&format!("{top:.0}"), Rect::new(chart.x + 7.0, chart.y + 3.0, 40.0, 14.0), &scale);
+    } else {
+        let waiting = if !on {
+            "Off"
+        } else if st.game.active {
+            "No frames yet"
+        } else {
+            "Start a game in borderless full screen"
+        };
+        ui.c.text(waiting, chart.inset(8.0, 0.0), &TextStyle::caption().color(palette::TEXT_FAINT).center());
+    }
+    let rate = st.game.rate.filter(|_| st.game.active);
+    let times = [
+        Row::plain("Average", rate.map_or_else(|| PLACEHOLDER.into(), |r| fmt_frame_ms(r.frame_ms))),
+        Row::plain("Slowest in the last second", rate.map_or_else(|| PLACEHOLDER.into(), |r| fmt_frame_ms(r.worst_ms))),
+    ];
+    for (row, rect) in times.iter().zip(stack(sub, DETAIL_H)) {
+        row.draw(ui, rect);
+    }
+
+    // What's in front, and the island's numbers for it.
+    let (head, rest) = cols.top.split_top(SEP_H);
+    separator(ui, head, "IN FRONT");
+    let (name_r, rest) = rest.split_top(36.0);
+    let (name, ink) = match (st.game.active, &st.game.app) {
+        (true, Some(app)) => (app.clone(), palette::TEXT),
+        (true, None) => ("A full-screen app".to_string(), palette::TEXT),
+        (false, _) => ("No game in front".to_string(), palette::TEXT_FAINT),
+    };
+    ui.c.text(&name, name_r.inset(0.0, 2.0), &TextStyle::footnote().weight(Weight::Semibold).wrap().top().line_spacing(1.25).color(ink));
+    let reading = st.system.latest.as_ref().filter(|_| st.game.active);
+    let gpu = reading.and_then(|r| r.gpu.as_ref());
+    let rows = [
+        Row::plain("FPS", rate.map_or_else(|| PLACEHOLDER.into(), |r| fmt_fps(r.fps))),
+        Row::plain("GPU", gpu.map_or_else(|| PLACEHOLDER.into(), |g| fmt_pct(g.util))),
+        Row::plain("GPU temperature", gpu.and_then(|g| g.temp_c).map_or_else(|| PLACEHOLDER.into(), |t| format!("{t:.0}\u{b0}C"))),
+        Row::plain("Video memory", gpu.map_or_else(|| PLACEHOLDER.into(), |g| fmt_bytes(g.mem_used))),
+        Row::plain("CPU", reading.and_then(|r| r.cpu.as_ref()).map_or_else(|| PLACEHOLDER.into(), |c| fmt_pct(c.load))),
+    ];
+    for (row, rect) in rows.iter().zip(stack(rest, DETAIL_H)) {
+        row.draw(ui, rect);
     }
 }
 
@@ -655,7 +838,14 @@ fn draw_gauge(ui: &mut Ui, c: Point, d: f32, g: &Gauge) {
         ui.c.arc(c, radius, 0.0, f.clamp(0.0, 1.0), g.color, GAUGE_W);
     }
     let inner = d - 2.0 * GAUGE_W - 2.0;
-    let size = if g.value.chars().count() > 4 { 10.0 } else { 11.0 };
+    let mut size = if g.value.chars().count() > 4 { 10.0 } else { 11.0 };
+    // The Mac's font runs wider than Windows': a value too wide for the ring ("307 MB") shrinks to fit it.
+    if MAC {
+        let w = ui.c.measure(&g.value, &TextStyle::new(size).weight(Weight::Semibold).tabular(), 400.0).0;
+        if w > inner - 2.0 {
+            size = (size * (inner - 2.0) / w).max(7.0);
+        }
+    }
     ui.c.text(&g.value, Rect::from_center(c, inner, 16.0), &TextStyle::new(size).weight(Weight::Semibold).tabular().center());
     gauge_label(ui, c, d, g.label, palette::TEXT_DIM);
 }
@@ -666,8 +856,9 @@ fn gauge_label(ui: &mut Ui, c: Point, d: f32, label: &str, color: Color) {
 }
 
 /// Stats' memory pressure gauge: a half circle green, yellow and red where
-/// Windows' commit charge would read normal, warning and critical, a needle
-/// at the pressure, and the word under it.
+/// Windows' commit charge would read normal, warning and critical (on a Mac
+/// the kernel's own level picks the zone), a needle at the pressure, and the
+/// word under it.
 fn pressure_gauge(ui: &mut Ui, c: Point, d: f32, p: f32) {
     if d < 20.0 {
         return;
@@ -778,7 +969,7 @@ fn processes(ui: &mut Ui, st: &mut AppState, r: Rect, apps: &[AppUse], value: im
 
 fn draw_app_icon(ui: &mut Ui, st: &mut AppState, a: &AppUse, r: Rect) {
     // The kernel's own entry has no file: Windows' mark stands for it.
-    if a.image == "system" {
+    if !MAC && a.image == "system" {
         ui.c.icon(Icon::Windows, r.inset(1.0, 1.0), palette::BLUE);
         return;
     }
