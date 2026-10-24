@@ -5,7 +5,7 @@
 //! and Status, which [`super::status`] draws). `None` / `false` = Classic's
 //! layout. [`battery`] is the drawn battery for the other Pill surfaces.
 
-use crate::gfx::{TextStyle, Weight};
+use crate::gfx::{Canvas, TextStyle, Weight};
 use crate::island::Geom;
 use crate::state::AppState;
 use crate::ui::Ui;
@@ -127,8 +127,14 @@ fn draw_clock(ui: &mut Ui, st: &AppState, body: Rect) {
 /// while it charges, a white bolt cut into the fill. Outline and nub sit on
 /// whole device pixels so they stay crisp at 100 %.
 pub fn battery(ui: &mut Ui, r: Rect, percent: u8, charging: bool) {
+    battery_glyph(ui.c, r, percent, charging);
+}
+
+/// [`battery`] for code that draws on the canvas without a `Ui` (the Mac's
+/// resting ears beside the camera).
+pub fn battery_glyph(c: &mut Canvas, r: Rect, percent: u8, charging: bool) {
     let s = r.h / BATTERY_H;
-    let px = ui.c.scale().max(0.1);
+    let px = c.scale().max(0.1);
     let snap = |v: f32| (v * px).round() / px;
     // Whole pixels, at least one; a half rounds down so 1.25 stays slim at 200 %.
     let whole = |v: f32| ((v * px - 0.01).round().max(1.0)) / px;
@@ -139,10 +145,10 @@ pub fn battery(ui: &mut Ui, r: Rect, percent: u8, charging: bool) {
 
     // The stroke's radius is its centre line's: the outer corner stays at 3.
     let line = whole(1.25 * s);
-    ui.c.stroke_rrect(body, 3.0 * s - line / 2.0, OUTLINE_INK, line);
+    c.stroke_rrect(body, 3.0 * s - line / 2.0, OUTLINE_INK, line);
     let nub_h = whole(4.0 * s);
     let nub_y = snap(body.center().y - nub_h / 2.0);
-    ui.c.fill_rrect(Rect::new(x1 + nub_gap, nub_y, nub_w, nub_h), 0.75 * s, OUTLINE_INK);
+    c.fill_rrect(Rect::new(x1 + nub_gap, nub_y, nub_w, nub_h), 0.75 * s, OUTLINE_INK);
 
     let inset = whole(2.0 * s).max(line + 1.0 / px);
     let inner = body.inset(inset, inset);
@@ -150,21 +156,21 @@ pub fn battery(ui: &mut Ui, r: Rect, percent: u8, charging: bool) {
     if level > 0.0 && inner.w > 0.0 && inner.h > 0.0 {
         let color = if !charging && percent <= 20 { palette::RED } else { palette::GREEN };
         let w = (inner.w * level).max(2.0 * s).min(inner.w);
-        ui.c.fill_rrect(Rect::new(inner.x, inner.y, w, inner.h), (1.5 * s).min(w / 2.0), color);
+        c.fill_rrect(Rect::new(inner.x, inner.y, w, inner.h), (1.5 * s).min(w / 2.0), color);
     }
     if charging {
         // The bolt (6 x 8, Icon::Bolt's shape) with a 1 DIP edge of the
         // island's own black cut around it, so it reads on the fill.
-        let c = body.center();
+        let mid = body.center();
         let pts = [(0.6, -4.0), (-3.0, 0.674), (-0.343, 0.674), (-0.9, 4.0), (3.0, -0.674), (0.3, -0.674)];
         let mut segs: Vec<Seg> = Vec::with_capacity(pts.len() + 1);
         for (i, (dx, dy)) in pts.iter().enumerate() {
-            let (x, y) = (c.x + dx * s, c.y + dy * s);
+            let (x, y) = (mid.x + dx * s, mid.y + dy * s);
             segs.push(if i == 0 { Seg::MoveTo(x, y) } else { Seg::LineTo(x, y) });
         }
         segs.push(Seg::Close);
-        ui.c.path(&segs, Some(palette::ISLAND), Some((palette::ISLAND, 2.0 * s)));
-        ui.c.path(&segs, Some(Color::white(1.0)), None);
+        c.path(&segs, Some(palette::ISLAND), Some((palette::ISLAND, 2.0 * s)));
+        c.path(&segs, Some(Color::white(1.0)), None);
     }
 }
 
