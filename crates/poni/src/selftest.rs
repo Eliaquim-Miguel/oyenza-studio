@@ -135,9 +135,11 @@ enum Scene {
     ShelfDrop,
     /// Click the first header tab on the Today page; expect the Music page.
     TabClick,
+    /// The Health page before the person signs in with Oyenza: no numbers yet.
+    HealthSignedOut,
 }
 
-const SCENES: [Scene; 18] = [
+const SCENES: [Scene; 19] = [
     Scene::IdleClock,
     Scene::IdleEyes,
     Scene::Media,
@@ -156,6 +158,7 @@ const SCENES: [Scene; 18] = [
     Scene::Page(PageKind::Clipboard),
     Scene::Page(PageKind::Today),
     Scene::TabClick,
+    Scene::HealthSignedOut,
 ];
 
 impl Scene {
@@ -173,6 +176,7 @@ impl Scene {
             Scene::Page(p) => format!("page-{}", p.key()),
             Scene::ShelfDrop => "page-shelf-drop".into(),
             Scene::TabClick => "tab-click-media".into(),
+            Scene::HealthSignedOut => "page-health-signed-out".into(),
         }
     }
 
@@ -181,6 +185,7 @@ impl Scene {
             Scene::Page(p) => Some(p),
             Scene::ShelfDrop => Some(PageKind::Shelf),
             Scene::TabClick => Some(PageKind::ALL[0]),
+            Scene::HealthSignedOut => Some(PageKind::Health),
             _ => None,
         }
     }
@@ -272,6 +277,8 @@ pub struct SelfTest {
     art_color: Option<Color>,
     lyrics: LyricsState,
     track_key: String,
+    /// The sample week every scene shows, except the signed-out Health page.
+    health: Option<HealthSnapshot>,
     states: Vec<StateReport>,
     checks: Vec<Check>,
     writes: Vec<(String, JoinHandle<Vec<String>>)>,
@@ -309,6 +316,7 @@ impl SelfTest {
             art_color: None,
             lyrics: LyricsState { track_key: track_key.clone(), ..Default::default() },
             track_key,
+            health: None,
             states: Vec::new(),
             checks: Vec::new(),
             writes: Vec::new(),
@@ -358,7 +366,7 @@ impl SelfTest {
         self.lyrics = LyricsState { track_key: self.track_key.clone(), status: LyricsStatus::Found, lyrics: Some(parsed), source: "Sample".into() };
 
         seed_tasks(st);
-        st.health = Some(sample_health(st));
+        self.health = Some(sample_health(st));
         seed_clipboard(st);
         let today = st.day_key();
         st.store.focus_sessions.insert(today, 2);
@@ -516,6 +524,7 @@ impl SelfTest {
         st.volume = VolumeState { level: 0.64, muted: false, known: true };
         st.pinned = false;
         st.drag_hover = scene == Scene::ShelfDrop;
+        st.health = if scene == Scene::HealthSignedOut { None } else { self.health.clone() };
 
         if scene.media_playing() {
             let timeline = Timeline::new(TRACK_POS_S, TRACK_LEN_S, now, true);

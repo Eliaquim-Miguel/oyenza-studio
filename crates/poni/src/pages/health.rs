@@ -20,6 +20,8 @@ const RING_R: f32 = 46.0;
 const RING_W: f32 = 10.0;
 const RING_BOX: f32 = 2.0 * RING_R + RING_W;
 const MID_GAP: f32 = 24.0;
+/// Before sign-in the explanation spans the middle and right columns, up to this width.
+const SIGNED_OUT_W: f32 = 400.0;
 /// The goal line sits at this fraction of the chart height (room for over-goal days).
 const GOAL_AT: f32 = 0.72;
 const WEEKDAY_LETTER: [&str; 7] = ["S", "M", "T", "W", "T", "F", "S"];
@@ -40,9 +42,10 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
     let chart = Rect::new(right_x, area.y + 34.0, right_w, 76.0);
 
     let Some(h) = st.health.clone() else {
+        // No week to chart yet: the explanation takes the middle and right columns.
         draw_ring(ui, ring_c, None);
-        draw_not_connected(ui, mid);
-        draw_chart(ui, st, None, chart);
+        let w = (area.right() - mid_x).clamp(0.0, SIGNED_OUT_W);
+        draw_not_connected(ui, Rect::new(mid_x, area.y, w, area.h), ring_c.y);
         return;
     };
     let today = st.local.day_key();
@@ -51,7 +54,7 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
     draw_ring(ui, ring_c, Some(steps as f32 / goal as f32));
     draw_today(ui, st, &h, steps, goal, mid);
     draw_week_title(ui, st, &h, Rect::new(right_x, area.y + 4.0, right_w, 18.0));
-    draw_chart(ui, st, Some(&h), chart);
+    draw_chart(ui, st, &h, chart);
 }
 
 // ------------------------------------------------------------ ring
@@ -137,16 +140,26 @@ fn updated_text(st: &AppState, at: i64) -> String {
     }
 }
 
-fn draw_not_connected(ui: &mut Ui, r: Rect) {
-    let y = r.y + 8.0;
-    ui.c.text("Your steps, from your phone", Rect::new(r.x, y, r.w, 20.0), &TextStyle::headline().top());
+/// Title, explanation and the "coming soon" tag, stacked and centred on `center_y`
+/// (the ring's centre). Heights are measured, so a wider font wraps instead of clipping.
+fn draw_not_connected(ui: &mut Ui, r: Rect, center_y: f32) {
+    let title = "Your steps, from your phone";
     let body = "Oyenza on your iPhone or Android reads them from Apple Health or Health Connect. Sign in with your Oyenza account to see them here.";
-    ui.c.text(body, Rect::new(r.x, y + 26.0, r.w, 54.0), &TextStyle::footnote().color(palette::TEXT_DIM).wrap().top());
     // Not a button yet: signing in arrives with the Oyenza connection.
     let label = "Sign in with Oyenza · coming soon";
+    let title_st = TextStyle::headline().wrap().top();
+    let body_st = TextStyle::footnote().color(palette::TEXT_DIM).wrap().top();
     let tag_st = TextStyle::caption().weight(Weight::Semibold).color(palette::TEXT_DIM);
+    let (_, title_h) = ui.c.measure(title, &title_st, r.w);
+    let (_, body_h) = ui.c.measure(body, &body_st, r.w);
     let (tw, _) = ui.c.measure(label, &tag_st, r.w);
-    let tag = Rect::new(r.x, y + 90.0, (tw + 20.0).min(r.w), 24.0);
+    let (gap, tag_gap, tag_h) = (6.0, 12.0, 24.0);
+    let total = title_h + gap + body_h + tag_gap + tag_h;
+    let y = (center_y - total / 2.0).clamp(r.y, (r.bottom() - total).max(r.y));
+    ui.c.text(title, Rect::new(r.x, y, r.w, title_h + 1.0), &title_st);
+    let body_y = y + title_h + gap;
+    ui.c.text(body, Rect::new(r.x, body_y, r.w, body_h + 1.0), &body_st);
+    let tag = Rect::new(r.x, body_y + body_h + tag_gap, (tw.ceil() + 20.0).min(r.w), tag_h);
     ui.c.fill_rrect(tag, tag.h / 2.0, palette::SURFACE);
     ui.c.text(label, tag.inset(10.0, 0.0), &tag_st.center());
 }
@@ -171,9 +184,8 @@ fn draw_week_title(ui: &mut Ui, st: &AppState, h: &HealthSnapshot, r: Rect) {
     ui.c.text(&fmt_steps(total), r, &TextStyle::caption().weight(Weight::Semibold).tabular().right());
 }
 
-/// Seven bars ending today, with the goal as a dashed line. Empty bars when
-/// there are no numbers.
-fn draw_chart(ui: &mut Ui, st: &AppState, h: Option<&HealthSnapshot>, r: Rect) {
+/// Seven bars ending today, with the goal as a dashed line.
+fn draw_chart(ui: &mut Ui, st: &AppState, h: &HealthSnapshot, r: Rect) {
     let label_w = 30.0;
     let bars = Rect::new(r.x + 2.0, r.y, (r.w - label_w - 2.0).max(0.0), r.h - 18.0);
     let goal_y = bars.bottom() - bars.h * GOAL_AT;
@@ -185,15 +197,10 @@ fn draw_chart(ui: &mut Ui, st: &AppState, h: Option<&HealthSnapshot>, r: Rect) {
         ui.c.line(Point::new(x, goal_y), Point::new(x2, goal_y), Color::white(0.22), 1.0);
         x += dash + gap;
     }
-    if let Some(h) = h {
-        ui.c.text(&fmt_short(h.goal()), Rect::new(bars.right() + 5.0, goal_y - 7.0, label_w - 5.0, 14.0), &TextStyle::caption().color(palette::TEXT_FAINT));
-    }
+    ui.c.text(&fmt_short(h.goal()), Rect::new(bars.right() + 5.0, goal_y - 7.0, label_w - 5.0, 14.0), &TextStyle::caption().color(palette::TEXT_FAINT));
 
-    let week = match h {
-        Some(h) => h.week(&st.local).map(|(d, s)| (d, s.unwrap_or(0))),
-        None => std::array::from_fn(|i| (st.local.add_days(i as i64 - 6), 0)),
-    };
-    let goal = h.map_or(1, |h| h.goal()) as f32;
+    let week = h.week(&st.local).map(|(d, s)| (d, s.unwrap_or(0)));
+    let goal = h.goal() as f32;
     let cols = bars.columns(week.len(), 0.0);
     let bar_w = cols.first().map(|c| (c.w * 0.4).clamp(6.0, 12.0)).unwrap_or(10.0);
     for (i, ((day, steps), col)) in week.iter().zip(cols.iter()).enumerate() {
@@ -222,7 +229,7 @@ fn draw_chart(ui: &mut Ui, st: &AppState, h: Option<&HealthSnapshot>, r: Rect) {
         let wd = day.weekday() as usize % 7;
         ui.c.text(WEEKDAY_LETTER[wd], Rect::new(col.x, bars.bottom() + 4.0, col.w, 14.0), &letter_st);
 
-        if hovered && h.is_some() {
+        if hovered {
             let text = if *steps == 0 { "—".to_string() } else { fmt_steps(*steps) };
             let tr = Rect::new(col.center().x - 32.0, (br.y - 16.0).max(r.y - 14.0), 64.0, 14.0);
             ui.c.text(&text, tr, &TextStyle::caption().weight(Weight::Semibold).tabular().center());
