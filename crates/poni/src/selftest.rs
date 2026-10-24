@@ -18,12 +18,16 @@ use crate::gfx::{Image, ImageData};
 use crate::pages::PageKind;
 use crate::paths;
 use crate::png;
-use crate::state::{AppState, Hud, HudKind, LyricsState, LyricsStatus, MediaSession, PowerState, SysStats, VolumeState};
+use crate::state::{
+    AppState, Hud, HudKind, LyricsState, LyricsStatus, MediaSession, PhoneAsk, PhoneDrop, PhoneTransfer, PowerState, SysStats, VolumeState,
+};
 use poni_core::geom::{palette, Color, Point, Rect};
 use poni_core::health::{HealthDay, HealthSnapshot, HealthSource};
 use poni_core::lrc::parse_lrc;
+use poni_core::phonedrop::QrMatrix;
 use poni_core::pomodoro::{Phase as PomoPhase, RunState};
 use poni_core::settings::{IdleStyle, Theme};
+use poni_core::shelf::ShelfItem;
 use poni_core::timeline::Timeline;
 use serde::Serialize;
 use std::fs;
@@ -148,6 +152,30 @@ const CLIPS: [&str; 6] = [
 
 const GIB: u64 = 1024 * 1024 * 1024;
 
+/// The phone-drop link in the screenshots. Made up: no server answers it.
+const PHONE_URL: &str = "HTTP://192.168.1.20:53530/K7Q2M9XWZ4R8T6YB3NPV5HJC2D/";
+
+/// Phone drop as each phone scene shows it (None = closed).
+fn fake_phone(scene: Scene) -> Option<PhoneDrop> {
+    let ready = PhoneDrop { url: PHONE_URL.into(), qr: QrMatrix::encode(PHONE_URL), ..Default::default() };
+    let files = vec![("IMG_2041.HEIC".to_string(), 2_480_112u64), ("IMG_2042.HEIC".to_string(), 2_391_870), ("Harbor walk.mov".to_string(), 18_402_331)];
+    let total = files.iter().map(|f| f.1).sum();
+    match scene {
+        Scene::ShelfPhone => Some(ready),
+        Scene::ShelfPhoneAsk => Some(PhoneDrop {
+            visitor: Some("iPhone".into()),
+            ask: Some(PhoneAsk { id: 7, from: "iPhone".into(), files, total }),
+            ..ready
+        }),
+        Scene::ShelfPhoneReceive => Some(PhoneDrop {
+            visitor: Some("iPhone".into()),
+            transfer: Some(PhoneTransfer { id: 7, from: "iPhone".into(), file: 2, files: 3, done: 9_100_000, total }),
+            ..ready
+        }),
+        _ => None,
+    }
+}
+
 fn fake_stats() -> SysStats {
     SysStats {
         valid: true,
@@ -180,13 +208,21 @@ enum Scene {
     Page(PageKind),
     /// The shelf while files are dragged over the island.
     ShelfDrop,
+    /// An empty shelf: the drop zone and the Phone drop tile.
+    ShelfEmpty,
+    /// Phone drop open: the QR code waits for a phone.
+    ShelfPhone,
+    /// An iPhone asks to send three files.
+    ShelfPhoneAsk,
+    /// Files coming in from the iPhone.
+    ShelfPhoneReceive,
     /// Click the first header tab on the Today page; expect the Music page.
     TabClick,
     /// The Health page before the person signs in with Oyenza: no numbers yet.
     HealthSignedOut,
 }
 
-const SCENES: [Scene; 19] = [
+const SCENES: [Scene; 23] = [
     Scene::IdleClock,
     Scene::IdleEyes,
     Scene::Media,
@@ -201,6 +237,11 @@ const SCENES: [Scene; 19] = [
     Scene::Page(PageKind::Health),
     Scene::Page(PageKind::Shelf),
     Scene::ShelfDrop,
+    Scene::ShelfPhone,
+    Scene::ShelfPhoneAsk,
+    Scene::ShelfPhoneReceive,
+    // Last of the shelf scenes: hiding the items resets their fade-in.
+    Scene::ShelfEmpty,
     Scene::Page(PageKind::Tasks),
     Scene::Page(PageKind::Clipboard),
     Scene::Page(PageKind::Today),
@@ -222,6 +263,10 @@ impl Scene {
             Scene::HealthNotice => "health-notice".into(),
             Scene::Page(p) => format!("page-{}", p.key()),
             Scene::ShelfDrop => "page-shelf-drop".into(),
+            Scene::ShelfEmpty => "page-shelf-empty".into(),
+            Scene::ShelfPhone => "page-shelf-phone".into(),
+            Scene::ShelfPhoneAsk => "page-shelf-phone-ask".into(),
+            Scene::ShelfPhoneReceive => "page-shelf-phone-receive".into(),
             Scene::TabClick => "tab-click-media".into(),
             Scene::HealthSignedOut => "page-health-signed-out".into(),
         }
@@ -230,7 +275,7 @@ impl Scene {
     fn page(self) -> Option<PageKind> {
         match self {
             Scene::Page(p) => Some(p),
-            Scene::ShelfDrop => Some(PageKind::Shelf),
+            Scene::ShelfDrop | Scene::ShelfEmpty | Scene::ShelfPhone | Scene::ShelfPhoneAsk | Scene::ShelfPhoneReceive => Some(PageKind::Shelf),
             Scene::TabClick => Some(PageKind::ALL[0]),
             Scene::HealthSignedOut => Some(PageKind::Health),
             _ => None,
@@ -247,6 +292,35 @@ impl Scene {
 
     fn timer_running(self) -> bool {
         matches!(self, Scene::Timer | Scene::MediaTimer) || self.expanded()
+    }
+}
+
+/// GET the phone page from a running Phone drop server: the address must be
+/// reachable and the page must come back whole. The detail never includes
+/// the link's secret.
+pub fn fetch_phone_page(url: &str) -> (bool, String) {
+    use std::io::{Read, Write};
+    use std::net::{SocketAddr, TcpStream};
+    use std::time::Duration;
+    let rest = url.split_once("//").map_or(url, |(_, r)| r);
+    let (host, path) = rest.split_once('/').map_or((rest, ""), |(h, p)| (h, p));
+    let Ok(addr) = host.parse::<SocketAddr>() else {
+        return (false, format!("link has no address: {host}"));
+    };
+    let fetch = || -> std::io::Result<String> {
+        let mut s = TcpStream::connect_timeout(&addr, Duration::from_secs(3))?;
+        s.set_read_timeout(Some(Duration::from_secs(5)))?;
+        write!(s, "GET /{path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: poni-selftest\r\n\r\n")?;
+        let mut out = String::new();
+        s.read_to_string(&mut out)?;
+        Ok(out)
+    };
+    match fetch() {
+        Ok(resp) if resp.starts_with("HTTP/1.1 200") && resp.contains("<title>Oyen Poni") && resp.trim_end().ends_with("</html>") => {
+            (true, format!("served the page at {addr} ({} bytes)", resp.len()))
+        }
+        Ok(resp) => (false, format!("unexpected answer from {addr}: {}", resp.lines().next().unwrap_or(""))),
+        Err(e) => (false, format!("couldn't fetch the page at {addr}: {e}")),
     }
 }
 
@@ -341,6 +415,10 @@ pub struct SelfTest {
     /// PONI_SELFTEST_LYRICS=ja|ko|zh: the sample song in that language.
     lyrics_lang: Option<String>,
     renderer: &'static str,
+    /// The seeded shelf and its thumbnails (the empty-shelf scene hides
+    /// them, and the page forgets thumbnails of items that left).
+    shelf_items: Vec<ShelfItem>,
+    shelf_thumbs: Vec<(String, Option<Image>)>,
 }
 
 /// Transitions recorded in animation mode: (name, from, to).
@@ -377,6 +455,8 @@ impl SelfTest {
             theme: if std::env::var("PONI_SELFTEST_THEME").is_ok_and(|v| v.trim() == "oyen") { Theme::Oyen } else { Theme::Classic },
             lyrics_lang: std::env::var("PONI_SELFTEST_LYRICS").ok().map(|v| v.trim().to_ascii_lowercase()).filter(|v| !v.is_empty()),
             renderer: "software",
+            shelf_items: Vec::new(),
+            shelf_thumbs: Vec::new(),
         }
     }
 
@@ -450,6 +530,8 @@ impl SelfTest {
     /// Called every ~50 ms; returns Some(exit code) when finished.
     pub fn step(&mut self, app: &mut App) -> Option<i32> {
         if !self.dpi_applied {
+            let (ok, detail) = app.selftest_phone_drop();
+            self.checks.push(check("phone-drop-server", ok, detail));
             self.dpi_applied = true;
             if let Some(dpi) = self.dpi {
                 crate::pinfo!("selftest: rendering at {dpi} DPI ({:.0} %)", dpi as f32 / 96.0 * 100.0);
@@ -592,6 +674,13 @@ impl SelfTest {
         st.pinned = false;
         st.drag_hover = scene == Scene::ShelfDrop;
         st.health = if scene == Scene::HealthSignedOut { None } else { self.health.clone() };
+        st.phone = fake_phone(scene);
+        st.store.shelf.items = if scene == Scene::ShelfEmpty { Vec::new() } else { self.shelf_items.clone() };
+        if scene != Scene::ShelfEmpty {
+            for (path, thumb) in &self.shelf_thumbs {
+                st.shelf_thumbs.entry(path.clone()).or_insert_with(|| thumb.clone());
+            }
+        }
 
         if scene.media_playing() {
             let timeline = Timeline::new(TRACK_POS_S, TRACK_LEN_S, now, true);
@@ -684,8 +773,10 @@ impl SelfTest {
             // Pre-seeded thumbnails keep the screenshots identical on every machine
             // (the app skips LoadThumb for paths it already has an entry for).
             let thumb = if p == &img { self.art.clone() } else { None };
+            self.shelf_thumbs.push((s.clone(), thumb.clone()));
             st.shelf_thumbs.insert(s, thumb);
         }
+        self.shelf_items = st.store.shelf.items.clone();
     }
 
     // ------------------------------------------------------------ capture + checks
