@@ -9,11 +9,13 @@
 //! [`crate::commands::Command`]s for side effects (media control, opening
 //! files, saving, …).
 
+pub mod addons;
 pub mod clipboard;
 pub mod focus;
 pub mod health;
 pub mod media;
 pub mod oyenza;
+pub mod prayer;
 pub mod settings;
 pub mod shelf;
 pub mod system;
@@ -55,12 +57,17 @@ pub enum PageKind {
     System,
     /// Only while signing in to Oyenza or signed in ([`tabs`]).
     Oyenza,
+    /// Prayer times, while that add-on is on ([`tabs`]).
+    Prayer,
+    /// The "+" at the end of the tab row: features to switch on, each of
+    /// which downloads only then (`poni_core::addons`).
+    Addons,
     /// Behind the gear on the right of the header, never in the tab row.
     Settings,
 }
 
 impl PageKind {
-    pub const ALL: [PageKind; 10] = [
+    pub const ALL: [PageKind; 12] = [
         PageKind::Media,
         PageKind::Focus,
         PageKind::Health,
@@ -70,6 +77,8 @@ impl PageKind {
         PageKind::Today,
         PageKind::System,
         PageKind::Oyenza,
+        PageKind::Prayer,
+        PageKind::Addons,
         PageKind::Settings,
     ];
 
@@ -84,6 +93,8 @@ impl PageKind {
             PageKind::Today => "today",
             PageKind::System => "system",
             PageKind::Oyenza => "oyenza",
+            PageKind::Prayer => "prayer",
+            PageKind::Addons => "addons",
             PageKind::Settings => "settings",
         }
     }
@@ -105,6 +116,8 @@ impl PageKind {
             PageKind::Today => "Today",
             PageKind::System => "System",
             PageKind::Oyenza => "Oyenza",
+            PageKind::Prayer => "Prayer",
+            PageKind::Addons => "Add-ons",
             PageKind::Settings => "Settings",
         }
     }
@@ -120,6 +133,8 @@ impl PageKind {
             PageKind::Today => Icon::Calendar,
             PageKind::System => Icon::Gauge,
             PageKind::Oyenza => Icon::Wallet,
+            PageKind::Prayer => Icon::Moon,
+            PageKind::Addons => Icon::Addons,
             PageKind::Settings => Icon::Gear,
         }
     }
@@ -140,10 +155,19 @@ impl PageKind {
     }
 }
 
-/// The tabs in the header: every page but Settings, and Oyenza only while
-/// signing in or signed in.
+/// The tabs in the header: every page but Settings, Oyenza only while
+/// signing in or signed in, Prayer only while that add-on is on, and Add-ons
+/// only in the Windows app (the Mac app has no add-on downloader yet).
 pub fn tabs(st: &AppState) -> Vec<PageKind> {
-    PageKind::ALL.into_iter().filter(|p| p.tabbed() && (*p != PageKind::Oyenza || st.oyenza.tab_visible())).collect()
+    PageKind::ALL
+        .into_iter()
+        .filter(|p| match p {
+            PageKind::Oyenza => st.oyenza.tab_visible(),
+            PageKind::Prayer => st.prayer_on(),
+            PageKind::Addons => cfg!(windows),
+            p => p.tabbed(),
+        })
+        .collect()
 }
 
 /// The tab after (or before) `p` among [`tabs`], wrapping around.
@@ -165,6 +189,8 @@ pub fn content_height(p: PageKind, st: &AppState) -> f32 {
         PageKind::Today => today::height(st),
         PageKind::System => system::height(st),
         PageKind::Oyenza => oyenza::height(st),
+        PageKind::Prayer => prayer::height(st),
+        PageKind::Addons => addons::height(st),
         PageKind::Settings => settings::height(st),
     }
 }
@@ -272,6 +298,8 @@ fn draw_page(ui: &mut Ui, st: &mut AppState, area: Rect, page: PageKind) {
         PageKind::Today => today::draw(ui, st, area),
         PageKind::System => system::draw(ui, st, area),
         PageKind::Oyenza => oyenza::draw(ui, st, area),
+        PageKind::Prayer => prayer::draw(ui, st, area),
+        PageKind::Addons => addons::draw(ui, st, area),
         PageKind::Settings => settings::draw(ui, st, area),
     }
 }
@@ -568,6 +596,31 @@ mod tests {
     fn settings_keeps_its_key_and_slides_in_from_the_right() {
         assert_eq!(PageKind::from_key("settings"), PageKind::Settings);
         assert!(PageKind::ALL.iter().all(|p| p.tab_index() <= PageKind::Settings.tab_index()));
+    }
+
+    #[test]
+    fn addons_is_the_last_tab_and_never_makes_the_window_taller() {
+        let mut st = state();
+        assert_eq!(tabs(&st).last(), Some(&PageKind::Addons));
+        st.oyenza.link = OyenzaLink::Connected { account: "a•••@example.com".into() };
+        assert_eq!(tabs(&st).last(), Some(&PageKind::Addons));
+        assert_eq!(PageKind::from_key("addons"), PageKind::Addons);
+        assert!(content_height(PageKind::Addons, &st) <= content_height(PageKind::Tasks, &st));
+    }
+
+    #[test]
+    fn prayer_has_a_tab_only_while_its_add_on_is_on_and_ready() {
+        let mut st = state();
+        assert!(!tabs(&st).contains(&PageKind::Prayer));
+        st.addons.insert("sholat", poni_core::addons::Status::Ready);
+        assert!(!tabs(&st).contains(&PageKind::Prayer), "no places read yet");
+        let list = poni_core::prayer::PlaceList::parse(r#"{"places":[]}"#).unwrap();
+        st.prayer.places = Some(std::sync::Arc::new(list));
+        let row = tabs(&st);
+        assert_eq!(&row[row.len() - 2..], &[PageKind::Prayer, PageKind::Addons]);
+        assert!(content_height(PageKind::Prayer, &st) <= content_height(PageKind::Tasks, &st));
+        st.addons.insert("sholat", poni_core::addons::Status::Downloading { done: 1, total: 2 });
+        assert!(!tabs(&st).contains(&PageKind::Prayer));
     }
 
     #[test]

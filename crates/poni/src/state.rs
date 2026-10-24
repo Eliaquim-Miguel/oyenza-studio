@@ -7,6 +7,7 @@ use crate::commands::{Command, MediaCmd, Sound};
 use crate::gfx::Image;
 use crate::icons::Icon;
 use crate::pages::PageKind;
+use poni_core::addons::Status as AddonStatus;
 use poni_core::cliphist::ClipHistory;
 use poni_core::datetime::LocalDateTime;
 use poni_core::geom::{palette, Color};
@@ -15,11 +16,12 @@ use poni_core::lrc::Lyrics;
 use poni_core::oyenza::{Arrival, Bill, Saved};
 use poni_core::phonedrop::QrMatrix;
 use poni_core::pomodoro::Pomodoro;
+use poni_core::prayer::{Place, PlaceList, Site};
 use poni_core::romanize::Ruby;
 use poni_core::settings::Settings;
 use poni_core::store::Store;
 use poni_core::timeline::Timeline;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 #[derive(Clone, Debug)]
 pub struct MediaSession {
@@ -136,6 +138,8 @@ pub enum InlineAction {
     StartFocus,
     /// Put the notice's hidden sum (and sender) in place (Oyenza).
     ShowAmount,
+    /// Stop the adzan (Prayer times).
+    StopAdzan,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -307,6 +311,53 @@ impl OyenzaState {
     }
 }
 
+/// Where finding the PC's place stands.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum Locate {
+    /// Not asked (following the location is off, or not yet).
+    #[default]
+    Idle,
+    Asking,
+    /// Picked the nearest place, this far from the PC (km).
+    Found { km: f64 },
+    /// The nearest listed place is too far away to use (km).
+    Far { km: f64 },
+    /// Windows' location is off, or not allowed for Oyen Poni.
+    Denied,
+    /// Windows couldn't tell where the PC is.
+    Unknown,
+}
+
+/// The Prayer times add-on's live state.
+#[derive(Clone, Debug, Default)]
+pub struct PrayerState {
+    /// The add-on's place list, read once its files are in place.
+    pub places: Option<std::sync::Arc<PlaceList>>,
+    /// The place the times are for: the chosen one, or the time zone's
+    /// suggestion while none is chosen.
+    pub place: Option<Place>,
+    /// `place` is the time zone's suggestion.
+    pub suggested: bool,
+    pub locate: Locate,
+    /// When the PC's location was last asked (UTC seconds).
+    pub located_at: Option<i64>,
+    /// The place picker shows (Change), and what's typed in it.
+    pub picking: bool,
+    pub query: String,
+    /// Prayer times up to this moment (UTC seconds) have had their moment.
+    pub handled_until: Option<i64>,
+    /// The adzan is playing.
+    pub adzan: bool,
+    /// Self-test only: moves the prayer clock by this many seconds.
+    pub clock_shift: i64,
+}
+
+impl PrayerState {
+    pub fn site(&self) -> Option<Site> {
+        self.place.as_ref().and_then(|p| p.site())
+    }
+}
+
 pub struct AppState {
     pub settings: Settings,
     pub store: Store,
@@ -347,6 +398,10 @@ pub struct AppState {
     /// Whether the meeting server answers (None = not asked yet: no pairs).
     pub pair_server: Option<bool>,
     pub oyenza: OyenzaState,
+    /// Where each add-on stands, by id (every one in `poni_core::addons::ALL`).
+    pub addons: BTreeMap<&'static str, AddonStatus>,
+    /// The Prayer times add-on, while it is on (its choices: `settings.prayer`).
+    pub prayer: PrayerState,
     /// Side effects requested during the frame.
     pub cmds: Vec<Command>,
 }
@@ -365,7 +420,7 @@ impl AppState {
         } else {
             &settings.start_page
         });
-        Self {
+        let mut st = Self {
             settings,
             store,
             now: 0.0,
@@ -394,8 +449,31 @@ impl AppState {
             paired: Vec::new(),
             pair_server: None,
             oyenza: OyenzaState::default(),
+            addons: BTreeMap::new(),
+            prayer: PrayerState::default(),
             cmds: Vec::new(),
+        };
+        // On ones start by checking their files (the worker reports back).
+        for a in poni_core::addons::ALL {
+            let on = st.settings.addon_on(a.id);
+            st.addons.insert(a.id, if on { AddonStatus::Checking } else { AddonStatus::Off });
         }
+        st
+    }
+
+    /// Where the add-on `id` stands (`Off` for one this version doesn't know).
+    pub fn addon(&self, id: &str) -> AddonStatus {
+        self.addons.get(id).copied().unwrap_or(AddonStatus::Off)
+    }
+
+    /// Prayer times is on and its places are read: the tab and reminders run.
+    pub fn prayer_on(&self) -> bool {
+        self.addon(poni_core::addons::PRAYER_TIMES.id) == AddonStatus::Ready && self.prayer.places.is_some()
+    }
+
+    /// The prayer clock, UTC seconds (the self-test moves it).
+    pub fn prayer_now(&self) -> i64 {
+        self.unix + self.prayer.clock_shift
     }
 
     pub fn cmd(&mut self, c: Command) {

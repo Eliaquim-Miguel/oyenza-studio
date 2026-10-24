@@ -1,0 +1,339 @@
+//! Checks against Oyen Umroh's engine (the reference this module ports) and
+//! against Kemenag's own published schedule.
+
+use super::*;
+use std::io::Read;
+
+const PLACES: &str = include_str!("../../../../addons/sholat/places.json");
+/// Kemenag's published 2026 schedules (via api.myquran.com), one line per place and day.
+const KEMENAG: &[u8] = include_bytes!("../../tests/fixtures/prayer/kemenag-2026.txt.zst");
+/// Oyen Umroh's engine on the same places for 2026-2027 and a few later years.
+const GOLDEN: &[u8] = include_bytes!("../../tests/fixtures/prayer/engine-golden.txt.zst");
+
+fn unpack(packed: &[u8]) -> String {
+    let mut out = String::new();
+    ruzstd::decoding::StreamingDecoder::new(packed).unwrap().read_to_string(&mut out).unwrap();
+    out
+}
+
+fn places() -> PlaceList {
+    PlaceList::parse(PLACES).unwrap()
+}
+
+/// "HH:MM" -> minutes after the place's midnight.
+fn minute_of_day(hhmm: &str) -> i64 {
+    let (h, m) = hhmm.split_once(':').unwrap();
+    h.parse::<i64>().unwrap() * 60 + m.parse::<i64>().unwrap()
+}
+
+/// Minutes after the place's midnight of `day` (negative or past 1440 if the
+/// moment falls on another date).
+fn local_minutes(site: &Site, day: i64, utc: i64) -> i64 {
+    (utc + site.offset_min as i64 * 60 - day * 86_400).div_euclid(60)
+}
+
+fn parse_day(s: &str) -> i64 {
+    let mut it = s.split('-').map(|x| x.parse::<i64>().unwrap());
+    let (y, m, d) = (it.next().unwrap(), it.next().unwrap(), it.next().unwrap());
+    day_number(y as i32, m as u8, d as u8)
+}
+
+/// (place, day, expected minutes of the 7 times) for every data line.
+fn rows(text: &str) -> Vec<(String, i64, [i64; 7])> {
+    text.lines()
+        .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+        .map(|l| {
+            let f: Vec<&str> = l.split_whitespace().collect();
+            assert_eq!(f.len(), 9, "{l}");
+            let mut t = [0; 7];
+            for i in 0..7 {
+                t[i] = minute_of_day(f[2 + i]);
+            }
+            (f[0].to_string(), parse_day(f[1]), t)
+        })
+        .collect()
+}
+
+fn computed(site: &Site, day: i64) -> [i64; 7] {
+    let t = day_times(site, day).unwrap();
+    Time::ALL.map(|x| local_minutes(site, day, t.get(x)))
+}
+
+#[test]
+fn matches_oyen_umroh_engine_to_the_minute() {
+    let list = places();
+    let rows = rows(&unpack(GOLDEN));
+    assert!(rows.len() > 18_000, "{}", rows.len());
+    let mut wrong = Vec::new();
+    for (id, day, want) in &rows {
+        let site = list.find(id).unwrap_or_else(|| panic!("{id} missing")).site().unwrap();
+        let got = computed(&site, *day);
+        if got != *want {
+            wrong.push(format!("{id} {} got {got:?} want {want:?}", civil_from_days(*day).0));
+        }
+    }
+    assert!(wrong.is_empty(), "{} of {} days differ, first: {:?}", wrong.len(), rows.len(), &wrong[..wrong.len().min(5)]);
+}
+
+#[test]
+fn matches_kemenag_published_2026_schedule() {
+    let list = places();
+    let rows = rows(&unpack(KEMENAG));
+    let (mut total, mut exact, mut worst) = (0usize, 0usize, 0i64);
+    let mut per_time = [[0usize; 2]; 7];
+    // Per place: (times, exact, largest difference).
+    let mut per_place: std::collections::BTreeMap<&str, (usize, usize, i64)> = Default::default();
+    for (id, day, want) in &rows {
+        let site = list.find(id).unwrap_or_else(|| panic!("{id} missing")).site().unwrap();
+        let got = computed(&site, *day);
+        let place = per_place.entry(id.as_str()).or_default();
+        for i in 0..7 {
+            let diff = (got[i] - want[i]).abs();
+            total += 1;
+            per_time[i][0] += 1;
+            place.0 += 1;
+            if diff == 0 {
+                exact += 1;
+                per_time[i][1] += 1;
+                place.1 += 1;
+            }
+            worst = worst.max(diff);
+            place.2 = place.2.max(diff);
+        }
+    }
+    let rate = exact as f64 / total as f64;
+    for (i, t) in Time::ALL.iter().enumerate() {
+        eprintln!("{:8} {:6} times, {:5.1}% exact", t.name(), per_time[i][0], 100.0 * per_time[i][1] as f64 / per_time[i][0] as f64);
+    }
+    eprintln!("all      {total:6} times, {:5.1}% exact, largest difference {worst} min", 100.0 * rate);
+    let (low_id, low) = per_place.iter().map(|(id, p)| (*id, p.1 as f64 / p.0 as f64)).min_by(|a, b| a.1.total_cmp(&b.1)).unwrap();
+    eprintln!("{} places; lowest exact rate {:.1}% ({low_id})", per_place.len(), 100.0 * low);
+    // Every Indonesian place in the list is replayed.
+    assert_eq!(per_place.len(), list.places.iter().filter(|p| p.kind != "abroad").count());
+    assert_eq!(total, 227_367);
+    assert!(rate >= 0.98, "{:.4}", rate);
+    assert!(worst <= 1, "{worst}");
+    assert!(low >= 0.95, "{low_id} {low:.3}");
+}
+
+#[test]
+fn papua_highland_regencies_use_kemenags_wider_twilight_angles() {
+    // Kemenag's Subuh and Isya there match 21 and 19 degrees below the
+    // horizon, 4-5 minutes wider than the usual 20 and 18.
+    let list = places();
+    let own: Vec<&Place> = list.places.iter().filter(|p| p.subuh_angle != KEMENAG_SUBUH_ANGLE || p.isya_angle != KEMENAG_ISYA_ANGLE).collect();
+    let mut ids: Vec<&str> = own.iter().map(|p| p.id.as_str()).collect();
+    ids.sort();
+    assert_eq!(ids, ["kab-intan-jaya", "kab-lanny-jaya", "kab-paniai", "kab-pegunungan-arfak", "kab-puncak", "kab-puncak-jaya"]);
+    let day = parse_day("2026-06-01");
+    for p in own {
+        assert_eq!((p.subuh_angle, p.isya_angle), (21.0, 19.0), "{}", p.id);
+        let site = p.site().unwrap();
+        let usual = Site { subuh_angle: KEMENAG_SUBUH_ANGLE, isya_angle: KEMENAG_ISYA_ANGLE, ..site };
+        let (t, u) = (day_times(&site, day).unwrap(), day_times(&usual, day).unwrap());
+        assert!((240..=360).contains(&(u.subuh - t.subuh)), "{} subuh {}", p.id, u.subuh - t.subuh);
+        assert!((240..=360).contains(&(t.isya - u.isya)), "{} isya {}", p.id, t.isya - u.isya);
+        assert_eq!((t.terbit, t.dzuhur, t.ashar, t.maghrib), (u.terbit, u.dzuhur, u.ashar, u.maghrib), "{}", p.id);
+    }
+}
+
+#[test]
+fn matches_kemenag_jawa_tengah_ramadan_pdf_for_semarang() {
+    // Kanwil Kemenag Jawa Tengah, Jadwal Imsakiyah Ramadan 1447 H, Kota Semarang (WIB).
+    let pdf = [
+        ("2026-02-19", ["04:16", "04:26", "05:40", "11:56", "15:05", "18:04", "19:14"]),
+        ("2026-03-01", ["04:18", "04:28", "05:40", "11:54", "14:56", "18:01", "19:10"]),
+        ("2026-03-19", ["04:18", "04:28", "05:39", "11:50", "14:59", "17:53", "19:01"]),
+    ];
+    let site = places().find("semarang").unwrap().site().unwrap();
+    for (date, times) in pdf {
+        let day = parse_day(date);
+        let t = day_times(&site, day).unwrap();
+        let got: Vec<String> = Time::ALL.iter().map(|&x| site.hhmm(t.get(x))).collect();
+        assert_eq!(got, times, "{date}");
+    }
+}
+
+#[test]
+fn place_list_is_complete_and_consistent() {
+    let list = places();
+    let mut ids = std::collections::HashSet::new();
+    let mut labels = std::collections::HashSet::new();
+    for p in &list.places {
+        assert!(ids.insert(p.id.as_str()), "duplicate id {}", p.id);
+        assert!(labels.insert(p.label.as_str()), "duplicate label {}", p.label);
+        assert!(p.site().is_some(), "{}: unknown zone {}", p.id, p.tz);
+        match p.kind.as_str() {
+            "kota" | "kab" | "pulau" => {
+                assert_eq!(p.method, Method::Kemenag, "{}", p.id);
+                assert!((-11.5..=6.5).contains(&p.lat) && (94.5..=141.5).contains(&p.lng), "{} outside Indonesia", p.id);
+                assert!((-3.5..=-0.5).contains(&p.h0), "{} h0 {}", p.id, p.h0);
+                match p.kind.as_str() {
+                    "kota" => assert!(p.label.starts_with("Kota "), "{}", p.label),
+                    "kab" => assert!(p.label.starts_with("Kab. "), "{}", p.label),
+                    _ => assert!(p.label.contains(", Kab. "), "{}", p.label), // "Pulau Laut, Kab. Natuna"
+                }
+            }
+            "abroad" => assert_eq!(p.method, Method::UmmAlQura, "{}", p.id),
+            k => panic!("{}: kind {k}", p.id),
+        }
+    }
+    // Every location in Kemenag's list, plus Makkah, Madinah and Jeddah.
+    assert_eq!(list.places.len(), 520);
+    for id in ["jakarta", "bandung", "kab-bandung", "semarang", "kota-sofifi", "kab-intan-jaya", "pulau-laut-kab-natuna", "makkah", "madinah", "jeddah"] {
+        assert!(list.find(id).is_some(), "{id}");
+    }
+}
+
+#[test]
+fn imsak_is_ten_minutes_before_subuh_everywhere() {
+    let day = parse_day("2026-10-24");
+    for p in &places().places {
+        let t = day_times(&p.site().unwrap(), day).unwrap();
+        assert_eq!(t.subuh - t.imsak, 600, "{}", p.id);
+        assert!(t.subuh < t.terbit && t.terbit < t.dzuhur && t.dzuhur < t.ashar && t.ashar < t.maghrib && t.maghrib < t.isya, "{}", p.id);
+        assert!(t.subuh % 60 == 0 && t.isya % 60 == 0, "{}", p.id);
+    }
+}
+
+fn jakarta() -> Site {
+    places().find("jakarta").unwrap().site().unwrap()
+}
+
+/// UTC seconds for a wall-clock time at a site.
+fn at(site: &Site, date: &str, hhmm: &str) -> i64 {
+    parse_day(date) * 86_400 + minute_of_day(hhmm) * 60 - site.offset_min as i64 * 60
+}
+
+#[test]
+fn next_and_current_prayer_in_the_afternoon() {
+    // Kota Jakarta, Saturday 24 Oct 2026: Dzuhur 11:40, Ashar 14:51, Maghrib 17:49.
+    let s = jakarta();
+    let now = at(&s, "2026-10-24", "14:43");
+    let next = next_prayer(&s, now).unwrap();
+    assert_eq!((next.prayer, s.hhmm(next.at)), (Prayer::Ashar, "14:51".to_string()));
+    assert_eq!(minutes_until(now, next.at), 8);
+    let cur = current_prayer(&s, now).unwrap();
+    assert_eq!((cur.prayer, s.hhmm(cur.at), s.hhmm(cur.end)), (Prayer::Dzuhur, "11:40".into(), "14:51".into()));
+    // At the minute itself the prayer is current, and the next one is Maghrib.
+    let ashar = at(&s, "2026-10-24", "14:51");
+    assert_eq!(current_prayer(&s, ashar).unwrap().prayer, Prayer::Ashar);
+    assert_eq!(next_prayer(&s, ashar).unwrap().prayer, Prayer::Maghrib);
+    assert_eq!(minutes_until(ashar - 1, ashar), 1);
+}
+
+#[test]
+fn isya_lasts_until_the_next_subuh_across_midnight() {
+    let s = jakarta();
+    let late = at(&s, "2026-10-24", "23:30");
+    let next = next_prayer(&s, late).unwrap();
+    assert_eq!(next.prayer, Prayer::Subuh);
+    assert_eq!(next.day, parse_day("2026-10-25"));
+    let cur = current_prayer(&s, late).unwrap();
+    assert_eq!((cur.prayer, cur.day, cur.end), (Prayer::Isya, parse_day("2026-10-24"), next.at));
+    // Before dawn, yesterday's Isya is still the current prayer.
+    let dawn = at(&s, "2026-10-25", "03:00");
+    let cur = current_prayer(&s, dawn).unwrap();
+    assert_eq!((cur.prayer, cur.day), (Prayer::Isya, parse_day("2026-10-24")));
+    assert_eq!(next_prayer(&s, dawn).unwrap().prayer, Prayer::Subuh);
+}
+
+#[test]
+fn prayers_between_lists_each_once_in_order() {
+    let s = jakarta();
+    let from = at(&s, "2026-10-24", "00:00");
+    let day = prayers_between(&s, from, from + 86_400);
+    assert_eq!(day.iter().map(|m| m.prayer).collect::<Vec<_>>(), Prayer::ALL.to_vec());
+    assert!(day.windows(2).all(|w| w[0].at < w[1].at));
+    // (from, to]: a prayer exactly at `from` is left out, one exactly at `to` is in.
+    let ashar = at(&s, "2026-10-24", "14:51");
+    assert!(prayers_between(&s, ashar, ashar + 60).is_empty());
+    assert_eq!(prayers_between(&s, ashar - 60, ashar).len(), 1);
+    assert!(prayers_between(&s, ashar, ashar).is_empty());
+}
+
+#[test]
+fn umm_al_qura_isya_moves_to_two_hours_in_ramadan() {
+    let makkah = places().find("makkah").unwrap().site().unwrap();
+    let gap = |date: &str| {
+        let t = day_times(&makkah, parse_day(date)).unwrap();
+        (t.isya - t.maghrib) / 60
+    };
+    assert_eq!(gap("2026-02-17"), 90);
+    assert_eq!(gap("2026-02-18"), 120); // 1 Ramadan 1447
+    assert_eq!(gap("2026-03-19"), 120); // 30 Ramadan
+    assert_eq!(gap("2026-03-20"), 90); // 1 Syawal
+    assert!(is_ramadan_umm_al_qura(parse_day("2027-02-08")) && !is_ramadan_umm_al_qura(parse_day("2027-02-07")));
+}
+
+#[test]
+fn clock_helpers_use_the_place_zone() {
+    let s = jakarta();
+    let t = at(&s, "2026-10-24", "00:05");
+    assert_eq!(s.hhmm(t), "00:05");
+    assert_eq!(s.local_day(t), parse_day("2026-10-24"));
+    assert_eq!(s.local_day(t - 600), parse_day("2026-10-23"));
+    assert_eq!(utc_offset_min("Asia/Jayapura"), Some(540));
+    assert_eq!(utc_offset_min("Europe/London"), None);
+    assert_eq!(minutes_until(0, 0), 0);
+    assert_eq!(minutes_until(0, 61), 2);
+}
+
+#[test]
+fn nearest_place_to_a_point() {
+    let list = places();
+    // Gedung Sate, in the city of Bandung.
+    let (p, km) = list.nearest(-6.9025, 107.6188).unwrap();
+    assert_eq!(p.id, "bandung");
+    assert!(km < 5.0, "{km}");
+    // Masjidil Haram.
+    let (p, km) = list.nearest(21.4225, 39.8262).unwrap();
+    assert_eq!((p.id.as_str(), km < 1.0), ("makkah", true));
+    // Mid-Pacific: nothing within reach.
+    assert!(list.nearest(0.0, -160.0).unwrap().1 > NEAREST_MAX_KM);
+    assert!((distance_km(-6.2, 106.8, -6.9, 107.6) - 117.0).abs() < 3.0);
+}
+
+#[test]
+fn search_puts_names_that_start_with_the_text_first() {
+    let list = places();
+    let labels = |q: &str| list.search(q, 8).into_iter().map(|p| p.label.as_str()).collect::<Vec<_>>();
+    assert_eq!(labels("band"), ["Kota Banda Aceh", "Kota Bandar Lampung", "Kab. Bandung", "Kota Bandung", "Kab. Bandung Barat"]);
+    assert_eq!(labels("BANDUNG barat"), ["Kab. Bandung Barat"]);
+    assert_eq!(labels("kab. bandung")[0], "Kab. Bandung");
+    assert_eq!(labels("makkah"), ["Makkah"]);
+    assert!(labels("  ").is_empty());
+    assert_eq!(list.search("a", 6).len(), 6);
+}
+
+#[test]
+fn time_zones_suggest_a_listed_place() {
+    let list = places();
+    for off in [420, 480, 540, 180] {
+        let id = suggested_place_id(off).unwrap();
+        assert!(list.find(id).is_some(), "{id}");
+    }
+    assert_eq!(suggested_place_id(60), None);
+}
+
+#[test]
+fn countdown_runs_in_the_minutes_before_a_prayer() {
+    let s = jakarta();
+    let (m, left) = countdown(&s, at(&s, "2026-10-24", "14:43"), 10).unwrap();
+    assert_eq!((m.prayer, left), (Prayer::Ashar, 8));
+    assert_eq!(countdown(&s, at(&s, "2026-10-24", "14:43") - 30, 10).unwrap().1, 9);
+    assert!(countdown(&s, at(&s, "2026-10-24", "14:40"), 10).is_none());
+    assert!(countdown(&s, at(&s, "2026-10-24", "14:43"), 0).is_none());
+    // At the minute itself the countdown has moved on to Maghrib (not yet in reach).
+    assert!(countdown(&s, at(&s, "2026-10-24", "14:51"), 10).is_none());
+}
+
+#[test]
+fn a_passed_time_rings_only_when_on_time() {
+    assert_eq!(due(1000, 1000), Due::Ring);
+    assert_eq!(due(1000, 1120), Due::Ring);
+    assert_eq!(due(1000, 1121), Due::Quiet);
+    assert_eq!(due(1000, 1000 + 1800), Due::Quiet);
+    assert_eq!(due(1000, 1000 + 1801), Due::Skip);
+    assert_eq!(due(1000, 999), Due::Skip);
+}

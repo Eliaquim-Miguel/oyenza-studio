@@ -17,6 +17,10 @@
 //! light browser page, Windows in light mode), dark (a dark video page, dark
 //! mode) or flip (the dark page in light mode: small glass turns dark, the
 //! open island stays light). Its screenshots are composited over that page.
+//!
+//! PONI_SELFTEST_ADDONS=download also downloads the Prayer times add-on's
+//! files from their release while the scenes run and checks each one
+//! (`addon-download`; Windows CI only, it needs github.com).
 
 use crate::app::App;
 use crate::clock;
@@ -26,15 +30,17 @@ use crate::pages::{self, PageKind};
 use crate::paths;
 use crate::png;
 use crate::state::{
-    AppState, Hud, HudKind, InlineAction, LyricsState, LyricsStatus, MediaSession, Notice, NoticeAction, OyenzaLink, OyenzaState, PhoneAsk,
-    PairedPhone, PhoneDrop, PhoneTransfer, PhoneView, PowerState, SysStats, VolumeState,
+    AppState, Hud, HudKind, InlineAction, Locate, LyricsState, LyricsStatus, MediaSession, Notice, NoticeAction, OyenzaLink, OyenzaState, PhoneAsk,
+    PairedPhone, PhoneDrop, PhoneTransfer, PhoneView, PowerState, PrayerState, SysStats, VolumeState,
 };
 use crate::ui::wid;
+use poni_core::addons::{Status as AddonStatus, PRAYER_TIMES};
 use poni_core::geom::{palette, Color, Point, Rect};
 use poni_core::health::{HealthDay, HealthSnapshot, HealthSource};
 use poni_core::lrc::parse_lrc;
 use poni_core::oyenza::{Arrival, Bill, Saved, WalletRef};
 use poni_core::phonedrop::QrMatrix;
+use poni_core::prayer::PlaceList;
 use poni_core::pomodoro::{Phase as PomoPhase, RunState};
 use poni_core::settings::{IdleStyle, Theme};
 use poni_core::shelf::ShelfItem;
@@ -67,7 +73,7 @@ const CLICK_TIMEOUT: f64 = 1.5;
 /// Stop visiting scenes after this many seconds. 36 scenes take about 22 s
 /// on CI's slowest run (Oyen theme, Japanese lyrics); the CI and Store test
 /// steps wait 120 s for the whole run, the Wine runner 180 s.
-const SCENE_DEADLINE: f64 = 40.0;
+const SCENE_DEADLINE: f64 = 50.0;
 /// Give up waiting for PNG writers at this point.
 const WRITE_DEADLINE: f64 = 43.5;
 /// One frame (layout + Direct2D render + present + readback) must fit in a 60 Hz frame.
@@ -519,6 +525,61 @@ fn fake_oyenza(st: &AppState, scene: Scene, now: f64) -> OyenzaState {
     }
 }
 
+/// Prayer times for its scenes: on, in Kota Jakarta, its clock 8 minutes
+/// before today's Ashar (the real list arrives with the add-on's download;
+/// these few places are copied from it).
+fn seed_prayer(st: &mut AppState, scene: Scene, until: f64) {
+    let on = matches!(scene, Scene::Page(PageKind::Prayer) | Scene::PrayerPicker | Scene::PrayerCountdown | Scene::PrayerNotice);
+    if !on {
+        st.prayer = PrayerState::default();
+        return;
+    }
+    st.addons.insert(PRAYER_TIMES.id, AddonStatus::Ready);
+    if st.prayer.places.is_none() {
+        let list = PlaceList::parse(SAMPLE_PLACES).expect("sample places");
+        st.prayer.places = Some(std::sync::Arc::new(list));
+    }
+    let list = st.prayer.places.clone().expect("places");
+    st.prayer.place = list.find("jakarta").cloned();
+    st.prayer.suggested = false;
+    st.prayer.locate = Locate::Found { km: 2.0 };
+    st.prayer.located_at = Some(st.unix);
+    st.prayer.picking = scene == Scene::PrayerPicker;
+    if st.prayer.picking {
+        st.prayer.query = "band".into();
+    } else {
+        st.prayer.query.clear();
+    }
+    let site = st.prayer.site().expect("Jakarta's site");
+    let ashar = poni_core::prayer::day_times(&site, site.local_day(st.unix)).expect("today's times").ashar;
+    st.prayer.clock_shift = ashar - 8 * 60 - st.unix;
+    st.prayer.handled_until = Some(st.prayer_now());
+    st.prayer.adzan = scene == Scene::PrayerNotice;
+    if scene == Scene::PrayerNotice {
+        let place = st.prayer.place.as_ref().map_or(String::new(), |p| p.label.clone());
+        st.notice = Some(Notice {
+            icon: Icon::Moon,
+            color: st.accent,
+            title: crate::pages::prayer::moment_title(poni_core::prayer::Prayer::Ashar),
+            subtitle: format!("{} \u{b7} {place}", site.hhmm(ashar)),
+            until,
+            action: Some(NoticeAction::OpenPage(PageKind::Prayer)),
+            inline: Some(InlineAction::StopAdzan),
+            reveal: None,
+        });
+    }
+}
+
+const SAMPLE_PLACES: &str = r#"{"places":[
+    {"id":"jakarta","label":"Kota Jakarta","kind":"kota","prov":"DKI Jakarta","lat":-6.1833,"lng":106.8333,"tz":"Asia/Jakarta"},
+    {"id":"banda-aceh","label":"Kota Banda Aceh","kind":"kota","prov":"Aceh","lat":5.55,"lng":95.3167,"tz":"Asia/Jakarta"},
+    {"id":"bandar-lampung","label":"Kota Bandar Lampung","kind":"kota","prov":"Lampung","lat":-5.4167,"lng":105.2667,"tz":"Asia/Jakarta"},
+    {"id":"kab-bandung","label":"Kab. Bandung","kind":"kab","prov":"Jawa Barat","lat":-7.0167,"lng":107.5333,"tz":"Asia/Jakarta","h0":-2},
+    {"id":"bandung","label":"Kota Bandung","kind":"kota","prov":"Jawa Barat","lat":-6.9,"lng":107.6167,"tz":"Asia/Jakarta","h0":-2},
+    {"id":"kab-bandung-barat","label":"Kab. Bandung Barat","kind":"kab","prov":"Jawa Barat","lat":-6.85,"lng":107.5167,"tz":"Asia/Jakarta","h0":-2},
+    {"id":"makkah","label":"Makkah","kind":"abroad","prov":"Arab Saudi","lat":21.4225,"lng":39.8261,"tz":"Asia/Riyadh","method":"ummalqura"}
+]}"#;
+
 fn fake_power(plugged: bool) -> PowerState {
     PowerState { has_battery: true, percent: 76, charging: plugged, on_ac: plugged, saver: false }
 }
@@ -591,9 +652,23 @@ enum Scene {
     PairedNotice,
     /// System page: the graphics card.
     SystemGpu,
+    /// Add-ons: Prayer times downloading.
+    AddonsDownloading,
+    /// Add-ons: Prayer times on, its files in place.
+    AddonsOn,
+    /// Add-ons: switched on without internet.
+    AddonsOffline,
+    /// Add-ons: a file came back wrong.
+    AddonsFailed,
+    /// Prayer times: the place picker, "band" typed.
+    PrayerPicker,
+    /// Prayer times: the collapsed countdown, 8 minutes before Ashar.
+    PrayerCountdown,
+    /// Prayer times: Ashar's time came, the adzan playing.
+    PrayerNotice,
 }
 
-const SCENES: [Scene; 45] = [
+const SCENES: [Scene; 54] = [
     Scene::IdleClock,
     Scene::IdleEyes,
     Scene::Media,
@@ -642,6 +717,17 @@ const SCENES: [Scene; 45] = [
     Scene::ShelfPairedPhones,
     Scene::PairedNotice,
     Scene::SystemGpu,
+    // The Add-ons page: off (the "+" tab), then each state of a download.
+    Scene::Page(PageKind::Addons),
+    Scene::AddonsDownloading,
+    Scene::AddonsOn,
+    Scene::AddonsOffline,
+    Scene::AddonsFailed,
+    // Prayer times on, its clock 8 minutes before today's Ashar in Jakarta.
+    Scene::Page(PageKind::Prayer),
+    Scene::PrayerPicker,
+    Scene::PrayerCountdown,
+    Scene::PrayerNotice,
 ];
 
 impl Scene {
@@ -685,6 +771,13 @@ impl Scene {
             Scene::ShelfPairedPhones => "page-shelf-paired-phones".into(),
             Scene::PairedNotice => "paired-received-notice".into(),
             Scene::SystemGpu => "page-system-gpu".into(),
+            Scene::AddonsDownloading => "page-addons-downloading".into(),
+            Scene::AddonsOn => "page-addons-on".into(),
+            Scene::AddonsOffline => "page-addons-offline".into(),
+            Scene::AddonsFailed => "page-addons-failed".into(),
+            Scene::PrayerPicker => "page-prayer-picker".into(),
+            Scene::PrayerCountdown => "prayer-countdown".into(),
+            Scene::PrayerNotice => "prayer-notice".into(),
         }
     }
 
@@ -701,6 +794,8 @@ impl Scene {
                 Some(PageKind::System)
             }
             Scene::ShelfPairing | Scene::ShelfPaired | Scene::ShelfPairedPhones => Some(PageKind::Shelf),
+            Scene::AddonsDownloading | Scene::AddonsOn | Scene::AddonsOffline | Scene::AddonsFailed => Some(PageKind::Addons),
+            Scene::PrayerPicker => Some(PageKind::Prayer),
             _ => None,
         }
     }
@@ -871,6 +966,8 @@ pub struct SelfTest {
     /// them, and the page forgets thumbnails of items that left).
     shelf_items: Vec<ShelfItem>,
     shelf_thumbs: Vec<(String, Option<Image>)>,
+    /// The real add-on download (PONI_SELFTEST_ADDONS=download), running beside the scenes.
+    addon_fetch: Option<std::sync::mpsc::Receiver<(bool, String)>>,
 }
 
 /// Transitions recorded in animation mode: (name, from, to).
@@ -925,6 +1022,7 @@ impl SelfTest {
             renderer: "software",
             shelf_items: Vec::new(),
             shelf_thumbs: Vec::new(),
+            addon_fetch: None,
         }
     }
 
@@ -1042,6 +1140,17 @@ impl SelfTest {
             Err(d) => (false, d),
         };
         self.checks.push(check("start-with-windows", ok, detail));
+
+        // PONI_SELFTEST_ADDONS=download (Windows CI): fetch Prayer times' files from
+        // their release and check each against the size and SHA-256 built in.
+        if std::env::var("PONI_SELFTEST_ADDONS").is_ok_and(|v| v.trim() == "download") {
+            let (tx, rx) = std::sync::mpsc::channel();
+            let dir = paths::addons_dir().join("selftest-download");
+            let _ = std::thread::Builder::new().name("selftest-addon".into()).spawn(move || {
+                let _ = tx.send(crate::services::addons::fetch_for_selftest(&PRAYER_TIMES, &dir));
+            });
+            self.addon_fetch = Some(rx);
+        }
     }
 
     /// Called every ~50 ms; returns Some(exit code) when finished.
@@ -1356,6 +1465,16 @@ impl SelfTest {
             _ => None,
         };
         st.oyenza = if scene.oyenza() { fake_oyenza(st, scene, now) } else { OyenzaState::default() };
+        // Add-ons: what the page shows (settings stay as they are, so the worker downloads nothing).
+        let addon = match scene {
+            Scene::AddonsDownloading => AddonStatus::Downloading { done: 1_300_000, total: PRAYER_TIMES.size() },
+            Scene::AddonsOn => AddonStatus::Ready,
+            Scene::AddonsOffline => AddonStatus::Waiting,
+            Scene::AddonsFailed => AddonStatus::Failed,
+            _ => AddonStatus::Off,
+        };
+        st.addons.insert(PRAYER_TIMES.id, addon);
+        seed_prayer(st, scene, until);
         st.system = fake_system(scene);
         st.ui.system_module = match scene {
             Scene::SystemMemory => Module::Memory,
@@ -1679,6 +1798,10 @@ impl SelfTest {
             write_errors.join("; ")
         };
         self.checks.push(check("png-files", writers_done && write_errors.is_empty(), detail));
+        if let Some(rx) = self.addon_fetch.take() {
+            let (ok, detail) = rx.recv_timeout(std::time::Duration::from_secs(60)).unwrap_or((false, "still downloading 60 s after the scenes".into()));
+            self.checks.push(check("addon-download", ok, detail));
+        }
         if self.states.len() < SCENES.len() {
             self.checks.push(check("states-visited", false, format!("{} of {} states captured", self.states.len(), SCENES.len())));
         }

@@ -1,5 +1,6 @@
 //! What the collapsed island shows: idle pill, live activities (media,
-//! timer), HUD pop-ups (volume, charging, Bluetooth) and notices.
+//! timer, the minutes before a prayer), HUD pop-ups (volume, charging,
+//! Bluetooth) and notices.
 //!
 //! Collapsed pills are sized to their content: Windows has no camera
 //! cut-out to work around, so empty black would only cover the browser tabs.
@@ -21,6 +22,8 @@ pub enum Activity {
     Media,
     Timer,
     MediaTimer,
+    /// Prayer times: the minutes before the next prayer.
+    Prayer,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -66,6 +69,8 @@ const OYEN_IDLE_W: f32 = 30.0;
 const OYEN_CLOCK_W: f32 = 22.0;
 const OYEN_MEDIA_W: f32 = 24.0;
 const OYEN_CLOCK_LEAD: f32 = 12.0 + OYEN_CLOCK_W;
+/// The countdown before a prayer: the moon, then "Maghrib 10 min".
+const PRAYER_W: f32 = 168.0;
 
 /// Modes with the same key share content (no cross-fade between them).
 pub fn content_key(m: &Mode) -> u32 {
@@ -74,6 +79,7 @@ pub fn content_key(m: &Mode) -> u32 {
         Mode::Activity(Activity::Media) => 2,
         Mode::Activity(Activity::Timer) => 3,
         Mode::Activity(Activity::MediaTimer) => 4,
+        Mode::Activity(Activity::Prayer) => 5,
         Mode::Hud(t) => 10 + *t as u32,
         Mode::Notice => 20,
         Mode::Expanded(_) => 30,
@@ -99,7 +105,20 @@ fn media_grace_end(st: &AppState) -> Option<f64> {
     st.media_paused_at.map(|t| t + MEDIA_GRACE)
 }
 
+/// The prayer coming up and the minutes left, while its countdown runs.
+pub fn prayer_countdown(st: &AppState) -> Option<(poni_core::prayer::Prayer, i64)> {
+    if !st.prayer_on() {
+        return None;
+    }
+    let site = st.prayer.site()?;
+    poni_core::prayer::countdown(&site, st.prayer_now(), st.settings.prayer.remind_before_min).map(|(m, left)| (m.prayer, left))
+}
+
 pub fn current_activity(st: &AppState) -> Option<Activity> {
+    // The few minutes before a prayer come first: they don't come back.
+    if prayer_countdown(st).is_some() {
+        return Some(Activity::Prayer);
+    }
     let media = st.settings.show_media_activity
         && st.media.as_ref().is_some_and(|m| m.is_playing() || media_grace_end(st).is_some_and(|end| st.now < end));
     let timer = st.pomodoro.is_active();
@@ -173,6 +192,7 @@ pub fn geom(m: &Mode, st: &AppState) -> Geom {
             Geom::new(if long { 112.0 } else { 96.0 }, 32.0, 15.0)
         }
         Mode::Activity(Activity::MediaTimer) => Geom::new(132.0, 32.0, 15.0),
+        Mode::Activity(Activity::Prayer) => Geom::new(PRAYER_W, 32.0, 15.0),
         Mode::Hud(HudTag::Volume) => Geom::new(316.0, 40.0, 19.0),
         Mode::Hud(HudTag::Charging) | Mode::Hud(HudTag::LowBattery) => Geom::new(300.0, 40.0, 19.0),
         Mode::Hud(HudTag::Bluetooth) => Geom::new(336.0, 46.0, 22.0),
@@ -435,6 +455,15 @@ fn draw_activity(ui: &mut Ui, st: &mut AppState, a: Activity, body: Rect) {
             let text = fmt_countdown(p.remaining(st.now));
             ui.c.text(&text, Rect::new(body.x + 40.0, body.y, 64.0, body.h), &countdown_style(col, paused));
         }
+        Activity::Prayer => {
+            // No Oyen here, in any theme: the moon and the minutes only.
+            let Some((prayer, left)) = prayer_countdown(st) else { return };
+            let col = st.accent;
+            ui.c.icon(Icon::Moon, Rect::new(body.x + 14.0, cy - 8.0, 16.0, 16.0), col);
+            let text = format!("{} {left} min", prayer.name());
+            let ts = TextStyle::body().weight(Weight::Semibold).tabular().color(col).right();
+            ui.c.text(&text, Rect::new(body.x + 36.0, body.y, body.w - 36.0 - 16.0, body.h), &ts);
+        }
         Activity::MediaTimer => {
             // Art on the left; the ring sits right next to its countdown.
             art_or_icon(ui, st, art, playing);
@@ -550,6 +579,7 @@ fn inline_done(st: &AppState, a: InlineAction) -> bool {
         InlineAction::StartFocus => st.pomodoro.is_active(),
         // Oyenza: the sum is in place once Show took it.
         InlineAction::ShowAmount => st.notice.as_ref().is_some_and(|n| n.reveal.is_none()),
+        InlineAction::StopAdzan => !st.prayer.adzan,
     }
 }
 
@@ -566,6 +596,7 @@ fn draw_notice(ui: &mut Ui, st: &mut AppState, body: Rect) {
             // Orange for focus; a break starts in its own green.
             InlineAction::StartFocus => ("Start".to_string(), Icon::Play, phase_color(st.pomodoro.phase)),
             InlineAction::ShowAmount => ("Show".to_string(), Icon::Eye, n.color),
+            InlineAction::StopAdzan => ("Stop".to_string(), Icon::Stop, n.color),
         };
         let w = ui.pill_width(&label, true, true).max(76.0);
         let r = Rect::new(body.right() - 16.0 - w, cy - PILL_SMALL / 2.0, w, PILL_SMALL);

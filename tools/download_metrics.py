@@ -15,6 +15,9 @@ keeps the history on the `metrics` branch, whose README is the stats page:
     summary.json           the page's numbers, for anything else that wants them
     README.md, downloads.svg, badge.svg, art/
 
+Add-on files (pre-releases tagged addon-*) are left out: the app fetches them
+when someone switches an add-on on, and CI's self-test fetches them too.
+
 Our CI downloads the 0.1.1 installer on every push to test the upgrade from
 it, and GitHub counts that like anyone's download. Steps in
 .github/workflows/*.yml that fetch a release file are found by their URL,
@@ -605,7 +608,9 @@ def main() -> int:
     ledger = {(r["job_id"], r["step"]): r for r in read_csv(out / "data/ci-downloads.csv")}
     steps = fetch_steps(args.repo)
     added = count_ci(gh, steps, ledger, checked)
-    api_releases = [r for r in gh.pages(f"/repos/{args.repo}/releases") if not r["draft"]]
+    # Add-on files (pre-releases tagged addon-*) are downloaded by the app when
+    # someone switches an add-on on, and by CI's self-test: not app downloads.
+    api_releases = [r for r in gh.pages(f"/repos/{args.repo}/releases") if not r["draft"] and not r["tag_name"].startswith("addon-")]
     repo_info, _ = gh.get(f"/repos/{args.repo}")
 
     ci = Counter((r["release"], r["file"]) for r in ledger.values())

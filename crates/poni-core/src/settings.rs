@@ -2,6 +2,7 @@
 
 use crate::pomodoro::PomodoroConfig;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -85,6 +86,45 @@ pub struct Settings {
     /// Keep the System page's charts going while it's closed (a light reading
     /// of the kernel counters once a second), so they're full when it opens.
     pub system_history: bool,
+    /// Add-ons switched on, by id (`poni_core::addons`). Ids this version
+    /// doesn't know are kept, so a newer Poni's choices survive a save.
+    pub addons: BTreeMap<String, bool>,
+    /// The Prayer times add-on's choices.
+    pub prayer: PrayerSettings,
+}
+
+/// What plays when a prayer's time comes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PrayerSound {
+    /// The adzan recording (Subuh plays the tone: the recording isn't Subuh's adzan).
+    Adzan,
+    /// A short system tone.
+    #[default]
+    Tone,
+    Silent,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PrayerSettings {
+    /// The place the times are for: its id in the add-on's place list. None
+    /// until one is found or picked.
+    pub place: Option<String>,
+    /// Let Windows' location pick the nearest place, and pick again when the
+    /// PC moves. Picking a place by hand turns this off.
+    pub follow_location: bool,
+    pub sound: PrayerSound,
+    /// Minutes before each prayer the island counts down (0 = no countdown).
+    pub remind_before_min: u32,
+    /// Pause music that is playing when the adzan starts (it stays paused).
+    pub pause_music: bool,
+}
+
+impl Default for PrayerSettings {
+    fn default() -> Self {
+        Self { place: None, follow_location: true, sound: PrayerSound::Tone, remind_before_min: 10, pause_music: true }
+    }
 }
 
 impl Default for Settings {
@@ -113,11 +153,22 @@ impl Default for Settings {
             pomodoro: PomodoroConfig::default(),
             oyenza_show_amounts: false,
             system_history: true,
+            addons: BTreeMap::new(),
+            prayer: PrayerSettings::default(),
         }
     }
 }
 
 impl Settings {
+    /// Is the add-on `id` switched on?
+    pub fn addon_on(&self, id: &str) -> bool {
+        self.addons.get(id).copied().unwrap_or(false)
+    }
+
+    pub fn set_addon(&mut self, id: &str, on: bool) {
+        self.addons.insert(id.to_string(), on);
+    }
+
     /// Clamp values a user may have hand-edited into nonsense.
     pub fn sanitized(mut self) -> Self {
         // Only untouched old defaults move.
@@ -144,6 +195,7 @@ impl Settings {
         p.short_break_min = p.short_break_min.clamp(1, 60);
         p.long_break_min = p.long_break_min.clamp(1, 120);
         p.long_every = p.long_every.min(12);
+        self.prayer.remind_before_min = self.prayer.remind_before_min.min(60);
         self
     }
 }
@@ -158,6 +210,32 @@ mod tests {
         let s: Settings = serde_json::from_str(r#"{"idle_style":"eyes","water":{"goal_ml":1500}}"#).unwrap();
         assert_eq!(s.idle_style, IdleStyle::Eyes);
         assert_eq!(s.pomodoro.focus_min, 25);
+    }
+
+    #[test]
+    fn addons_are_off_until_switched_on_and_unknown_ones_survive() {
+        let mut s = Settings::default();
+        assert!(!s.addon_on("sholat"));
+        s.set_addon("sholat", true);
+        assert!(s.addon_on("sholat"));
+        // A newer Poni's add-on stays in the file when this one saves it.
+        let s: Settings = serde_json::from_str(r#"{"addons":{"sholat":true,"future":true}}"#).unwrap();
+        assert!(s.addon_on("sholat"));
+        let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert!(back.addon_on("future"));
+        // Files from before add-ons have none on.
+        let old: Settings = serde_json::from_str(r#"{"settings_version":3}"#).unwrap();
+        assert!(old.addons.is_empty());
+    }
+
+    #[test]
+    fn prayer_defaults_follow_location_with_a_tone_ten_minutes_before() {
+        let p = Settings::default().prayer;
+        assert_eq!((p.place, p.follow_location, p.sound, p.remind_before_min, p.pause_music), (None, true, PrayerSound::Tone, 10, true));
+        let s: Settings = serde_json::from_str(r#"{"prayer":{"place":"jakarta","sound":"adzan","remind_before_min":600}}"#).unwrap();
+        let s = s.sanitized();
+        assert_eq!((s.prayer.place.as_deref(), s.prayer.sound, s.prayer.remind_before_min), (Some("jakarta"), PrayerSound::Adzan, 60));
+        assert!(s.prayer.follow_location);
     }
 
     #[test]

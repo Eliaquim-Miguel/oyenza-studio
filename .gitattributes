@@ -1,0 +1,3 @@
+# Add-on files are published byte for byte, and their size and SHA-256 are
+# built into the app (poni_core::addons): no line-ending conversion on checkout.
+addons/** -text

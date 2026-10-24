@@ -1,6 +1,8 @@
 //! Background services. Each one reports to the UI thread through an
 //! [`EventSink`]; a failing service is logged and skipped, never fatal.
 
+pub mod addons;
+pub mod adzan;
 pub mod applemusic;
 pub mod audio;
 pub mod backdrop;
@@ -9,6 +11,7 @@ pub mod clipboard;
 pub mod fullscreen;
 pub mod http;
 pub mod imaging;
+pub mod location;
 pub mod lyrics;
 pub mod media;
 pub mod oyenza;
@@ -39,6 +42,7 @@ pub struct Services {
     clip: Option<clipboard::ClipboardHistory>,
     oyenza: Option<oyenza::OyenzaService>,
     pairdrop: Option<pairdrop::PairDropService>,
+    addons: Option<addons::AddonService>,
 }
 
 fn started<T, E: std::fmt::Display>(name: &str, r: Result<T, E>) -> Option<T> {
@@ -66,7 +70,10 @@ impl Services {
         let oyenza = started("oyenza", oyenza::OyenzaService::start(sink.clone(), activity));
         // Asks nothing until a phone is paired.
         let pairdrop = started("pair drop", pairdrop::PairDropService::start(sink.clone()));
-        Self { media, lyrics, _audio: audio, _bluetooth: bluetooth, fullscreen, clip, oyenza, pairdrop }
+        // Asleep unless an add-on is on; then it only checks the files it has.
+        let on = poni_core::addons::ALL.iter().filter(|a| settings.addon_on(a.id)).map(|a| a.id).collect();
+        let addons = started("add-ons", addons::AddonService::start(sink.clone(), on));
+        Self { media, lyrics, _audio: audio, _bluetooth: bluetooth, fullscreen, clip, oyenza, pairdrop, addons }
     }
 
     pub fn stop(self, _helper: HWND) {
@@ -75,6 +82,13 @@ impl Services {
         }
         if let Some(f) = self.fullscreen {
             f.stop();
+        }
+    }
+
+    /// An add-on was switched on (download its files) or off (delete them).
+    pub fn set_addon(&self, id: &'static str, on: bool) {
+        if let Some(a) = &self.addons {
+            a.set(id, on);
         }
     }
 
