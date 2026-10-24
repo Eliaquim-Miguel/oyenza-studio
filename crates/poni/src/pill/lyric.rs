@@ -88,7 +88,10 @@ pub fn current(st: &AppState) -> Option<(String, f64)> {
 /// `area` is the line's slot at the pill's settled size: a line laid out in
 /// a narrower slot ends in an ellipsis. While the pill still grows or
 /// shrinks to a new line, clip to the slot it has now, so the line opens
-/// out with the pill instead of running over what sits beside it.
+/// out with the pill instead of running over what sits beside it. A line
+/// that takes over from the title (after a break, a pause, a new track's
+/// title) is drawn at once: the music pill cross-fades that hand-off, and
+/// dims the text while paused.
 pub fn draw(ui: &mut Ui, st: &AppState, area: Rect) -> bool {
     with_state(|s| s.draw(ui, st, area)).unwrap_or(false)
 }
@@ -191,7 +194,6 @@ struct Pick {
     /// When the pill changes next on its own (app clock): the next line or
     /// break, or the end of a pause's hold.
     wake: Option<f64>,
-    paused: bool,
 }
 
 /// The song as the pill follows it, kept between frames.
@@ -264,7 +266,7 @@ impl Follow {
             Some(end) => spot.line.map(|_| end),
             None => spot.next.map(|n| at + (n - t).max(0.0) / rate + WAKE_PAD_S),
         };
-        Some(Pick { line: spot.line, started: self.started, wake, paused: !playing })
+        Some(Pick { line: spot.line, started: self.started, wake })
     }
 }
 
@@ -329,16 +331,18 @@ impl State {
         on
     }
 
-    /// The line on screen once line `i` (`text`) is current at `now`: a
-    /// change starts a fade, and the line it replaces leaves with it only if
-    /// it was on screen until now and comes from the same lyrics.
+    /// The line on screen once line `i` (`text`) is current at `now`. A
+    /// change from a line that was on screen until now, from the same lyrics,
+    /// starts a fade between the two; any other line just shows (it takes
+    /// over from the title, or from a pill that was away).
     fn show(&mut self, now: f64, on_screen: bool, i: usize, text: &str) -> &mut Shown {
         let generation = self.follow.generation;
         let shown = match self.shown.take() {
             Some(s) if s.line == i && s.text == text => s,
             old => {
                 let leaving = old.filter(|s| on_screen && s.generation == generation).map(|s| (s.text, s.slot_w));
-                Shown { line: i, text: text.to_string(), generation, slot_w: 0.0, leaving, since: now }
+                let since = if leaving.is_some() { now } else { now - FADE_S };
+                Shown { line: i, text: text.to_string(), generation, slot_w: 0.0, leaving, since }
             }
         };
         self.shown.insert(shown)
@@ -348,7 +352,7 @@ impl State {
         let now = st.now;
         let pick = self.follow.update(st);
         let on_screen = self.seen(now, pick.and_then(|p| p.wake));
-        let Some((pick, i, text)) = pick.and_then(|p| p.line.and_then(|i| line_text(st, i).map(|t| (p, i, t)))) else {
+        let Some((i, text)) = pick.and_then(|p| p.line.and_then(|i| line_text(st, i).map(|t| (i, t)))) else {
             self.shown = None;
             return false;
         };
@@ -358,9 +362,7 @@ impl State {
         }
         let area = area.inset(-SLACK, 0.0);
         shown.slot_w = area.w;
-        // Paused (for the moment the line holds), dimmed like the art and a paused timer.
-        let color = if pick.paused { palette::TEXT_DIM } else { palette::TEXT };
-        let style = style().center().color(color);
+        let style = style().center().color(palette::TEXT);
         // On battery saver a change is a plain swap: one frame a line, not a
         // fade's worth (the change repeats all song long).
         let k = if st.power.saver { 1.0 } else { ((now - shown.since) / FADE_S) as f32 };
@@ -590,11 +592,11 @@ mod tests {
         let mut f = Follow::default();
         report(&mut st, 100.0, 12.0, true);
         assert_eq!(f.update(&st).unwrap().line, Some(0));
-        // Paused at 101 s: the line holds, dimmed, with one wake for when the hold ends.
+        // Paused at 101 s: the line holds, with one wake for when the hold ends.
         report(&mut st, 101.0, 13.0, false);
         st.media_paused_at = Some(101.0);
         let p = f.update(&st).unwrap();
-        assert_eq!((p.line, p.paused, p.wake), (Some(0), true, Some(101.0 + PAUSE_HOLD_S)));
+        assert_eq!((p.line, p.wake), (Some(0), Some(101.0 + PAUSE_HOLD_S)));
         st.now = 101.0 + PAUSE_HOLD_S;
         assert_eq!(f.update(&st), None);
         // Playing again: the line is back.
@@ -651,13 +653,13 @@ mod tests {
     #[test]
     fn only_a_line_that_was_on_screen_fades_out() {
         let mut s = State::default();
-        // First draw: nothing was on screen before.
+        // First draw: nothing was on screen before, so the line just shows.
         assert!(!s.seen(100.0, Some(103.0)));
         let first = s.show(100.0, false, 0, "First");
-        assert_eq!((first.leaving.clone(), first.since), (None, 100.0));
+        assert_eq!((first.leaving.clone(), first.since), (None, 100.0 - FADE_S));
         // The same line a frame later: nothing new.
         assert!(s.seen(100.016, Some(103.0)));
-        assert_eq!(s.show(100.016, true, 0, "First").since, 100.0);
+        assert_eq!(s.show(100.016, true, 0, "First").since, 100.0 - FADE_S);
         // No frames until the wake for the next line (no equalizer): still on screen.
         assert!(s.seen(103.02, Some(106.0)));
         s.shown.as_mut().unwrap().slot_w = 180.0;
@@ -666,11 +668,16 @@ mod tests {
         assert_eq!((next.leaving.clone(), next.since), (Some(("First".to_string(), 180.0)), 103.02));
         // Back after a while away (the page was open): the old line just goes.
         assert!(!s.seen(120.0, Some(121.0)));
-        assert_eq!(s.show(120.0, false, 5, "Sixth").leaving, None);
+        let back = s.show(120.0, false, 5, "Sixth");
+        assert_eq!((back.leaving.clone(), back.since), (None, 120.0 - FADE_S));
         // Other lyrics (another song): never fade a line of the last one out over them.
         assert!(s.seen(120.016, None));
         s.follow.generation += 1;
         assert_eq!(s.show(120.016, true, 0, "Another song").leaving, None);
+        // After the title (a break, drawn every frame): the line takes over at
+        // once, the music pill fades the hand-off.
+        s.shown = None;
+        assert_eq!(s.show(130.0, true, 1, "After the break").since, 130.0 - FADE_S);
     }
 
     #[test]
