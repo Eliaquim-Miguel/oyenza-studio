@@ -8,6 +8,7 @@ use crate::events::{AppEvent, AppleMusicStatus, EventSink, SendHwnd, WM_APP_APPB
 use crate::gfx::Gfx;
 use crate::icons::Icon;
 use crate::island::{Geom, Island, HIT_MARGIN, SHOULDER};
+use crate::oyen;
 use crate::pages::{self, PageKind};
 use crate::paths;
 use crate::services::{self, Services};
@@ -17,7 +18,7 @@ use crate::ui::{wid, CursorKind, Hit, Input, KeyInput, MouseButton, Ui};
 use crate::window::{self, FrameClock, MonitorInfo};
 use crate::{dragdrop, selftest, shell};
 use poni_core::geom::{palette, Color, Point, Rect};
-use poni_core::settings::{IdleStyle, Settings};
+use poni_core::settings::{IdleStyle, Settings, Theme};
 use poni_core::settings::MonitorChoice;
 use poni_core::store::{load_json, parse_json, save_json_atomic, LoadOutcome, Store};
 use std::cell::{Cell, RefCell};
@@ -341,7 +342,7 @@ impl App {
         st.now = clock::mono();
         st.local = clock::local_now();
         st.unix = clock::unix_now();
-        st.accent = services::system_accent().unwrap_or(palette::BLUE);
+        st.accent = theme_accent(st.settings.theme);
         let mode = Mode::Idle;
         let island = Island::new(activities::geom(&mode, &st));
         let clock = FrameClock::start(SendHwnd::new(hwnd));
@@ -746,7 +747,7 @@ impl App {
             }
             WM_DISPLAYCHANGE | WM_DPICHANGED | WM_SETTINGCHANGE => {
                 self.refresh_monitor();
-                if msg == WM_SETTINGCHANGE {
+                if msg == WM_SETTINGCHANGE && !oyen::on(self.st.settings.theme) {
                     if let Some(a) = services::system_accent() {
                         self.st.accent = a;
                     }
@@ -971,6 +972,9 @@ impl App {
     /// Apply side effects of a settings change (from the menu, a reload or a page).
     fn settings_changed(&mut self, before: &Settings) {
         let now = &self.st.settings;
+        if before.theme != now.theme {
+            self.st.accent = theme_accent(now.theme);
+        }
         if before.clipboard_history && !now.clipboard_history {
             // Privacy: turning history off forgets everything, pinned items included.
             self.st.clip = poni_core::cliphist::ClipHistory::default();
@@ -1000,6 +1004,7 @@ impl App {
         let s = &mut self.st.settings;
         match cmd {
             ToggleIdleStyle(style) => s.idle_style = style,
+            SetTheme(theme) => s.theme = theme,
             ToggleClipboard => s.clipboard_history = !s.clipboard_history,
             ToggleWater => s.water.enabled = !s.water.enabled,
             ToggleLyrics => s.lyrics = !s.lyrics,
@@ -1863,6 +1868,15 @@ impl App {
 
     pub fn hwnd(&self) -> HWND {
         self.hwnd
+    }
+}
+
+/// Oyen's orange in his theme, Windows' accent colour otherwise.
+fn theme_accent(theme: Theme) -> Color {
+    if oyen::on(theme) {
+        oyen::ORANGE
+    } else {
+        services::system_accent().unwrap_or(palette::BLUE)
     }
 }
 

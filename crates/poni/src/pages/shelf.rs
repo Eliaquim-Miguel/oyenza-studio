@@ -503,7 +503,7 @@ fn draw_empty(ui: &mut Ui, st: &AppState, l: &Local, area: Rect, actions: &mut V
 
     let undo_live = g < 0.5 && l.undo.as_ref().is_some_and(|(_, t)| st.now - t < UNDO_SECS);
     let (icon, title, hint) = if g >= 0.5 {
-        (Icon::Plus, DROP_LABEL, "Poni keeps a link — the files stay where they are")
+        (Icon::Plus, DROP_LABEL, "Oyen Poni keeps a link — the files stay where they are")
     } else if undo_live {
         (Icon::Tray, "Shelf cleared", "")
     } else {

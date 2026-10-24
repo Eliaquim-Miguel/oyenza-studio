@@ -1,7 +1,7 @@
 //! Notification-area icon and its menu (also shown on right-click of the island).
 
 use crate::events::WM_APP_TRAY;
-use poni_core::settings::{IdleStyle, Settings};
+use poni_core::settings::{IdleStyle, Settings, Theme};
 use windows::core::{Result, PCWSTR};
 use windows::Win32::Foundation::{HWND, LPARAM, POINT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -16,7 +16,13 @@ impl Tray {
     pub fn add(hwnd: HWND) -> Result<Tray> {
         unsafe {
             let hinst = GetModuleHandleW(None)?;
-            let icon = LoadIconW(hinst, PCWSTR(1 as _)).or_else(|_| LoadIconW(None, IDI_APPLICATION))?;
+            // Ask for the small-icon size so Windows picks poni.ico's own 16-24 px
+            // frames; LoadIconW gives the 32 px one and shrinks it (blurry).
+            let (cx, cy) = (GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON));
+            let icon = LoadImageW(hinst, PCWSTR(1 as _), IMAGE_ICON, cx, cy, LR_DEFAULTCOLOR)
+                .map(|h| HICON(h.0))
+                .or_else(|_| LoadIconW(hinst, PCWSTR(1 as _)))
+                .or_else(|_| LoadIconW(None, IDI_APPLICATION))?;
             let mut nid = NOTIFYICONDATAW {
                 cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
                 hWnd: hwnd,
@@ -26,7 +32,7 @@ impl Tray {
                 hIcon: icon,
                 ..Default::default()
             };
-            let tip: Vec<u16> = "Poni".encode_utf16().collect();
+            let tip: Vec<u16> = "Oyen Poni".encode_utf16().collect();
             nid.szTip[..tip.len()].copy_from_slice(&tip);
             if !Shell_NotifyIconW(NIM_ADD, &nid).as_bool() {
                 return Err(windows::core::Error::from_win32());
@@ -46,6 +52,7 @@ impl Tray {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MenuCmd {
     ToggleIdleStyle(IdleStyle),
+    SetTheme(Theme),
     ToggleClipboard,
     ToggleWater,
     ToggleLyrics,
@@ -75,13 +82,17 @@ fn item(label: &str, cmd: MenuCmd, checked: bool) -> MenuItem {
 
 pub fn menu_items(s: &Settings, pinned: bool) -> Vec<MenuItem> {
     let style = |label: &str, st: IdleStyle| item(label, MenuCmd::ToggleIdleStyle(st), s.idle_style == st);
+    let theme = |label: &str, t: Theme| item(label, MenuCmd::SetTheme(t), s.theme == t);
+    // In the Oyen theme the eyes are Oyen's own.
+    let eyes = if s.theme == Theme::Oyen { "Oyen" } else { "Eyes" };
     vec![
         item("Keep island open", MenuCmd::TogglePinned, pinned),
+        MenuItem::Sub { label: "Theme".into(), items: vec![theme("Classic", Theme::Classic), theme("Oyen", Theme::Oyen)] },
         MenuItem::Sub {
             label: "Idle look".into(),
             items: vec![
                 style("Clock", IdleStyle::Clock),
-                style("Eyes", IdleStyle::Eyes),
+                style(eyes, IdleStyle::Eyes),
                 style("Minimal", IdleStyle::Minimal),
                 style("Hidden until hover", IdleStyle::Hidden),
             ],
@@ -100,7 +111,7 @@ pub fn menu_items(s: &Settings, pinned: bool) -> Vec<MenuItem> {
         item("Open data folder", MenuCmd::OpenDataFolder, false),
         item("Lyrics by LRCLIB", MenuCmd::About, false),
         MenuItem::Separator,
-        item("Quit Poni", MenuCmd::Quit, false),
+        item("Quit Oyen Poni", MenuCmd::Quit, false),
     ]
 }
 
