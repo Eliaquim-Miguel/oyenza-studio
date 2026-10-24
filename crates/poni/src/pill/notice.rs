@@ -152,21 +152,14 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, body: Rect) -> bool {
 }
 
 fn draw_notice(ui: &mut Ui, st: &AppState, n: &Notice, body: Rect) {
-    let cy = body.center().y;
-    let c = Point::new(body.x + H / 2.0, cy);
-    ui.c.fill_circle(c, DISC / 2.0, n.color);
-    ui.c.icon(n.icon, Rect::from_center(c, GLYPH, GLYPH), ink_on(n.color));
-
-    let inline = n.inline.map(|a| {
+    let act = n.inline.map(|a| {
         let (label, icon, color) = match a {
             // Orange for focus; a break starts in its own green.
             InlineAction::StartFocus => ("Start", Icon::Play, phase_color(st.pomodoro.phase)),
             InlineAction::ShowAmount => ("Show", Icon::Eye, n.color),
             InlineAction::StopAdzan => ("Stop", Icon::Stop, n.color),
         };
-        let w = ui.pill_width(label, true, true).max(ACT_MIN_W);
-        let r = Rect::new(body.right() - ACT_INSET - w, cy - PILL_SMALL / 2.0, w, PILL_SMALL);
-        (a, label, icon, color, r)
+        (a, label, icon, color, ui.pill_width(label, true, true).max(ACT_MIN_W))
     });
 
     // New words: measure them once for `geom` (a DIP of slack so they never
@@ -174,15 +167,31 @@ fn draw_notice(ui: &mut Ui, st: &AppState, n: &Notice, body: Rect) {
     // frame, which follows the new width.
     let (title_st, sub_st) = (title_style(), subtitle_style());
     let k = key(n);
-    if FIT.with(|f| f.get().0) != k {
+    let (fk, mut fw) = FIT.with(|f| f.get());
+    if fk != k {
         let words = ui.c.measure(&n.title, &title_st, 2000.0).0.max(ui.c.measure(&n.subtitle, &sub_st, 2000.0).0);
-        let tail = inline.as_ref().map_or(TEXT_END, |(.., r)| ACT_GAP + r.w + ACT_INSET);
-        FIT.with(|f| f.set((k, fit(TEXT_X + words.ceil() + 1.0 + tail))));
+        let tail = act.as_ref().map_or(TEXT_END, |&(.., w)| ACT_GAP + w + ACT_INSET);
+        fw = fit(TEXT_X + words.ceil() + 1.0 + tail);
+        FIT.with(|f| f.set((k, fw)));
         ui.request_repaint();
     }
 
-    let tx = body.x + TEXT_X;
-    let text_right = inline.as_ref().map_or(body.right() - TEXT_END, |(.., r)| r.x - ACT_GAP);
+    // Laid out at its own size from the outline's top centre, as pages are:
+    // while the outline grows into it, it uncovers the notice instead of
+    // squeezing the words into ever-changing ellipses. A wider or taller
+    // outline (a notch, a lift, a longer notice before it) takes the ends
+    // and the middle with it, so the disc and the pill stay concentric.
+    let (w, h) = (body.w.max(fw), body.h.clamp(H, H + 8.0));
+    let lay = Rect::new(body.center().x - w / 2.0, body.y, w, h);
+    let cy = lay.center().y;
+    let c = Point::new(lay.x + h / 2.0, cy);
+    ui.c.fill_circle(c, DISC / 2.0, n.color);
+    ui.c.icon(n.icon, Rect::from_center(c, GLYPH, GLYPH), ink_on(n.color));
+
+    let inset = h / 2.0 - PILL_SMALL / 2.0;
+    let act = act.map(|(a, label, icon, color, w)| (a, label, icon, color, Rect::new(lay.right() - inset - w, cy - PILL_SMALL / 2.0, w, PILL_SMALL)));
+    let tx = lay.x + TEXT_X;
+    let text_right = act.as_ref().map_or(lay.right() - TEXT_END, |(.., r)| r.x - ACT_GAP);
     let tw = (text_right - tx).max(0.0);
     // Baselines about 22 and 37 DIP down the 48, as the spec has them.
     ui.c.text(&n.title, Rect::new(tx, cy - 17.0, tw, 20.0), &title_st);
@@ -191,7 +200,7 @@ fn draw_notice(ui: &mut Ui, st: &AppState, n: &Notice, body: Rect) {
     // The whole notice is a button (handled on mouse-down by the app); the
     // inline pill is registered after it so it wins the hit test.
     ui.button(wid("notice"), body);
-    if let Some((a, label, icon, color, r)) = inline {
+    if let Some((a, label, icon, color, r)) = act {
         if inline_done(st, n, a) {
             ui.c.fill_rrect(r, r.h / 2.0, color.with_alpha(0.20));
             ui.c.icon(Icon::Check, Rect::from_center(r.center(), 14.0, 14.0), color);
