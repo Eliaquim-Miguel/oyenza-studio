@@ -462,7 +462,7 @@ fn read_cache(path: &Path) -> Option<CacheEntry> {
 }
 
 fn write_cache(path: &Path, entry: &CacheEntry) {
-    if let Err(e) = poni_core::store::save_json_atomic(path, entry) {
+    if let Err(e) = poni_core::store::write_json_atomic(path, entry) {
         crate::pwarn!("lyrics cache: cannot write {}: {e}", path.display());
     }
 }

@@ -298,13 +298,6 @@ pub fn read_text(hwnd: HWND) -> Option<String> {
 }
 
 /// Clipboard text for history, honouring "don't record me" formats.
-#[deprecated(note = "clipboard history is captured by ClipboardHistory on its own thread")]
-#[allow(dead_code)]
-pub fn read_text_for_history(hwnd: HWND) -> Option<String> {
-    history_text(hwnd)
-}
-
-/// Clipboard text for history, honouring "don't record me" formats.
 ///
 /// Password managers and other privacy-aware apps tag sensitive copies with
 /// registered formats; any of them (or an explicit
