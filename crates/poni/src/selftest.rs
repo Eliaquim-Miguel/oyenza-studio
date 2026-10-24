@@ -27,7 +27,7 @@ use crate::paths;
 use crate::png;
 use crate::state::{
     AppState, Hud, HudKind, InlineAction, LyricsState, LyricsStatus, MediaSession, Notice, NoticeAction, OyenzaLink, OyenzaState, PhoneAsk,
-    PhoneDrop, PhoneTransfer, PowerState, SysStats, VolumeState,
+    PairedPhone, PhoneDrop, PhoneTransfer, PhoneView, PowerState, SysStats, VolumeState,
 };
 use crate::ui::wid;
 use poni_core::geom::{palette, Color, Point, Rect};
@@ -171,8 +171,23 @@ const GIB: u64 = 1024 * 1024 * 1024;
 /// The phone-drop link in the screenshots. Made up: no server answers it.
 const PHONE_URL: &str = "HTTP://192.168.1.20:53530/K7Q2M9XWZ4R8T6YB3NPV5HJC2D/";
 
+/// The pairing link in the screenshots: the contract's test secret, so no
+/// real pair can use it.
+const PAIR_URL: &str = "https://drop.oyenza.com/p#k=AAECAwQFBgcICQoLDA0ODw";
+
+/// Paired phones as the pairing scenes show them (made up).
+fn fake_paired(scene: Scene, unix: i64) -> Vec<PairedPhone> {
+    match scene {
+        Scene::ShelfPaired | Scene::ShelfPairedPhones | Scene::PairedNotice => vec![
+            PairedPhone { room: "geDM0jEhk4eiOz_li-FtORW2YlPBbebr7NsHjLkHI_4".into(), name: "Pixel 10".into(), seen: unix - 5 * 60 },
+            PairedPhone { room: "ZmFrZS1yb29tLWZvci10aGUtc2VsZi10ZXN0LWlwaG9u".into(), name: "iPhone".into(), seen: unix - 2 * 86_400 - 3600 },
+        ],
+        _ => Vec::new(),
+    }
+}
+
 /// Phone drop as each phone scene shows it (None = closed).
-fn fake_phone(scene: Scene) -> Option<PhoneDrop> {
+fn fake_phone(scene: Scene, now: f64) -> Option<PhoneDrop> {
     let ready = PhoneDrop { url: PHONE_URL.into(), qr: QrMatrix::encode(PHONE_URL), ..Default::default() };
     let files = vec![("IMG_2041.HEIC".to_string(), 2_480_112u64), ("IMG_2042.HEIC".to_string(), 2_391_870), ("Harbor walk.mov".to_string(), 18_402_331)];
     let total = files.iter().map(|f| f.1).sum();
@@ -188,6 +203,13 @@ fn fake_phone(scene: Scene) -> Option<PhoneDrop> {
             transfer: Some(PhoneTransfer { id: 7, from: "iPhone".into(), file: 2, files: 3, done: 9_100_000, total }),
             ..ready
         }),
+        Scene::ShelfPairing => Some(PhoneDrop { view: PhoneView::Pairing { url: PAIR_URL.into(), qr: QrMatrix::encode(PAIR_URL), until: now + 580.0 }, ..ready }),
+        Scene::ShelfPaired => Some(PhoneDrop {
+            outcome: Some(("Pixel 10 is paired".into(), true, now + 60.0)),
+            outcome_line: Some("It can now send from any network, even with this panel closed.".into()),
+            ..ready
+        }),
+        Scene::ShelfPairedPhones => Some(PhoneDrop { view: PhoneView::Paired, ..ready }),
         _ => None,
     }
 }
@@ -441,9 +463,17 @@ enum Scene {
     SystemWaiting,
     /// Settings with Stay on top chosen for full-screen apps.
     SettingsStayOnTop,
+    /// Phone drop showing a pairing QR code (paired phones).
+    ShelfPairing,
+    /// A phone just finished pairing.
+    ShelfPaired,
+    /// The paired phones, each with Remove.
+    ShelfPairedPhones,
+    /// Files from a paired phone landed while the island was closed.
+    PairedNotice,
 }
 
-const SCENES: [Scene; 40] = [
+const SCENES: [Scene; 44] = [
     Scene::IdleClock,
     Scene::IdleEyes,
     Scene::Media,
@@ -485,6 +515,12 @@ const SCENES: [Scene; 40] = [
     Scene::SystemBattery,
     Scene::SystemWaiting,
     Scene::SettingsStayOnTop,
+    // Appended so the numbers of the screenshots above stay the same. They
+    // show an empty shelf: items shown again after ShelfEmpty would fade in.
+    Scene::ShelfPairing,
+    Scene::ShelfPaired,
+    Scene::ShelfPairedPhones,
+    Scene::PairedNotice,
 ];
 
 impl Scene {
@@ -523,6 +559,10 @@ impl Scene {
             Scene::SystemBattery => "page-system-battery".into(),
             Scene::SystemWaiting => "page-system-waiting".into(),
             Scene::SettingsStayOnTop => "page-settings-stay-on-top".into(),
+            Scene::ShelfPairing => "page-shelf-pairing".into(),
+            Scene::ShelfPaired => "page-shelf-paired".into(),
+            Scene::ShelfPairedPhones => "page-shelf-paired-phones".into(),
+            Scene::PairedNotice => "paired-received-notice".into(),
         }
     }
 
@@ -536,6 +576,7 @@ impl Scene {
             Scene::HealthSignedIn => Some(PageKind::Health),
             Scene::GearClick | Scene::SettingsSigningIn | Scene::SettingsSignedIn | Scene::SettingsStayOnTop => Some(PageKind::Settings),
             Scene::SystemMemory | Scene::SystemDrives | Scene::SystemNetwork | Scene::SystemBattery | Scene::SystemWaiting => Some(PageKind::System),
+            Scene::ShelfPairing | Scene::ShelfPaired | Scene::ShelfPairedPhones => Some(PageKind::Shelf),
             _ => None,
         }
     }
@@ -1109,9 +1150,12 @@ impl SelfTest {
         st.ui.autostart = Some(true);
         // Hide in full-screen apps (the default), except in the Stay on top scene.
         st.settings.hide_in_fullscreen = scene != Scene::SettingsStayOnTop;
-        st.phone = fake_phone(scene);
-        st.store.shelf.items = if scene == Scene::ShelfEmpty { Vec::new() } else { self.shelf_items.clone() };
-        if scene != Scene::ShelfEmpty {
+        st.phone = fake_phone(scene, now);
+        st.paired = fake_paired(scene, st.unix);
+        st.pair_server = (!st.paired.is_empty() || scene == Scene::ShelfPairing).then_some(true);
+        let empty_shelf = matches!(scene, Scene::ShelfEmpty | Scene::ShelfPairing | Scene::ShelfPaired | Scene::ShelfPairedPhones);
+        st.store.shelf.items = if empty_shelf { Vec::new() } else { self.shelf_items.clone() };
+        if !empty_shelf {
             for (path, thumb) in &self.shelf_thumbs {
                 st.shelf_thumbs.entry(path.clone()).or_insert_with(|| thumb.clone());
             }
@@ -1162,6 +1206,16 @@ impl SelfTest {
                     reveal: hidden.then(|| "Rp 1.250.000 · Gaji Oktober".into()),
                 })
             }
+            Scene::PairedNotice => Some(Notice {
+                icon: Icon::Phone,
+                color: palette::GREEN,
+                title: "3 files from Pixel 10 are on the Shelf".into(),
+                subtitle: "Open the Shelf to see them".into(),
+                until,
+                action: Some(NoticeAction::OpenPage(PageKind::Shelf)),
+                inline: None,
+                reveal: None,
+            }),
             Scene::OyenzaBill => Some(Notice {
                 icon: Icon::Calendar,
                 color: palette::ORANGE,

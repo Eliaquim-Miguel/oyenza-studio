@@ -30,6 +30,19 @@ pub enum PhoneCmd {
     Answer { id: u64, accept: bool },
 }
 
+/// Paired phones (also in the Shelf's phone panel; `services::pairdrop`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PairCmd {
+    /// Show a pairing QR code in the panel.
+    Begin,
+    /// Back to the same-Wi-Fi code (a pairing code stops working).
+    Back,
+    /// Show the paired phones.
+    List,
+    /// Forget a paired phone (by its room on the meeting server).
+    Remove(String),
+}
+
 /// Requests for the Oyenza worker (`services::oyenza`).
 #[derive(Clone, Debug, PartialEq)]
 pub enum OyenzaCmd {
@@ -85,5 +98,6 @@ pub enum Command {
     LoadAppIcon(String),
     OpenTaskManager,
     Phone(PhoneCmd),
+    Pair(PairCmd),
     Oyenza(OyenzaCmd),
 }
