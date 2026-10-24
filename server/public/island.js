@@ -119,7 +119,11 @@ function fit() {
 }
 
 addEventListener('resize', () => requestAnimationFrame(fit));
-if (document.fonts && document.fonts.ready) document.fonts.ready.then(fit).catch(() => {});
+if (document.fonts) {
+  // Outfit may arrive after the first layout: measure again once it has.
+  if (document.fonts.ready) document.fonts.ready.then(fit).catch(() => {});
+  if (document.fonts.addEventListener) document.fonts.addEventListener('loadingdone', () => requestAnimationFrame(fit));
+}
 
 /** Swap an Oyen picture, with a little pop; `move` = 'hop' plays a happy jump. */
 export function pose(id, name, move = '') {
