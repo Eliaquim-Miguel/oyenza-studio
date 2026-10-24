@@ -5,6 +5,14 @@
 # step (a real copy, a Spotify notification) and answers. Prints the report
 # and the log's tail, and exits with the app's code.
 #
+# The theme steps (glass-*, pill-*, notch-*) switch the app's own theme; the
+# notch-* steps pretend the screen has a MacBook's notch and the app paints
+# it black where the camera would be, so the pictures show what a MacBook
+# shows. Pill floats below the top edge (pill-*), and around the notch rests
+# in the menu bar's line and opens below it (notch-pill-*); its pill-theme
+# check in the report says where the island sat and which points took the
+# mouse.
+#
 # Usage: tools/mac-smoke.sh "<path to the app's poni binary>"
 # Not -e: the report must print even when a check fails.
 set +e -u

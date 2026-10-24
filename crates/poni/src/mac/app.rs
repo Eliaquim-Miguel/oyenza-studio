@@ -1923,6 +1923,9 @@ impl App {
         let look = self.look();
         // The Pill theme's island away from the edge, and how far.
         let (floating, detach) = (self.island.floating(), notch::detach(self.island.top(), notch));
+        // The smoke run's pretend notch (CI's Macs have none), painted where a
+        // MacBook's camera hides the island, so its pictures show what one shows.
+        let pretend_notch = notch.filter(|_| self.smoke.is_some() && window::faking_notch()).map(|n| Rect::new(self.cx - n.w / 2.0, -12.0, n.w, n.h + 12.0));
         self.gfx.set_look(look);
         let mut hits = std::mem::take(&mut self.hits);
         hits.clear();
@@ -1977,6 +1980,9 @@ impl App {
             if morphing {
                 canvas.pop_shape_mask();
                 canvas.unclip();
+            }
+            if let Some(r) = pretend_notch {
+                canvas.unthemed(|c| c.fill_rrect(r, 10.0, Color::black(1.0)));
             }
             out
         };
