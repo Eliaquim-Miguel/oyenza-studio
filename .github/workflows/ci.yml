@@ -94,9 +94,12 @@ jobs:
   # The self-tests and smoke runs on three machines at once, from the
   # poni.exe built above. Each step is the same as when one machine ran them
   # all in a row; `group` says which machine runs it:
-  #   classic: the scripted self-test, the add-on on/off run, Japanese lyrics
-  #   glass:   the Glass self-tests and the Glass smoke run
+  #   classic: the scripted self-test, the add-on on/off run, Japanese lyrics,
+  #            the Pill smoke run
+  #   glass:   the Glass self-tests, the Glass smoke run, the Pill self-test
   #   smoke:   the smoke run, the software renderer, the Inno Setup check
+  # The Pill steps went to the two machines with the most room; smoke has
+  # the longest steps (its smoke run includes the weight check).
   # On CI's software GPU a slow frame doesn't fail a self-test; it shows as a
   # warning on the run page.
   selftest:
@@ -296,10 +299,49 @@ jobs:
           }
           exit $failed
 
+      # The Pill theme: the island floats below the top edge. Besides the
+      # usual checks, its own say the gap above the body shows the screen
+      # (pill-gap) and the shadow fades out inside the window
+      # (pill-shadow-inside).
+      - name: Self-test, Pill theme
+        if: matrix.group == 'glass'
+        shell: pwsh
+        env:
+          PONI_SELFTEST_THEME: pill
+        run: |
+          Add-Type -AssemblyName System.Windows.Forms
+          Add-Type -Namespace PoniCiPill -Name User32 -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);'
+          $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          [PoniCiPill.User32]::SetCursorPos([int]($b.Width / 2), [int]($b.Height / 2)) | Out-Null
+
+          New-Item -ItemType Directory -Force -Path selftest-pill | Out-Null
+          $p = Start-Process -FilePath target\release\poni.exe -ArgumentList "--selftest","selftest-pill" -PassThru
+          $null = $p.Handle
+          if (-not $p.WaitForExit(120000)) { Stop-Process -Id $p.Id -Force; $code = -1 } else { $code = $p.ExitCode }
+          "pill self-test exit code: $code"
+          if (Test-Path selftest-pill\report.json) {
+            $r = Get-Content selftest-pill\report.json -Raw | ConvertFrom-Json
+            "renderer: $($r.renderer); states passed: $($r.states_passed)/$($r.states_total); failed: $($r.failed_checks -join ', ')"
+            if ($r.slow_frames) { "::warning title=Slow Pill frames on CI's software GPU (not counted)::$($r.slow_frames -join '; ')" }
+          }
+          if ($code -ne 0) {
+            Get-Content selftest-pill\home\cache\poni.log -Tail 80 -ErrorAction SilentlyContinue
+            exit 1
+          }
+
       - name: Smoke run (real desktop, hover, idle CPU/RAM)
         if: matrix.group == 'smoke'
         shell: pwsh
         run: ./tools/ci-smoke.ps1 -Exe target\release\poni.exe -Out smoke-out
+
+      # The Pill theme on a real desktop: the island floats below the top
+      # edge, so the smoke run looks for it there, and the gap above it takes
+      # the mouse while its shadow lets clicks through (no weight check: that
+      # one measures Classic).
+      - name: Smoke run, Pill theme
+        if: matrix.group == 'classic'
+        shell: pwsh
+        run: ./tools/ci-smoke.ps1 -Exe target\release\poni.exe -Out smoke-pill -Theme pill
 
       # Glass on a real desktop: with its screen copy running, screenshots
       # show what's under the island instead of the island.
@@ -368,6 +410,8 @@ jobs:
             smoke-out
             selftest-soft
             smoke-soft
+            selftest-pill
+            smoke-pill
           if-no-files-found: warn
 
       - name: Upload the Inno Setup build (a check; releases ship the NSIS one)
