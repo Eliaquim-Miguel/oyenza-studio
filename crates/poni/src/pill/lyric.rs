@@ -361,7 +361,9 @@ impl State {
         // Paused (for the moment the line holds), dimmed like the art and a paused timer.
         let color = if pick.paused { palette::TEXT_DIM } else { palette::TEXT };
         let style = style().center().color(color);
-        let k = ((now - shown.since) / FADE_S) as f32;
+        // On battery saver a change is a plain swap: one frame a line, not a
+        // fade's worth (the change repeats all song long).
+        let k = if st.power.saver { 1.0 } else { ((now - shown.since) / FADE_S) as f32 };
         if k >= 1.0 {
             shown.leaving = None;
             ui.c.text(&shown.text, area, &style);
