@@ -3640,12 +3640,12 @@ mod tests {
     #[test]
     fn pill_floats_below_the_edge() {
         let i = island(Geom::new(152.0, 32.0, 16.0), true);
-        let (gap, m) = (pill::TOP_GAP, pill::shape::MARGIN);
+        let (gap, side, below) = (pill::TOP_GAP, i.side_room(), i.bottom_room());
+        assert!(i.floating() && i.top() == gap && side > 0.0 && below > 0.0, "room for the gap and the shadow");
         let body = i.body_rect_at(CX);
         assert_eq!(body, Rect::new(CX - 76.0, gap, 152.0, 32.0));
         assert_eq!(i.hover_rect_at(CX), Rect::new(CX - 76.0, 0.0, 152.0, gap + 32.0), "the gap above it and the body");
-        assert_eq!(i.canvas_rect_at(CX), Rect::new(CX - 76.0 - m, 0.0, 152.0 + 2.0 * m, gap + 32.0 + m));
-        assert_eq!((i.top(), i.side_room(), i.bottom_room()), (gap, m, m));
+        assert_eq!(i.canvas_rect_at(CX), Rect::new(CX - 76.0 - side, 0.0, 152.0 + 2.0 * side, gap + 32.0 + below));
     }
 
     #[test]
@@ -3689,8 +3689,8 @@ mod tests {
         assert_eq!(m, HitMask { rect: Some(canvas), notch: None, pill: None });
         let body = i.body_rect_at(CX);
         assert!(m.contains(pt(CX, 0.0)), "the gap above the card");
-        assert!(m.contains(pt(body.x - pill::shape::MARGIN + 0.5, body.center().y)), "the margin beside it");
-        assert!(m.contains(pt(CX, body.bottom() + pill::shape::MARGIN - 0.5)), "the margin below it");
+        assert!(m.contains(pt(body.x - i.side_room() + 0.5, body.center().y)), "the margin beside it");
+        assert!(m.contains(pt(CX, body.bottom() + i.bottom_room() - 0.5)), "the margin below it");
         assert!(!m.contains(pt(canvas.right() + 0.5, body.center().y)) && !m.contains(pt(CX, canvas.bottom() + 0.5)));
     }
 
@@ -3753,7 +3753,7 @@ mod tests {
 
                 i.set_floating(Some(pill::TOP_GAP));
                 let floating = surface_size(&i, 620.0, 400.0, s, mon_w);
-                let want_h = ((400.0 * OVERSHOOT + pill::shape::MARGIN + pill::TOP_GAP) * s).ceil() as i32;
+                let want_h = ((400.0 * OVERSHOOT + i.bottom_room() + pill::TOP_GAP) * s).ceil() as i32;
                 assert_eq!(floating.1, want_h, "Pill has room for the gap at {s}");
                 assert_eq!((mon_w - floating.0) % 2, 0);
                 i.set_floating(None);
