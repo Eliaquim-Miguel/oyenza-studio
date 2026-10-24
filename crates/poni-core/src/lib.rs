@@ -11,6 +11,7 @@ pub mod geom;
 pub mod lrc;
 pub mod lrclib;
 pub mod nowplaying;
+pub mod oyen;
 pub mod pomodoro;
 pub mod settings;
 pub mod shelf;

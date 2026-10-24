@@ -34,6 +34,8 @@ mod icons;
 #[cfg(windows)]
 mod island;
 #[cfg(windows)]
+mod oyen;
+#[cfg(windows)]
 mod pages;
 #[cfg(windows)]
 mod paths;

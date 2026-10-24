@@ -23,7 +23,7 @@ use crate::state::{AppState, Hud, HudKind, LyricsState, LyricsStatus, MediaSessi
 use poni_core::geom::{palette, Color, Point, Rect};
 use poni_core::lrc::parse_lrc;
 use poni_core::pomodoro::{Phase as PomoPhase, RunState};
-use poni_core::settings::IdleStyle;
+use poni_core::settings::{IdleStyle, Theme};
 use poni_core::timeline::Timeline;
 use serde::Serialize;
 use std::fs;
@@ -280,6 +280,8 @@ pub struct SelfTest {
     /// PONI_SELFTEST_ANIM=1: after the scenes, record transitions frame by frame.
     anim: bool,
     dpi_applied: bool,
+    /// PONI_SELFTEST_THEME=oyen: run every scene in the Oyen theme.
+    theme: Theme,
 }
 
 /// Transitions recorded in animation mode: (name, from, to).
@@ -312,6 +314,7 @@ impl SelfTest {
             dpi: std::env::var("PONI_SELFTEST_DPI").ok().and_then(|v| v.trim().parse().ok()),
             anim: std::env::var("PONI_SELFTEST_ANIM").is_ok_and(|v| v.trim() == "1"),
             dpi_applied: false,
+            theme: if std::env::var("PONI_SELFTEST_THEME").is_ok_and(|v| v.trim() == "oyen") { Theme::Oyen } else { Theme::Classic },
         }
     }
 
@@ -486,6 +489,10 @@ impl SelfTest {
         let now = clock::mono();
         let st = &mut app.st;
         st.settings.idle_style = if scene == Scene::IdleEyes { IdleStyle::Eyes } else { IdleStyle::Clock };
+        if st.settings.theme != self.theme {
+            st.settings.theme = self.theme;
+            st.accent = if self.theme == Theme::Oyen { crate::oyen::ORANGE } else { palette::BLUE };
+        }
         st.power = fake_power(scene == Scene::ChargingHud);
         st.stats = fake_stats();
         st.volume = VolumeState { level: 0.64, muted: false, known: true };

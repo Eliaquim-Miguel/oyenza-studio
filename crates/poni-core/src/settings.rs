@@ -17,6 +17,18 @@ pub enum IdleStyle {
     Hidden,
 }
 
+/// How the island looks. Pages and live activities work the same in every theme.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Theme {
+    /// The plain black island.
+    #[default]
+    Classic,
+    /// Oyen, the Oyenza cat, lives in the island: he peeks over its edge
+    /// while it rests, bobs to the music and takes Oyen's orange as accent.
+    Oyen,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MonitorChoice {
@@ -38,6 +50,7 @@ pub struct Settings {
     /// Missing in files written before versioning (treated as 0).
     #[serde(default = "version_zero")]
     pub settings_version: u32,
+    pub theme: Theme,
     pub idle_style: IdleStyle,
     pub use_24h: bool,
     /// Delay before hover expands the island.
@@ -67,6 +80,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             settings_version: SETTINGS_VERSION,
+            theme: Theme::Classic,
             idle_style: IdleStyle::Clock,
             use_24h: true,
             hover_delay_ms: 220,
@@ -132,6 +146,15 @@ mod tests {
         assert_eq!(s.water.goal_ml, 1500);
         assert_eq!(s.water.cup_ml, 250);
         assert_eq!(s.pomodoro.focus_min, 25);
+    }
+
+    #[test]
+    fn theme_defaults_to_classic() {
+        // Files written before themes existed keep the black island.
+        let s: Settings = serde_json::from_str(r#"{"idle_style":"eyes"}"#).unwrap();
+        assert_eq!(s.theme, Theme::Classic);
+        let s: Settings = serde_json::from_str(r#"{"theme":"oyen"}"#).unwrap();
+        assert_eq!(s.theme, Theme::Oyen);
     }
 
     #[test]

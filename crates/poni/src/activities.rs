@@ -7,6 +7,7 @@
 use crate::gfx::{TextStyle, Weight};
 use crate::icons::Icon;
 use crate::island::Geom;
+use crate::oyen;
 use crate::pages::{self, PageKind};
 use crate::state::{AppState, HudKind, InlineAction, Notice};
 use crate::ui::{wid, PillStyle, Ui, PILL_SMALL};
@@ -62,6 +63,12 @@ const BOLT_INSET: f32 = BOLT * 5.0 / 24.0;
 const BOLT_VISIBLE: f32 = BOLT * 14.0 / 24.0;
 /// Gap between the idle clock and its battery badge.
 const BADGE_GAP: f32 = 6.0;
+/// Oyen theme: the head's width (DIPs) in the idle "Oyen" look, beside the
+/// idle clock and in the media pill, and the clock pill's extra width for him.
+const OYEN_IDLE_W: f32 = 30.0;
+const OYEN_CLOCK_W: f32 = 22.0;
+const OYEN_MEDIA_W: f32 = 24.0;
+const OYEN_CLOCK_LEAD: f32 = 12.0 + OYEN_CLOCK_W;
 
 /// Modes with the same key share content (no cross-fade between them).
 pub fn content_key(m: &Mode) -> u32 {
@@ -150,9 +157,12 @@ pub fn geom(m: &Mode, st: &AppState) -> Geom {
                     Some(ClockBadge::Low(_)) => 34.0,
                     None => 0.0,
                 };
-                Geom::new(base + badge, 30.0, 14.0)
+                let lead = if oyen::on(st.settings.theme) { OYEN_CLOCK_LEAD } else { 0.0 };
+                Geom::new(base + badge + lead, 30.0, 14.0)
             }
             IdleStyle::Minimal => Geom::new(150.0, 26.0, 12.0),
+            // A little taller than the eyes, so his ears clear the top edge.
+            IdleStyle::Eyes if oyen::on(st.settings.theme) => Geom::new(104.0, 36.0, 16.0),
             IdleStyle::Eyes => Geom::new(118.0, 30.0, 14.0),
             IdleStyle::Hidden => Geom::new(150.0, 5.0, 2.5),
         },
@@ -195,7 +205,11 @@ pub fn next_wake(m: &Mode, st: &AppState) -> Option<f64> {
             next = Some(next.map_or(t, |n: f64| n.min(t)));
         }
     };
-    if *m == Mode::Idle && st.settings.idle_style == IdleStyle::Eyes {
+    if *m == Mode::Idle && oyen_idle(st) {
+        if !night(st) {
+            consider(oyen::next_rest_move(now));
+        }
+    } else if *m == Mode::Idle && st.settings.idle_style == IdleStyle::Eyes {
         let phase = now % BLINK_PERIOD;
         consider(if phase < BLINK_LEN { now - phase + BLINK_LEN } else { now - phase + BLINK_PERIOD });
     }
@@ -212,6 +226,26 @@ pub fn next_wake(m: &Mode, st: &AppState) -> Option<f64> {
 
 const BLINK_PERIOD: f64 = 5.5;
 const BLINK_LEN: f64 = 0.14;
+
+/// Oyen shows in the idle pill (the clock and "Oyen" looks of his theme).
+fn oyen_idle(st: &AppState) -> bool {
+    oyen::on(st.settings.theme) && matches!(st.settings.idle_style, IdleStyle::Clock | IdleStyle::Eyes)
+}
+
+/// Oyen sleeps from midnight to five.
+fn night(st: &AppState) -> bool {
+    st.local.hour < 5
+}
+
+/// Oyen at rest in the idle pill; he follows the cursor while it hovers.
+fn draw_oyen_rest(ui: &mut Ui, st: &AppState, body: Rect, cx: f32, w: f32, bar_y: f32) {
+    let look = ui.input.mouse.map(|p| (p.x - body.center().x) / (body.w / 2.0));
+    let (frame, moving) = oyen::rest(st.now, night(st), look);
+    if moving {
+        ui.request_anim();
+    }
+    oyen::peek(ui.c, &frame, cx, bar_y, w, body.y + 1.0);
+}
 
 pub fn draw(ui: &mut Ui, st: &mut AppState, m: &Mode, body: Rect) {
     match m {
@@ -234,6 +268,13 @@ fn draw_idle(ui: &mut Ui, st: &mut AppState, body: Rect) {
     let cy = body.center().y;
     match st.settings.idle_style {
         IdleStyle::Clock => {
+            // Oyen theme: he peeks on the left and the clock centres in the rest.
+            let body = if oyen::on(st.settings.theme) {
+                draw_oyen_rest(ui, st, body, body.x + 11.0 + OYEN_CLOCK_W / 2.0, OYEN_CLOCK_W, body.bottom() - 5.0);
+                Rect::new(body.x + OYEN_CLOCK_LEAD, body.y, body.w - OYEN_CLOCK_LEAD, body.h)
+            } else {
+                body
+            };
             let time = fmt_clock(&st.local, st.settings.use_24h);
             let ts = TextStyle::body().weight(Weight::Semibold).tabular();
             let Some(badge) = clock_badge(st) else {
@@ -259,6 +300,9 @@ fn draw_idle(ui: &mut Ui, st: &mut AppState, body: Rect) {
                 ClockBadge::Low(_) => ui.c.text(&pct, Rect::new(x0, body.y, bw + 2.0, body.h), &pct_ts),
             }
             ui.c.text(&time, Rect::new(x0 + bw + BADGE_GAP, body.y, tw + 2.0, body.h), &ts);
+        }
+        IdleStyle::Eyes if oyen::on(st.settings.theme) => {
+            draw_oyen_rest(ui, st, body, body.center().x, OYEN_IDLE_W, body.bottom() - 7.0);
         }
         IdleStyle::Eyes => {
             let blink = (st.now % BLINK_PERIOD) < BLINK_LEN;
@@ -354,7 +398,13 @@ fn draw_activity(ui: &mut Ui, st: &mut AppState, a: Activity, body: Rect) {
         Activity::Media => {
             art_or_icon(ui, st, art, playing);
             let eq = Rect::new(body.right() - 34.0, cy - 8.0, 20.0, 16.0);
-            equalizer(ui, eq, st.media_accent(), playing, st.now);
+            if oyen::on(st.settings.theme) {
+                // Oyen bobs to the music where the equalizer would be.
+                let f = oyen::music(st.now, playing);
+                oyen::peek(ui.c, &f, body.right() - 26.0, body.bottom() - 5.0, OYEN_MEDIA_W, body.y + 1.0);
+            } else {
+                equalizer(ui, eq, st.media_accent(), playing, st.now);
+            }
             let alpha = peek_alpha(st, body.w);
             if alpha > 0.01 {
                 draw_peek(ui, st, art.right() + 10.0, eq.x - 10.0, body, alpha);
