@@ -1,0 +1,1 @@
+Pictures for the Japanese readings add-on PR (lucacadalora/poni, branch ja-readings-addon): self-test renders under Wine at 200%, 0.1.18 vs the branch without and with the add-on. Keep while the PR body links them.
