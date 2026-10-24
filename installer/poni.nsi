@@ -1,6 +1,6 @@
 ; Oyenza Studio installer (NSIS 3). Per-user install, no admin rights needed.
 ;
-; The name shown to people is "Oyenza Studio" (0.1.2 to 0.1.19 said "Oyen Poni"); the install folder,
+; The name shown to people is "Oyenza Studio" (the 0.1.x versions from 0.1.2 on said "Oyen Poni"); the install folder,
 ; the uninstall key, the Run value and poni.exe keep the name "Poni", so older installs upgrade in place.
 ;
 ; Build (Linux/macOS/Windows with makensis):
@@ -93,7 +93,7 @@ Section "Oyenza Studio" SecMain
   ; The licenses of what poni.exe is built from (mecab-ipadic asks for its notice in every copy).
   File "../THIRD-PARTY-NOTICES.txt"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
-  ; Older shortcuts: "Poni" (0.1.0, 0.1.1) and "Oyen Poni" (0.1.2 to 0.1.19).
+  ; Older shortcuts: "Poni" (0.1.0, 0.1.1) and "Oyen Poni" (0.1.2 to the last 0.1.x).
   Delete "$SMPROGRAMS\Poni.lnk"
   Delete "$SMPROGRAMS\Oyen Poni.lnk"
   CreateShortcut "$SMPROGRAMS\${APPNAME}.lnk" "$INSTDIR\poni.exe" "" "$INSTDIR\poni.exe" 0

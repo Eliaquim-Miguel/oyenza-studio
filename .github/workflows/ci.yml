@@ -518,7 +518,7 @@ jobs:
         with:
           name: oyenza-studio-setup
           path: dist
-      # Oyen-Poni-Setup.exe is the fixed name from before the rename (0.1.2 to 0.1.19). Links to it are
+      # Oyen-Poni-Setup.exe is the fixed name before the rename (0.1.2 to the last 0.1.x). Links to it are
       # out there (oyenza.com, shared links, old README copies), so every release keeps carrying it.
       - name: Copy the installer to the fixed names the download links use
         run: |

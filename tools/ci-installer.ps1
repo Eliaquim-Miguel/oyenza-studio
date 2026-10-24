@@ -82,7 +82,7 @@ if ($Previous) {
     Start-Process -FilePath $Previous -ArgumentList "/S" -Wait
     Check "previous release installed" (Test-Path $exe) $Previous
     Check "previous Start menu shortcut" (Test-Path (Join-Path $programs "Poni.lnk"))
-    # 0.1.2 to 0.1.19 named the shortcut "Oyen Poni": put one there too, the upgrade must remove it.
+    # The 0.1.x versions from 0.1.2 on named the shortcut "Oyen Poni": put one there too, the upgrade must remove it.
     $old = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $programs "Oyen Poni.lnk"))
     $old.TargetPath = $exe
     $old.Save()

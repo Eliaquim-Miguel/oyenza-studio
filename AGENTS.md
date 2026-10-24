@@ -19,7 +19,7 @@ Oyenza Studio sits on screen all day, so how little it costs is part of the prod
 
 The app is Oyenza Studio; it was Oyen Poni until 0.2.0. Only the names people see changed. `poni.exe`, its folders, the uninstall key, the Run value, `Local\Poni.Island`, the Mac bundle id `com.oyenza.poni`, the crates, the `PONI_*` variables and the Oyenza sign-in app id `poni` stay as they are, so older copies update in place and stay signed in. Every release also carries `Oyen-Poni-Setup.exe` and `Oyen-Poni-Mac.dmg` next to the new names, because links to them are out there.
 
-Never create a repository named `lucacadalora/poni`: GitHub forwards that old name to this repository, and the add-on downloads in 0.1.17 to 0.1.19 go through it.
+Never create a repository named `lucacadalora/poni`: GitHub forwards that old name to this repository, and the add-on downloads of the 0.1.x versions go through it.
 
 ## Every release updates the website
 

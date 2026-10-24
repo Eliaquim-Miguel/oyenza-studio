@@ -12,7 +12,7 @@ use crate::sha256;
 
 /// Where the files live: `<RELEASES>/<tag>/<name>`.
 // Still the repo's old name until it is renamed to lucacadalora/oyenza-studio; the rename PR flips it
-// (GitHub forwards the old name, which add-on downloads in 0.1.17 to 0.1.19 rely on for good).
+// (GitHub forwards the old name, which add-on downloads in the 0.1.x versions rely on for good).
 pub const RELEASES: &str = "https://github.com/lucacadalora/poni/releases/download";
 
 /// One file an add-on downloads.

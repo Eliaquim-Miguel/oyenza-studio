@@ -145,7 +145,7 @@ jobs:
   # The Mac app on the release: Oyenza-Studio-<version>-mac.dmg, plus
   # Oyenza-Studio-Mac.dmg, the fixed name the README's and the website's Mac
   # buttons download from releases/latest, and Oyen-Poni-Mac.dmg, the fixed
-  # name from before the rename (0.1.17 to 0.1.19), which links out there still
+  # name from before the rename (0.1.17 to the last 0.1.x), which links out there still
   # use. ci publishes the release once the Windows build, installer and install
   # test pass, so this waits for it.
   release:
