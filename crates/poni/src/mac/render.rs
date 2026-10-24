@@ -1,4 +1,4 @@
-//! `poni --render <dir> [--theme classic|oyen|glass] [--notch]`: draw the island's
+//! `poni --render <dir> [--theme classic|oyen|glass|pill] [--notch]`: draw the island's
 //! states with sample data into PNGs, offscreen, through the Mac renderer.
 //! CI runs it on a Mac with no notch and no person at the screen, so this is
 //! how the Mac drawing gets looked at: every page and activity, each theme,
@@ -8,7 +8,9 @@
 //! light menu bar. With `--notch` the camera notch is painted on top, black,
 //! the way it hides that part of the island on a real MacBook. Glass is
 //! macOS's own view on the real window, so here a smoked stand-in takes its
-//! place (the smoke run's screenshots show the real one).
+//! place (the smoke run's screenshots show the real one). Pill floats below
+//! the top edge, or around a notch rests attached in the menu bar's line and
+//! floats below the menu bar for what hangs under it (notch.rs).
 //!
 //! The music scenes use made-up data to test the drawing; the Mac app shows
 //! music once the media slice is built. The System page's scenes show a
@@ -351,10 +353,17 @@ fn render_scene(gfx: &mut Gfx, scene: Scene, theme: Theme, notch: Option<Notch>,
     }
     let mut island = Island::new(g);
     island.snap(g);
+    // The Pill theme floats it below the top edge, where the app puts it.
+    if crate::pill::on(theme) {
+        let gap = notch.map_or(crate::pill::TOP_GAP, |n| notch::pill_gap(&mode, &st, n));
+        let mut at = notch::PillGap::default();
+        at.snap(gap);
+        island.set_floating(at.floating());
+    }
 
     let menu_h = notch.map_or(MENU_BAR, |n| n.h);
     let w_dip = (st.settings.expanded_width + 2.0 * MARGIN_X).max(g.w + 2.0 * (SHOULDER + MARGIN_X));
-    let h_dip = g.h.max(menu_h) + MARGIN_BOTTOM + if matches!(mode, Mode::Expanded(_)) { 0.0 } else { 60.0 };
+    let h_dip = (island.top() + g.h).max(menu_h) + MARGIN_BOTTOM + if matches!(mode, Mode::Expanded(_)) { 0.0 } else { 60.0 };
     let (w_px, h_px) = ((w_dip * SCALE).ceil() as usize, (h_dip * SCALE).ceil() as usize);
     let bmp = Bitmap::new(w_px, h_px, SCALE).ok_or("no bitmap context")?;
     let cx = w_dip / 2.0;
@@ -386,7 +395,11 @@ fn render_scene(gfx: &mut Gfx, scene: Scene, theme: Theme, notch: Option<Notch>,
             crate::glass::draw_body(&mut c, body, g.r, shoulder, notch, inside, true);
         } else {
             let border = if inside { None } else { Some(c.look().border) };
-            c.notch(body, g.r, shoulder, palette::ISLAND, border);
+            if island.floating() {
+                crate::pill::shape::draw_body(&mut c, body, g.r, palette::ISLAND, border);
+            } else {
+                c.notch(body, g.r, shoulder, palette::ISLAND, border);
+            }
         }
         let mut input = Input::default();
         if hovering {

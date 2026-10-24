@@ -11,20 +11,31 @@
 //! * **Below**: notices, pop-ups and the open island hang under the notch:
 //!   a strip the notch's height on top, the usual content under it.
 //!
+//! The Pill theme keeps the first two: in the menu bar's line the camera is
+//! in the way of a floating pill, and a resting pill below the menu bar would
+//! sit on every window's toolbar all day. What hangs below the notch floats
+//! there instead ([`floats`]): the capsule or card `pill::TOP_GAP` under the
+//! menu bar, every corner rounded, no strip behind the camera. On its way
+//! between the two the outline lets go of the edge smoothly
+//! ([`detached_segments`]).
+//!
 //! Screens without a notch (older Macs, external displays) show the island
 //! exactly as Windows does.
 
 use crate::activities::{Activity, Mode};
-use crate::gfx::{TextStyle, Weight};
+use crate::gfx::{Canvas, TextStyle, Weight};
 use crate::icons::Icon;
 use crate::island::{Geom, SHOULDER};
 use crate::oyen;
+use crate::pill;
 use crate::state::AppState;
 use crate::ui::Ui;
 use poni_core::datetime::{fmt_clock, fmt_countdown};
 use poni_core::geom::{clamp01, palette, Color, Point, Rect};
 use poni_core::pomodoro::Phase;
 use poni_core::settings::IdleStyle;
+use poni_core::spring::Spring;
+use poni_core::svgpath::Seg;
 
 /// The notch as macOS reports it, in DIPs (points).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -51,19 +62,133 @@ const BELOW_EAR: f32 = 24.0;
 const EARS_R: f32 = 14.0;
 /// The one neutral track under every progress ring (as in activities.rs).
 const RING_TRACK: Color = Color::white(0.14);
+/// Pill's ears: content keeps this far from the island's outer ends (as the
+/// floating pill keeps clear of its round ends) and this far from the camera.
+const PILL_END: f32 = 16.0;
+const PILL_CAMERA: f32 = 8.0;
+/// Pill's resting ears: the time on the left, the battery and its
+/// percentage on the right ("100%" and the battery need the most room).
+const PILL_EAR_24H: f32 = 88.0;
+const PILL_EAR_12H: f32 = 96.0;
+const PILL_EAR_TIME_ONLY: f32 = 66.0;
+/// Pill's battery: body, its corner, the nub, and the gap to the percentage.
+const BATTERY: (f32, f32) = (20.0, 10.0);
+const BATTERY_R: f32 = 3.0;
+const NUB: (f32, f32) = (1.75, 4.0);
+const NUB_GAP: f32 = 0.75;
+const PCT_GAP: f32 = 6.0;
+/// Pill's outlines and secondary text on black.
+const PILL_LINE: Color = Color::white(0.42);
+const PILL_DIM: Color = Color::white(0.55);
 
 pub fn fit(m: &Mode, st: &AppState) -> Fit {
     match m {
-        Mode::Idle if st.settings.idle_style == IdleStyle::Clock => Fit::Ears,
+        // The status bar look is the Pill theme's; the other themes show the clock for it.
+        Mode::Idle if matches!(st.settings.idle_style, IdleStyle::Clock | IdleStyle::Status) => Fit::Ears,
         Mode::Idle => Fit::Inside,
+        // Pill's music pill sings the current line, which needs the width the
+        // camera takes: it hangs below the notch while there is a line.
+        Mode::Activity(Activity::Media) if pill::on(st.settings.theme) && pill::lyric::current(st).is_some() => Fit::Below,
         Mode::Activity(_) => Fit::Ears,
         Mode::Hud(_) | Mode::Notice | Mode::Expanded(_) => Fit::Below,
+    }
+}
+
+/// The Pill theme floats `m` below the menu bar instead of hanging it from the notch.
+pub fn floats(m: &Mode, st: &AppState) -> bool {
+    pill::on(st.settings.theme) && fit(m, st) == Fit::Below
+}
+
+/// How far below the screen's top edge the Pill theme's island sits in `m`
+/// around notch `n`: `TOP_GAP` under the menu bar for what floats, 0
+/// (attached to the notch) in the menu bar's line.
+pub fn pill_gap(m: &Mode, st: &AppState, n: Notch) -> f32 {
+    if floats(m, st) {
+        n.h + pill::TOP_GAP
+    } else {
+        0.0
+    }
+}
+
+/// The Pill theme's gap below the top edge moves on the island's own
+/// tunings: it drops as the height grows (island.rs GROW_H) and rises back
+/// into the menu bar's line as it shrinks (SHRINK_H).
+const GAP_DROP: (f32, f32) = (300.0, 26.0);
+const GAP_RISE: (f32, f32) = (420.0, 38.0);
+
+/// How far below the top edge the Pill theme's island floats (DIPs), on a
+/// spring: around a notch it lets go of the edge and comes back with the
+/// outline, and picking the theme lowers it into place.
+#[derive(Clone, Copy, Debug)]
+pub struct PillGap(Spring);
+
+impl Default for PillGap {
+    fn default() -> Self {
+        PillGap(Spring::new(0.0, GAP_DROP.0, GAP_DROP.1))
+    }
+}
+
+impl PillGap {
+    pub fn snap(&mut self, gap: f32) {
+        self.0.snap(gap);
+    }
+
+    /// Move toward `target` (0 in the other themes and in the menu bar's line).
+    pub fn step(&mut self, target: f32, dt: f32) {
+        let s = &mut self.0;
+        if target != s.target {
+            let (k, d) = if target > s.value { GAP_DROP } else { GAP_RISE };
+            s.retune(k, d);
+            s.set_target(target);
+        }
+        s.step(dt);
+    }
+
+    pub fn settled(&self) -> bool {
+        self.0.is_settled()
+    }
+
+    /// What `Island::set_floating` takes: the gap while the island is away
+    /// from the edge or on its way out, `None` at rest on it.
+    pub fn floating(&self) -> Option<f32> {
+        let s = &self.0;
+        (s.value > 0.0 || s.target > 0.0).then_some(s.value.max(0.0))
+    }
+}
+
+/// How far an island `top` DIPs below the edge has come away from it: 0
+/// attached, 1 at the Pill theme's full gap (below the menu bar on a notch).
+pub fn detach(top: f32, notch: Option<Notch>) -> f32 {
+    let full = notch.map_or(0.0, |n| n.h) + pill::TOP_GAP;
+    (top / full).clamp(0.0, 1.0)
+}
+
+/// The black strip a hanging island keeps behind the notch, over its content
+/// (none when Pill floats below).
+pub fn strip(m: &Mode, st: &AppState, n: Notch) -> f32 {
+    if fit(m, st) == Fit::Below && !floats(m, st) {
+        n.h
+    } else {
+        0.0
     }
 }
 
 /// Width of each ear in an ears fit.
 fn ear(m: &Mode, st: &AppState) -> f32 {
     match m {
+        Mode::Idle if pill::on(st.settings.theme) => {
+            if st.power.has_battery {
+                if st.settings.use_24h {
+                    PILL_EAR_24H
+                } else {
+                    PILL_EAR_12H
+                }
+            } else if st.settings.use_24h {
+                PILL_EAR_TIME_ONLY
+            } else {
+                PILL_EAR_12H
+            }
+        }
         Mode::Idle => {
             let clock = if st.settings.use_24h { 64.0 } else { 84.0 };
             if oyen::on(st.settings.theme) {
@@ -92,16 +217,16 @@ pub fn geom(m: &Mode, st: &AppState, n: Notch, base: Geom) -> Geom {
         // shows; a larger corner than the notch's own stays hidden too.
         Fit::Inside => Geom::new(n.w - 2.0, n.h - 1.0, n.h / 2.0),
         Fit::Ears => Geom::new(n.w + 2.0 * ear(m, st), n.h, EARS_R),
+        // Pill floats below the menu bar at its own size.
+        Fit::Below if floats(m, st) => base,
         Fit::Below => Geom::new(base.w.max(n.w + 2.0 * BELOW_EAR), base.h + n.h, base.r),
     }
 }
 
 /// Where the content of `m` draws inside the island's `body`.
 pub fn content_body(m: &Mode, st: &AppState, n: Notch, body: Rect) -> Rect {
-    match fit(m, st) {
-        Fit::Below => Rect::new(body.x, body.y + n.h, body.w, (body.h - n.h).max(0.0)),
-        _ => body,
-    }
+    let strip = strip(m, st, n);
+    Rect::new(body.x, body.y + strip, body.w, (body.h - strip).max(0.0))
 }
 
 /// The shoulders grow in as the island comes out of the notch (inside it,
@@ -110,12 +235,78 @@ pub fn shoulder(n: Notch, w: f32) -> f32 {
     SHOULDER * clamp01((w - n.w) / 24.0)
 }
 
+/// The Pill theme's outline `detach` of the way from hanging off the top
+/// edge (0: flat top flush with the edge, concave `shoulder`s, bottom
+/// corners `radius`, as `Canvas::notch`) to floating below it (1: every
+/// corner `radius`, as `pill::shape::segments`). The shoulders shrink away
+/// first, then the top corners round, so the shape never jumps between the
+/// two. `body` may sit below the edge (its top is the outline's top).
+pub fn detached_segments(body: Rect, radius: f32, shoulder: f32, detach: f32) -> Vec<Seg> {
+    let d = clamp01(detach);
+    let (x0, y0, x1, y1) = (body.x, body.y, body.right(), body.bottom());
+    let rb = radius.min(body.h / 2.0).min(body.w / 2.0).max(0.0);
+    let s = (shoulder * (1.0 - 2.0 * d)).clamp(0.0, body.h);
+    let rt = rb * (2.0 * d - 1.0).max(0.0);
+    let mut segs = Vec::with_capacity(12);
+    if s > 0.0 {
+        segs.push(Seg::MoveTo(x0 - s, y0));
+        segs.push(Seg::ArcTo(s, s, 0.0, false, true, x0, y0 + s));
+    } else {
+        segs.push(Seg::MoveTo(x0 + rt, y0));
+        if rt > 0.0 {
+            segs.push(Seg::ArcTo(rt, rt, 0.0, false, false, x0, y0 + rt));
+        }
+    }
+    segs.push(Seg::LineTo(x0, (y1 - rb).max(y0 + s.max(rt))));
+    segs.push(Seg::ArcTo(rb, rb, 0.0, false, false, x0 + rb, y1));
+    segs.push(Seg::LineTo(x1 - rb, y1));
+    segs.push(Seg::ArcTo(rb, rb, 0.0, false, false, x1, (y1 - rb).max(y0 + s.max(rt))));
+    if s > 0.0 {
+        segs.push(Seg::LineTo(x1, y0 + s));
+        segs.push(Seg::ArcTo(s, s, 0.0, false, true, x1 + s, y0));
+    } else {
+        segs.push(Seg::LineTo(x1, y0 + rt));
+        if rt > 0.0 {
+            segs.push(Seg::ArcTo(rt, rt, 0.0, false, false, x1 - rt, y0));
+        }
+    }
+    segs.push(Seg::Close);
+    segs
+}
+
+/// The Pill theme's outline for a mask, `detach` of the way to floating.
+pub fn pill_outline(body: Rect, radius: f32, shoulder: f32, detach: f32) -> Vec<Seg> {
+    if detach >= 1.0 {
+        pill::shape::segments(body, radius)
+    } else {
+        detached_segments(body, radius, shoulder, detach)
+    }
+}
+
+/// The Pill theme's island body while it floats or is on its way there:
+/// the shared floating body (outline, hairline, shadow) once it is all the
+/// way out, the blended outline before that. The hairline waits until the
+/// shoulders are gone (Classic's never runs along the screen edge either).
+pub fn draw_pill_body(c: &mut Canvas, body: Rect, radius: f32, shoulder: f32, detach: f32, fill: Color, border: Option<Color>) {
+    if detach >= 1.0 {
+        pill::shape::draw_body(c, body, radius, fill, border);
+        return;
+    }
+    c.path(&detached_segments(body, radius, shoulder, detach), Some(fill), None);
+    if let Some(b) = border.filter(|_| detach >= 0.5) {
+        c.path(&detached_segments(body.inset(0.5, 0.5), (radius - 0.5).max(0.0), 0.0, detach), None, Some((b, 1.0)));
+    }
+}
+
 /// Draw `m`'s ears content. Returns false when the shared activity drawing
 /// already fits (album art and equalizer sit at the island's two ends).
 pub fn draw_ears(ui: &mut Ui, st: &mut AppState, m: &Mode, body: Rect, n: Notch) -> bool {
     let ear_w = ((body.w - n.w) / 2.0).max(0.0);
     let left = Rect::new(body.x, body.y, ear_w, body.h);
     let right = Rect::new(body.right() - ear_w, body.y, ear_w, body.h);
+    if pill::on(st.settings.theme) {
+        return draw_pill_ears(ui, st, m, body, left, right);
+    }
     match m {
         Mode::Idle => {
             if oyen::on(st.settings.theme) {
@@ -154,4 +345,80 @@ pub fn draw_ears(ui: &mut Ui, st: &mut AppState, m: &Mode, body: Rect, n: Notch)
         }
         _ => false,
     }
+}
+
+/// The Pill theme in the menu bar's line: its resting pill split by the
+/// camera (the time hard left, the battery hard right, as at rest without a
+/// notch) and the timer the same way (ring left, digits right). Music falls
+/// to the shared drawing: its art and equalizer sit at the two ends.
+fn draw_pill_ears(ui: &mut Ui, st: &mut AppState, m: &Mode, body: Rect, left: Rect, right: Rect) -> bool {
+    let cy = body.center().y;
+    match m {
+        Mode::Idle => {
+            let time = fmt_clock(&st.local, st.settings.use_24h);
+            let ts = TextStyle::headline().tabular().color(Color::white(1.0));
+            ui.c.text(&time, Rect::new(left.x + PILL_END, body.y, (left.w - PILL_END - PILL_CAMERA).max(0.0), body.h), &ts);
+            if st.power.has_battery {
+                pill_battery(ui, st, right.right() - PILL_END, cy);
+            }
+            true
+        }
+        Mode::Activity(Activity::Timer) => {
+            let p = &st.pomodoro;
+            let col = match p.phase {
+                Phase::Focus => st.accent,
+                Phase::ShortBreak | Phase::LongBreak => palette::GREEN,
+            };
+            let paused = !p.is_running();
+            // A 14 DIP ring (2.5 stroke) 12 in from the end, the digits 14 in from the other.
+            let c = Point::new(left.x + 12.0 + 7.0, cy);
+            ui.c.ring(c, 7.0 - 1.25, 2.5, p.progress(st.now), Color::white(0.22), col);
+            if paused {
+                ui.c.icon(Icon::Pause, Rect::from_center(c, 7.0, 7.0), palette::TEXT_DIM);
+            }
+            let text = fmt_countdown(p.remaining(st.now));
+            let ts = TextStyle::headline().tabular().color(if paused { palette::TEXT_DIM } else { Color::white(1.0) }).right();
+            ui.c.text(&text, Rect::new(right.x + PILL_CAMERA, body.y, (right.w - PILL_CAMERA - 14.0).max(0.0), body.h), &ts);
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Snap a DIP coordinate to the device-pixel grid (crisp small outlines).
+fn snap(ui: &Ui, v: f32) -> f32 {
+    let s = ui.c.scale().max(0.1);
+    (v * s).round() / s
+}
+
+/// Pill's battery, right-aligned to `right` and centred on `cy`: the
+/// percentage in grey, then a small battery with its fill in green (red when
+/// low), a bolt inside while it charges.
+fn pill_battery(ui: &mut Ui, st: &AppState, right: f32, cy: f32) {
+    let p = st.power;
+    let low = p.percent <= 20 && !p.charging;
+    let fill = if low { palette::RED } else { palette::GREEN };
+    let x = snap(ui, right - NUB.0 - NUB_GAP - BATTERY.0);
+    let y = snap(ui, cy - BATTERY.1 / 2.0);
+    let shell = Rect::new(x, y, BATTERY.0, BATTERY.1);
+    ui.c.stroke_rrect(shell.inset(0.625, 0.625), BATTERY_R - 0.625, PILL_LINE, 1.25);
+    ui.c.fill_rrect(Rect::new(shell.right() + NUB_GAP, cy - NUB.1 / 2.0, NUB.0, NUB.1), 0.75, PILL_LINE);
+    let frac = (p.percent as f32 / 100.0).clamp(0.0, 1.0);
+    if frac > 0.0 {
+        let inner = shell.inset(2.0, 2.0);
+        ui.c.fill_rrect(Rect::new(inner.x, inner.y, (inner.w * frac).max(2.0), inner.h), 1.5, fill);
+    }
+    if p.charging {
+        // The bolt cuts through the fill: the ground colour around it first,
+        // kept inside the outline.
+        let at = shell.center();
+        ui.c.clip(shell.inset(1.25, 1.25));
+        ui.c.icon(Icon::Bolt, Rect::from_center(at, 12.5, 12.5), palette::ISLAND);
+        ui.c.unclip();
+        ui.c.icon(Icon::Bolt, Rect::from_center(at, 10.0, 10.0), Color::white(1.0));
+    }
+    let label = format!("{}%", p.percent);
+    let ts = TextStyle::body().weight(Weight::Medium).tabular().color(PILL_DIM).right();
+    let w = 40.0;
+    ui.c.text(&label, Rect::new(x - PCT_GAP - w, cy - 10.0, w, 20.0), &ts);
 }

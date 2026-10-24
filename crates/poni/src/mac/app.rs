@@ -23,6 +23,7 @@ use crate::notch::{self, Fit, Notch};
 use crate::oyen;
 use crate::pages::{self, PageKind};
 use crate::paths;
+use crate::pill;
 use crate::services;
 use crate::events::{AppleMusicStatus, LyricsResult};
 use crate::state::{AppState, HudKind, InlineAction, LyricsState, LyricsStatus, NoticeAction, PhoneAsk, PhoneDrop, PhoneTransfer, VolumeState};
@@ -295,6 +296,9 @@ pub struct App {
     gfx: Gfx,
     pub st: AppState,
     island: Island,
+    /// How far below the top edge the Pill theme's island floats (0 =
+    /// attached, as in the other themes).
+    gap: notch::PillGap,
     mode: Mode,
     input: Input,
     hits: Vec<Hit>,
@@ -399,6 +403,7 @@ impl App {
             gfx,
             st,
             island: Island::new(Geom::new(118.0, 30.0, 14.0)),
+            gap: notch::PillGap::default(),
             mode: Mode::Idle,
             input: Input::default(),
             hits: Vec::new(),
@@ -453,6 +458,9 @@ impl App {
         self.layout_surface();
         let g = self.geom_for(&self.mode);
         self.island.snap(g);
+        let gap = self.gap_target(&self.mode);
+        self.gap.snap(gap);
+        self.island.set_floating(self.gap.floating());
         self.menubar = Some(MenuBar::add(self.mtm, &self.st.settings, self.st.pinned, services::login::status()));
         self.st.power = services::power::query();
         services::power::watch(self.sink.clone());
@@ -647,6 +655,10 @@ impl App {
     fn settings_changed(&mut self, before: &Settings) {
         if before.theme != self.st.settings.theme {
             self.st.accent = theme_accent(self.st.settings.theme);
+        }
+        // The Pill theme's window keeps room for the gap above the island.
+        if pill::on(before.theme) != pill::on(self.st.settings.theme) {
+            self.layout_surface();
         }
         if before.clipboard_history && !self.st.settings.clipboard_history {
             // Privacy: turning history off forgets everything, pinned items included.
@@ -1111,12 +1123,12 @@ impl App {
     }
 
     fn layout_surface_for(&mut self, body_w: f32, body_h: f32) {
-        let notch_h = self.screen.notch.map_or(0.0, |n| n.h);
-        let mut w = (body_w * OVERSHOOT + 2.0 * (SHOULDER + HIT_MARGIN)).ceil();
+        let (side, top, bottom) = self.room();
+        let mut w = (body_w * OVERSHOOT + 2.0 * side).ceil();
         if w as i64 % 2 != 0 {
             w += 1.0;
         }
-        let h = ((body_h + notch_h) * OVERSHOOT + HIT_MARGIN).ceil();
+        let h = ((body_h + self.strip()) * OVERSHOOT + top + bottom).ceil();
         if (w, h) != self.surface {
             self.surface = (w, h);
             self.cx = w / 2.0;
@@ -1130,15 +1142,57 @@ impl App {
         let g = self.island.current();
         let t = self.island.target();
         let (bw, bh) = ((t.w * OVERSHOOT).max(g.w), (t.h * OVERSHOOT).max(g.h));
-        let need_w = bw + 2.0 * (SHOULDER + HIT_MARGIN);
-        let need_h = bh + HIT_MARGIN;
+        let (side, top, bottom) = self.room();
+        let need_w = bw + 2.0 * side;
+        let need_h = bh + top + bottom;
         if need_w > self.surface.0 || need_h > self.surface.1 {
-            let notch_h = self.screen.notch.map_or(0.0, |n| n.h);
             let tallest = PageKind::ALL.iter().map(|p| pages::content_height(*p, &self.st)).fold(0.0f32, f32::max);
-            let body_h = (pages::HEADER_H + tallest + pages::PAD).max((bh - notch_h) / OVERSHOOT * 1.1);
+            let body_h = (pages::HEADER_H + tallest + pages::PAD).max((bh - self.strip()) / OVERSHOOT * 1.1);
             pinfo!("island outgrew the window; growing it to fit {bw:.0}x{bh:.0} DIP");
             self.layout_surface_for(self.st.settings.expanded_width.max(bw / OVERSHOOT * 1.1), body_h);
         }
+    }
+
+    /// Room the window keeps beside, above and below the island's body: the
+    /// shoulders and hit margin, and in the Pill theme the floating outline's
+    /// margin and the gap above it (below the menu bar on a notch).
+    fn room(&self) -> (f32, f32, f32) {
+        let side = SHOULDER + HIT_MARGIN;
+        if !pill::on(self.st.settings.theme) {
+            return (side, 0.0, HIT_MARGIN);
+        }
+        let top = self.screen.notch.map_or(0.0, |n| n.h) + pill::TOP_GAP;
+        (side.max(pill::shape::MARGIN), top, HIT_MARGIN.max(pill::shape::MARGIN))
+    }
+
+    /// The strip the open island keeps behind a notch over its content
+    /// (none in the Pill theme, which floats below the menu bar).
+    fn strip(&self) -> f32 {
+        match self.screen.notch {
+            Some(n) if !pill::on(self.st.settings.theme) => n.h,
+            _ => 0.0,
+        }
+    }
+
+    /// Where the Pill theme's island sits below the top edge in `m`:
+    /// `TOP_GAP` on a screen without a notch (as on Windows); around a notch
+    /// under the menu bar for what floats, 0 in the menu bar's line. 0 in the
+    /// other themes.
+    fn gap_target(&self, m: &Mode) -> f32 {
+        if !pill::on(self.st.settings.theme) {
+            return 0.0;
+        }
+        match self.screen.notch {
+            Some(n) => notch::pill_gap(m, &self.st, n),
+            None => pill::TOP_GAP,
+        }
+    }
+
+    /// Move the gap toward where the current mode wants it.
+    fn step_gap(&mut self, dt: f32) {
+        let target = self.gap_target(&self.mode);
+        self.gap.step(target, dt);
+        self.island.set_floating(self.gap.floating());
     }
 
     fn target_mode(&self) -> Mode {
@@ -1189,10 +1243,20 @@ impl App {
     }
 
     /// Whether `p` is over the part of the window that takes the mouse: the
-    /// whole canvas while expanded (a forgiving edge), only the island collapsed.
+    /// whole canvas while expanded (a forgiving edge), only the island
+    /// collapsed (floating, with the gap above it: a pointer thrown at the top
+    /// edge still lands on it).
     fn hovering_inside(&self, p: Point) -> bool {
+        // Floating below a notch, the menu bar beside the notch keeps its
+        // clicks: in the menu bar's line only the notch takes the mouse, and
+        // the island under it with the gap between them.
+        if let Some(n) = self.screen.notch.filter(|_| self.island.floating()) {
+            if p.y < n.h {
+                return (p.x - self.cx).abs() <= n.w / 2.0;
+            }
+        }
         if !self.expanded {
-            return self.island.body_rect_at(self.cx).contains(p);
+            return self.island.hover_rect_at(self.cx).contains(p);
         }
         self.island.canvas_rect_at(self.cx).contains(p)
     }
@@ -1806,6 +1870,9 @@ impl App {
         let dt = dt.clamp(0.0, 0.05) as f32;
         self.set_stats(self.mode == Mode::Expanded(PageKind::Today));
         self.set_sysmon(self.mode == Mode::Expanded(PageKind::System));
+        // The Pill theme floats the island below the top edge (below the menu
+        // bar for what hangs under a notch).
+        self.step_gap(dt);
         self.island.step(dt, now);
         self.ensure_room();
         self.note_motion(retarget, mono, period, dt as f64);
@@ -1854,6 +1921,8 @@ impl App {
         let shoulder = notch.map_or(SHOULDER, |n| notch::shoulder(n, geom.w));
         let hidden = self.island_hidden();
         let look = self.look();
+        // The Pill theme's island away from the edge, and how far.
+        let (floating, detach) = (self.island.floating(), notch::detach(self.island.top(), notch));
         self.gfx.set_look(look);
         let mut hits = std::mem::take(&mut self.hits);
         hits.clear();
@@ -1863,12 +1932,20 @@ impl App {
                 glass::draw_body(&mut canvas, body, geom.r, shoulder, notch, hidden, false);
             } else {
                 let border = if hidden { None } else { Some(canvas.look().border) };
-                canvas.notch(body, geom.r, shoulder, palette::ISLAND, border);
+                if floating {
+                    notch::draw_pill_body(&mut canvas, body, geom.r, shoulder, detach, palette::ISLAND, border);
+                } else {
+                    canvas.notch(body, geom.r, shoulder, palette::ISLAND, border);
+                }
             }
             let pivot = Point::new(body.center().x, body.y);
             if morphing {
                 canvas.clip(body);
-                canvas.push_shape_mask(body, geom.r, shoulder);
+                if floating {
+                    canvas.push_outline_mask(&notch::pill_outline(body, geom.r, shoulder, detach));
+                } else {
+                    canvas.push_shape_mask(body, geom.r, shoulder);
+                }
             }
             // Outgoing content: at its own (old) size, shrinking with the
             // outline, fading out on a smoothstep. Ghost input: no clicks.
@@ -1909,7 +1986,7 @@ impl App {
         // Unconsumed wheel over the header switches pages, one per whole notch.
         let wheel_left = self.input.wheel;
         if let Mode::Expanded(p) = self.mode {
-            let top = body.y + notch.map_or(0.0, |n| n.h);
+            let top = body.y + self.strip();
             let over_header = self.input.mouse.is_some_and(|m| m.y < top + pages::HEADER_H);
             if wheel_left != 0.0 && over_header {
                 if now - self.wheel_t > 0.25 || wheel_left.signum() != self.wheel_acc.signum() {
@@ -1937,7 +2014,13 @@ impl App {
             None => {}
         }
         self.run_commands();
-        let moving = !self.island.settled() || d.anim || d.repaint || !self.st.cmds.is_empty() || self.outgoing.is_some() || self.page_anim.is_some();
+        let moving = !self.island.settled()
+            || !self.gap.settled()
+            || d.anim
+            || d.repaint
+            || !self.st.cmds.is_empty()
+            || self.outgoing.is_some()
+            || self.page_anim.is_some();
         let live = activities::is_live(&self.mode, &self.st) || d.live;
         window::set_frames(moving || live);
         self.schedule_wake();
@@ -1972,7 +2055,7 @@ impl App {
     /// screen rectangle) and wait for CI's screenshot (`shot-<n>-<name>.done`).
     fn smoke_step(&mut self) {
         let Some(mut sm) = self.smoke.take() else { return };
-        let settled = self.island.settled() && self.target_mode() == self.mode && self.outgoing.is_none() && self.page_anim.is_none();
+        let settled = self.island.settled() && self.gap.settled() && self.target_mode() == self.mode && self.outgoing.is_none() && self.page_anim.is_none();
         let now = clock::mono();
         match sm.phase {
             SmokePhase::Apply => {
@@ -2097,7 +2180,14 @@ impl App {
                 self.st.page = PageKind::Today;
                 self.expand();
             }
-            "glass-collapsed" | "notch-oyen-collapsed" => self.collapse(),
+            "glass-collapsed" | "notch-oyen-collapsed" | "pill-collapsed" | "notch-pill-collapsed" => self.collapse(),
+            // Pill floats below the top edge, open and resting; around the
+            // notch it rests in the menu bar's line and opens below it.
+            "pill-open" | "notch-pill-open" => {
+                self.on_menu(MenuCmd::SetTheme(Theme::Pill));
+                self.st.page = PageKind::Today;
+                self.expand();
+            }
             "notch-oyen-open" => {
                 window::fake_notch(Some(Notch::MACBOOK));
                 self.refresh_screen();
@@ -2141,6 +2231,50 @@ impl App {
             "menu" => waited > 1.0,
             _ => true,
         }
+    }
+
+    /// The Pill theme on the real window: where the island sits, and which
+    /// points take the mouse. Without a notch it floats `TOP_GAP` below the
+    /// top edge and the gap above it takes the mouse; around a notch it rests
+    /// attached in the menu bar's line and opens floating below it, where the
+    /// gap and the notch take the mouse and the menu bar beside the notch
+    /// doesn't.
+    fn pill_report(&self) -> (&'static str, bool, String) {
+        let body = self.island.body_rect_at(self.cx);
+        let look = *self.look() == poni_core::look::PILL && !glass::shown();
+        let at = |x: f32, y: f32| self.hovering_inside(Point::new(x, y));
+        let (ok, place) = match self.screen.notch {
+            None => {
+                let gap_takes = at(self.cx, pill::TOP_GAP / 2.0);
+                let ok = self.island.floating() && (self.island.top() - pill::TOP_GAP).abs() < 0.01 && gap_takes;
+                (ok, format!("floating {:.0} DIP below the top edge, the gap above it takes the mouse: {gap_takes}", self.island.top()))
+            }
+            Some(n) if self.expanded => {
+                let gap_takes = at(self.cx, n.h + pill::TOP_GAP / 2.0);
+                let notch_takes = at(self.cx, n.h / 2.0);
+                let bar_free = !at(self.cx - n.w / 2.0 - 24.0, n.h / 2.0);
+                let ok = self.island.floating() && (self.island.top() - n.h - pill::TOP_GAP).abs() < 0.01 && gap_takes && notch_takes && bar_free;
+                let place = format!(
+                    "floating {:.0} DIP below the top edge ({:.0} below a {:.0}x{:.0} notch); the gap takes the mouse: {gap_takes}, the notch: {notch_takes}, the menu bar beside it stays clickable: {bar_free}",
+                    self.island.top(),
+                    self.island.top() - n.h,
+                    n.w,
+                    n.h
+                );
+                (ok, place)
+            }
+            Some(n) => {
+                let fit = notch::fit(&self.mode, &self.st);
+                let ok = !self.island.floating() && body.y == 0.0 && fit != Fit::Below;
+                (ok, format!("attached in the menu bar's line ({fit:?} around a {:.0}x{:.0} notch)", n.w, n.h))
+            }
+        };
+        let g = self.island.current();
+        (
+            "pill-theme",
+            ok && look,
+            format!("{:?}, {:.0}x{:.0} DIP r {:.0}, {place}; Pill's look: {look}", self.mode, g.w, g.h, g.r),
+        )
     }
 
     /// What each new part of the app did on a real Mac.
@@ -2198,6 +2332,7 @@ impl App {
                 let ok = self.screen.notch.is_some() && *look == poni_core::look::OYEN_NIGHT && !glass::shown();
                 Some(("oyen-around-notch", ok, format!("ground {:?}, ink {:?}, font {:?}", look.ground, look.ink, look.font)))
             }
+            "pill-open" | "pill-collapsed" | "notch-pill-open" | "notch-pill-collapsed" => Some(self.pill_report()),
             "music-check" => {
                 let playing = self.st.media.as_ref().map_or("nothing".to_string(), |m| format!("{} by {} in {}", m.title, m.artist, m.app_name));
                 let l = &self.st.lyrics;
@@ -2374,7 +2509,7 @@ pub fn draw_content(
 
 // ---------------------------------------------------------------- smoke test bookkeeping
 
-const SMOKE_STEPS: [&str; 24] = [
+const SMOKE_STEPS: [&str; 28] = [
     "idle",
     "hover",
     "open-focus",
@@ -2395,9 +2530,13 @@ const SMOKE_STEPS: [&str; 24] = [
     "music-check",
     "glass-open",
     "glass-collapsed",
+    "pill-open",
+    "pill-collapsed",
     "notch-oyen-open",
     "notch-oyen-collapsed",
     "notch-glass-open",
+    "notch-pill-open",
+    "notch-pill-collapsed",
     "menu",
 ];
 /// The track CI announces as Spotify's own notification would.
