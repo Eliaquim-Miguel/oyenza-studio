@@ -300,9 +300,6 @@ pub struct App {
     gfx: Gfx,
     pub st: AppState,
     island: Island,
-    /// How far below the top edge the Pill theme's island floats (0 =
-    /// attached, as in the other themes).
-    gap: notch::PillGap,
     mode: Mode,
     input: Input,
     hits: Vec<Hit>,
@@ -407,7 +404,6 @@ impl App {
             gfx,
             st,
             island: Island::new(Geom::new(118.0, 30.0, 14.0)),
-            gap: notch::PillGap::default(),
             mode: Mode::Idle,
             input: Input::default(),
             hits: Vec::new(),
@@ -460,11 +456,10 @@ impl App {
 
     fn start(&mut self) {
         self.layout_surface();
+        // Floating from the start: before the first frame the gap is taken at once.
+        self.island.set_floating(self.gap_target(&self.mode));
         let g = self.geom_for(&self.mode);
         self.island.snap(g);
-        let gap = self.gap_target(&self.mode);
-        self.gap.snap(gap);
-        self.island.set_floating(self.gap.floating());
         self.menubar = Some(MenuBar::add(self.mtm, &self.st.settings, self.st.pinned, services::login::status()));
         self.st.power = services::power::query();
         services::power::watch(self.sink.clone());
@@ -1178,25 +1173,20 @@ impl App {
         }
     }
 
-    /// Where the Pill theme's island sits below the top edge in `m`:
-    /// `TOP_GAP` on a screen without a notch (as on Windows); around a notch
-    /// under the menu bar for what floats, 0 in the menu bar's line. 0 in the
-    /// other themes.
-    fn gap_target(&self, m: &Mode) -> f32 {
+    /// Where the Pill theme's island floats in `m`: `TOP_GAP` below the top
+    /// edge on a screen without a notch (as on Windows); around a notch below
+    /// the menu bar for what hangs under it, `None` (attached) in the menu
+    /// bar's line. `None` in the other themes. The island eases to it on its
+    /// own spring (island.rs), so it lets go of the notch and comes back with
+    /// the outline.
+    fn gap_target(&self, m: &Mode) -> Option<f32> {
         if !pill::on(self.st.settings.theme) {
-            return 0.0;
+            return None;
         }
         match self.screen.notch {
             Some(n) => notch::pill_gap(m, &self.st, n),
-            None => pill::TOP_GAP,
+            None => Some(pill::TOP_GAP),
         }
-    }
-
-    /// Move the gap toward where the current mode wants it.
-    fn step_gap(&mut self, dt: f32) {
-        let target = self.gap_target(&self.mode);
-        self.gap.step(target, dt);
-        self.island.set_floating(self.gap.floating());
     }
 
     fn target_mode(&self) -> Mode {
@@ -1236,7 +1226,12 @@ impl App {
             _ => false,
         };
         if liftable && self.hovering && !self.expanded {
-            Geom::new(g.w + HOVER_LIFT.0, g.h + HOVER_LIFT.1, g.r + HOVER_LIFT.2)
+            if self.gap_target(m).is_some() {
+                // Floating, it swells evenly about its middle and stays a capsule.
+                pill::motion::hover_lift(g)
+            } else {
+                Geom::new(g.w + HOVER_LIFT.0, g.h + HOVER_LIFT.1, g.r + HOVER_LIFT.2)
+            }
         } else {
             g
         }
@@ -1876,7 +1871,7 @@ impl App {
         self.set_sysmon(self.mode == Mode::Expanded(PageKind::System));
         // The Pill theme floats the island below the top edge (below the menu
         // bar for what hangs under a notch).
-        self.step_gap(dt);
+        self.island.set_floating(self.gap_target(&self.mode));
         self.island.step(dt, now);
         self.ensure_room();
         self.note_motion(retarget, mono, period, dt as f64);
@@ -1949,7 +1944,9 @@ impl App {
                     canvas.notch(body, geom.r, shoulder, palette::ISLAND, border);
                 }
             }
-            let pivot = Point::new(body.center().x, body.y);
+            // Content scales about the top centre, where the island hangs
+            // (floating, about the middle of the pill end of the morph).
+            let pivot = if floating { pill::motion::pivot(body, self.island.target()) } else { Point::new(body.center().x, body.y) };
             if morphing {
                 canvas.clip(body);
                 if floating {
@@ -1967,7 +1964,8 @@ impl App {
                 } else {
                     let old_body = Rect::new(body.center().x - g.w / 2.0, body.y, g.w, g.h);
                     let alpha = 1.0 - t * t * (3.0 - 2.0 * t);
-                    let xf = scale_about(pivot, (geom.w / g.w.max(1.0)).clamp(GHOST_MIN_SCALE, 1.0));
+                    let shrink = if floating { pill::motion::ghost_scale(geom, g, GHOST_MIN_SCALE) } else { (geom.w / g.w.max(1.0)).clamp(GHOST_MIN_SCALE, 1.0) };
+                    let xf = scale_about(pivot, shrink);
                     let st = &mut self.st;
                     canvas.layered(old_body, alpha, xf, |c| {
                         let mut ghost_input = Input::default();
@@ -1979,7 +1977,8 @@ impl App {
             // Incoming content settles down from the bezel as it fades in.
             let out = if content_alpha < 1.0 {
                 let grow = scale_about(pivot, CONTENT_SCALE_FROM + (1.0 - CONTENT_SCALE_FROM) * content_alpha);
-                let xf = grow * Matrix3x2::translation(0.0, -CONTENT_DROP * (1.0 - content_alpha));
+                let drop_by = if floating { pill::motion::CONTENT_DROP } else { CONTENT_DROP };
+                let xf = grow * Matrix3x2::translation(0.0, -drop_by * (1.0 - content_alpha));
                 let (input, st) = (&mut self.input, &mut self.st);
                 canvas.layered(union_rect(lay, body), content_alpha, xf, |c| draw_content(c, input, &mut hits, st, mode, lay, body, transition, now, notch))
             } else {
@@ -2029,7 +2028,6 @@ impl App {
         }
         self.run_commands();
         let moving = !self.island.settled()
-            || !self.gap.settled()
             || d.anim
             || d.repaint
             || !self.st.cmds.is_empty()
@@ -2069,7 +2067,7 @@ impl App {
     /// screen rectangle) and wait for CI's screenshot (`shot-<n>-<name>.done`).
     fn smoke_step(&mut self) {
         let Some(mut sm) = self.smoke.take() else { return };
-        let settled = self.island.settled() && self.gap.settled() && self.target_mode() == self.mode && self.outgoing.is_none() && self.page_anim.is_none();
+        let settled = self.island.settled() && self.target_mode() == self.mode && self.outgoing.is_none() && self.page_anim.is_none();
         let now = clock::mono();
         match sm.phase {
             SmokePhase::Apply => {
@@ -2202,7 +2200,15 @@ impl App {
                 self.st.page = PageKind::Today;
                 self.expand();
             }
+            // The pointer in the gap above the resting pill: it hovers (the
+            // pill swells), without the dwell that would open it.
+            "pill-hover" => {
+                self.on_pointer(Point::new(self.cx, pill::TOP_GAP / 2.0));
+                self.cancel_hover();
+            }
             "notch-oyen-open" => {
+                // The pointer from pill-hover leaves first.
+                self.leave();
                 window::fake_notch(Some(Notch::MACBOOK));
                 self.refresh_screen();
                 self.on_menu(MenuCmd::SetTheme(Theme::Oyen));
@@ -2348,6 +2354,24 @@ impl App {
                 Some(("oyen-around-notch", ok, format!("ground {:?}, ink {:?}, font {:?}", look.ground, look.ink, look.font)))
             }
             "pill-open" | "pill-collapsed" | "notch-pill-open" | "notch-pill-collapsed" => Some(self.pill_report()),
+            "pill-hover" => {
+                let (now, rest) = (self.island.current(), activities::geom(&self.mode, &self.st));
+                let want = pill::motion::hover_lift(rest);
+                let top = pill::TOP_GAP + want.dy;
+                let ok = self.hovering && (now.w, now.h, now.r) == (want.w, want.h, want.r) && (self.island.top() - top).abs() < 0.01;
+                let d = format!(
+                    "pointer in the gap above the pill: hovering {}, {:.0}x{:.0} DIP r {:.0} at {:.0} below the top edge (resting {:.0}x{:.0} at {:.0})",
+                    self.hovering,
+                    now.w,
+                    now.h,
+                    now.r,
+                    self.island.top(),
+                    rest.w,
+                    rest.h,
+                    pill::TOP_GAP
+                );
+                Some(("pill-hover", ok, d))
+            }
             "music-check" => {
                 let playing = self.st.media.as_ref().map_or("nothing".to_string(), |m| format!("{} by {} in {}", m.title, m.artist, m.app_name));
                 let l = &self.st.lyrics;
@@ -2524,7 +2548,7 @@ pub fn draw_content(
 
 // ---------------------------------------------------------------- smoke test bookkeeping
 
-const SMOKE_STEPS: [&str; 28] = [
+const SMOKE_STEPS: [&str; 29] = [
     "idle",
     "hover",
     "open-focus",
@@ -2547,6 +2571,7 @@ const SMOKE_STEPS: [&str; 28] = [
     "glass-collapsed",
     "pill-open",
     "pill-collapsed",
+    "pill-hover",
     "notch-oyen-open",
     "notch-oyen-collapsed",
     "notch-glass-open",

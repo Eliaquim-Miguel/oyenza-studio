@@ -211,7 +211,7 @@ fn render_morph(gfx: &mut Gfx, theme: Theme, notch: Option<Notch>, path: &Path) 
         let g = activities::geom(m, st);
         notch.map_or(g, |n| notch::geom(m, st, n, g))
     };
-    let gap_at = |m: &Mode, st: &AppState| notch.map_or(crate::pill::TOP_GAP, |n| notch::pill_gap(m, st, n));
+    let gap_at = |m: &Mode, st: &AppState| notch.map_or(Some(crate::pill::TOP_GAP), |n| notch::pill_gap(m, st, n));
     let ends = [(rest, size(&rest, &st), gap_at(&rest, &st)), (open, size(&open, &st), gap_at(&open, &st))];
     let menu_h = notch.map_or(MENU_BAR, |n| n.h);
     let cell_w = st.settings.expanded_width + 2.0 * MARGIN_X;
@@ -223,16 +223,15 @@ fn render_morph(gfx: &mut Gfx, theme: Theme, notch: Option<Notch>, path: &Path) 
         let (_, g_from, gap_from) = ends[from];
         let (to_mode, g_to, gap_to) = ends[to];
         let mut island = Island::new(g_from);
+        island.set_floating(gap_from);
         island.snap(g_from);
-        let mut gap = notch::PillGap::default();
-        gap.snap(gap_from);
-        island.set_floating(gap.floating());
+        // A first (still) frame, so the new gap below slides instead of snapping.
+        island.step(0.0, NOW_MONO);
         island.set_target(g_to, NOW_MONO, true);
+        island.set_floating(gap_to);
         let (mut k, mut now) = (0usize, NOW_MONO);
         for (row, &f) in FRAMES.iter().enumerate() {
             while k < f {
-                gap.step(gap_to, DT);
-                island.set_floating(gap.floating());
                 island.step(DT, now);
                 now += DT as f64;
                 k += 1;
@@ -461,18 +460,14 @@ fn render_scene(gfx: &mut Gfx, scene: Scene, theme: Theme, notch: Option<Notch>,
     if let Some(n) = notch {
         g = notch::geom(&mode, &st, n, g);
     }
+    // The Pill theme floats it below the top edge, where the app puts it.
+    let gap = if crate::pill::on(theme) { notch.map_or(Some(crate::pill::TOP_GAP), |n| notch::pill_gap(&mode, &st, n)) } else { None };
     if hovering {
-        g = crate::island::Geom::new(g.w + 12.0, g.h + 4.0, g.r + 2.0);
+        g = if gap.is_some() { crate::pill::motion::hover_lift(g) } else { crate::island::Geom::new(g.w + 12.0, g.h + 4.0, g.r + 2.0) };
     }
     let mut island = Island::new(g);
+    island.set_floating(gap);
     island.snap(g);
-    // The Pill theme floats it below the top edge, where the app puts it.
-    if crate::pill::on(theme) {
-        let gap = notch.map_or(crate::pill::TOP_GAP, |n| notch::pill_gap(&mode, &st, n));
-        let mut at = notch::PillGap::default();
-        at.snap(gap);
-        island.set_floating(at.floating());
-    }
 
     let menu_h = notch.map_or(MENU_BAR, |n| n.h);
     let w_dip = (st.settings.expanded_width + 2.0 * MARGIN_X).max(g.w + 2.0 * (SHOULDER + MARGIN_X));

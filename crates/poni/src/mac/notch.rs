@@ -16,7 +16,8 @@
 //! sit on every window's toolbar all day. What hangs below the notch floats
 //! there instead ([`floats`]): the capsule or card `pill::TOP_GAP` under the
 //! menu bar, every corner rounded, no strip behind the camera. On its way
-//! between the two the outline lets go of the edge smoothly
+//! between the two the island's gap moves on its own spring (island.rs,
+//! `pill::motion::TOP`) and the outline lets go of the edge smoothly
 //! ([`detached_segments`]).
 //!
 //! Screens without a notch (older Macs, external displays) show the island
@@ -34,7 +35,6 @@ use poni_core::datetime::{fmt_clock, fmt_countdown};
 use poni_core::geom::{clamp01, palette, Color, Point, Rect};
 use poni_core::pomodoro::Phase;
 use poni_core::settings::IdleStyle;
-use poni_core::spring::Spring;
 use poni_core::svgpath::Seg;
 
 /// The notch as macOS reports it, in DIPs (points).
@@ -99,68 +99,20 @@ pub fn floats(m: &Mode, st: &AppState) -> bool {
     pill::on(st.settings.theme) && fit(m, st) == Fit::Below
 }
 
-/// How far below the screen's top edge the Pill theme's island sits in `m`
-/// around notch `n`: `TOP_GAP` under the menu bar for what floats, 0
-/// (attached to the notch) in the menu bar's line.
-pub fn pill_gap(m: &Mode, st: &AppState, n: Notch) -> f32 {
-    if floats(m, st) {
-        n.h + pill::TOP_GAP
-    } else {
-        0.0
-    }
-}
-
-/// The Pill theme's gap below the top edge moves on the island's own
-/// tunings: it drops as the height grows (island.rs GROW_H) and rises back
-/// into the menu bar's line as it shrinks (SHRINK_H).
-const GAP_DROP: (f32, f32) = (300.0, 26.0);
-const GAP_RISE: (f32, f32) = (420.0, 38.0);
-
-/// How far below the top edge the Pill theme's island floats (DIPs), on a
-/// spring: around a notch it lets go of the edge and comes back with the
-/// outline, and picking the theme lowers it into place.
-#[derive(Clone, Copy, Debug)]
-pub struct PillGap(Spring);
-
-impl Default for PillGap {
-    fn default() -> Self {
-        PillGap(Spring::new(0.0, GAP_DROP.0, GAP_DROP.1))
-    }
-}
-
-impl PillGap {
-    pub fn snap(&mut self, gap: f32) {
-        self.0.snap(gap);
-    }
-
-    /// Move toward `target` (0 in the other themes and in the menu bar's line).
-    pub fn step(&mut self, target: f32, dt: f32) {
-        let s = &mut self.0;
-        if target != s.target {
-            let (k, d) = if target > s.value { GAP_DROP } else { GAP_RISE };
-            s.retune(k, d);
-            s.set_target(target);
-        }
-        s.step(dt);
-    }
-
-    pub fn settled(&self) -> bool {
-        self.0.is_settled()
-    }
-
-    /// What `Island::set_floating` takes: the gap while the island is away
-    /// from the edge or on its way out, `None` at rest on it.
-    pub fn floating(&self) -> Option<f32> {
-        let s = &self.0;
-        (s.value > 0.0 || s.target > 0.0).then_some(s.value.max(0.0))
-    }
+/// Where the Pill theme's island floats in `m` around notch `n`: `TOP_GAP`
+/// under the menu bar for what hangs below the notch, `None` (attached to
+/// it, as in the other themes) in the menu bar's line.
+pub fn pill_gap(m: &Mode, st: &AppState, n: Notch) -> Option<f32> {
+    floats(m, st).then_some(n.h + pill::TOP_GAP)
 }
 
 /// How far an island `top` DIPs below the edge has come away from it: 0
-/// attached, 1 at the Pill theme's full gap (below the menu bar on a notch).
+/// attached, 1 all the way out (below the menu bar on a notch). The pill
+/// under the pointer rises a little into its gap and still counts as out.
 pub fn detach(top: f32, notch: Option<Notch>) -> f32 {
-    let full = notch.map_or(0.0, |n| n.h) + pill::TOP_GAP;
-    (top / full).clamp(0.0, 1.0)
+    let rise = pill::motion::HOVER_OUTSET - pill::motion::HOVER_SINK;
+    let full = notch.map_or(0.0, |n| n.h) + pill::TOP_GAP - rise;
+    (top / full.max(1.0)).clamp(0.0, 1.0)
 }
 
 /// The black strip a hanging island keeps behind the notch, over its content
