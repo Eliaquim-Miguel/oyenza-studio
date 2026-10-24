@@ -243,7 +243,6 @@ fn moon(ui: &mut Ui, c: Point, d: f32, col: Color) {
 }
 
 fn draw_prayer(ui: &mut Ui, st: &AppState, body: Rect) {
-    // No Oyen here, in any theme: the moon and the minutes only.
     let Some((prayer, left)) = prayer_countdown(st) else { return };
     let col = st.accent;
     let ts = prayer_style(col);
@@ -287,13 +286,14 @@ fn game_w(st: &AppState) -> f32 {
             return w;
         }
     }
-    // Before the first frame: Segoe UI Variable's widths, roughly.
-    let fps = if key.fps4 { 34.0 } else { 26.0 };
+    // Before the first frame, roughly Segoe UI Variable's widths: the frame
+    // rate's slot, the rest of the run, the dot and the temperature.
+    let fps = if key.fps4 { 34.0 } else { 25.0 };
     let temp = match key.temp {
-        Some(hot) => if hot { 37.0 } else { 30.0 },
+        Some(hot) => if hot { 36.0 } else { 28.0 },
         None => 0.0,
     };
-    (2.0 * TEXT_INSET + fps + 160.0 + temp).ceil()
+    (2.0 * TEXT_INSET + fps + 175.0 + temp).ceil()
 }
 
 /// One piece of the readout. A number sits right-aligned in the slot of its
@@ -345,7 +345,8 @@ fn draw_game(ui: &mut Ui, st: &AppState, body: Rect) {
     let fps = number(st.game.rate.map(|r| fmt_fps(r.fps)), fps_style, if key.fps4 { "0000" } else { "000" });
     let gpu_pct = number(gpu.map(|g| fmt_pct(g.util)), value, "100%");
     let cpu_pct = number(cpu.map(|c| fmt_pct(c.load)), value, "100%");
-    let temp = gpu.and_then(|g| g.temp_c).zip(key.temp).map(|(t, hot)| number(Some(format!("{t:.0}\u{b0}")), value, if hot { "000\u{b0}" } else { "00\u{b0}" }));
+    let temp = gpu.and_then(|g| g.temp_c).zip(key.temp);
+    let temp = temp.map(|(t, hot)| number(Some(format!("{t:.0}\u{b0}")), value, if hot { "000\u{b0}" } else { "00\u{b0}" }));
     let mut word = |text: &str, style: TextStyle| {
         let w = ui.c.measure(text, &style, 400.0).0;
         Piece::Text { text: text.into(), style, slot: w, room: w }
