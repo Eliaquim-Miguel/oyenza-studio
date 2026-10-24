@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Oyen Poni share card</title>
+<!-- The website's link preview (og:image), drawn by tools/make_share_card.py.
+     The same pieces as the site's hero: the morning sky, the real island open
+     on the Music page (a self-test screenshot), the Outfit headline and Oyen. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600&display=block">
+<style>
+:root {
+  --ink: #171717;
+  --muted: #6e6e73;
+  --line: #e2e2e7;
+  --orange: #f0892e;
+}
+html, body { margin: 0; }
+body {
+  position: relative;
+  width: 1200px;
+  height: 630px;
+  overflow: hidden;
+  background: #fff;
+  color: var(--ink);
+  font-family: "Outfit", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.sky {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 300px;
+  background: #f4d2b8 url("../site/assets/wall/morning.jpg") center 30% / cover no-repeat;
+  border-bottom: 1px solid var(--line);
+}
+/* True size, hanging from the top edge like on a PC (the shot is 200 %). */
+.island { position: absolute; top: 0; left: 50%; width: 660px; translate: -50% 0; display: block; }
+.copy { position: absolute; left: 64px; top: 334px; }
+.name { display: flex; align-items: center; gap: 14px; font-weight: 600; font-size: 28px; letter-spacing: -0.01em; }
+.name img { width: 46px; height: 46px; }
+.name small { font-weight: 500; font-size: 20px; letter-spacing: 0; color: var(--muted); margin-left: 4px; }
+h1 { margin: 20px 0 0; font-weight: 600; font-size: 78px; line-height: 0.98; letter-spacing: -0.025em; }
+h1 span { color: var(--orange); }
+.oyen { position: absolute; right: 52px; bottom: 30px; width: 452px; }
+</style>
+</head>
+<body>
+<div class="sky"><img class="island" src="../site/assets/shots/classic/page-media.webp" alt=""></div>
+<div class="copy">
+  <div class="name"><img src="../docs/brand/oyen-poni-logo.svg" alt="">Oyen Poni<small>Free and open source · Windows 10 and 11</small></div>
+  <h1>A living notch<br><span>for Windows</span></h1>
+</div>
+<img class="oyen" src="../docs/brand/art/oyen-poni-peek.webp" alt="">
+</body>
+</html>

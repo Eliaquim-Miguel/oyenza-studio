@@ -8,6 +8,16 @@ site/assets/shots/<theme>/ (island only, real alpha, lossless WebP):
     python3 tools/site_shots.py out-classic classic
     python3 tools/site_shots.py out-oyen oyen
 
+The read-along picture (the Music page with the pronunciation under Korean
+lyrics) comes from a run with the sample song in Korean. Give the language as
+a third argument and only that page is cut, as page-media-ko.webp:
+
+    PONI_SELFTEST_DPI=192 PONI_SELFTEST_LYRICS=ko tools/run-selftest-wine.sh target/.../poni.exe out-classic-ko
+    python3 tools/site_shots.py out-classic-ko classic ko
+
+Shoot both themes in the same minute (run them side by side) so the island's
+clock matches when the site switches looks.
+
 The self-test writes NAME.png (the island's canvas on a test gradient, with
 margins) and NAME-alpha.png (the canvas's own alpha). This cuts the canvas out,
 takes its alpha from NAME-alpha.png and removes the gradient from the
@@ -49,19 +59,22 @@ def cut(shot: Path, alpha: Path) -> Image.Image:
 
 
 def main() -> None:
-    if len(sys.argv) != 3 or sys.argv[2] not in ("classic", "oyen"):
+    if len(sys.argv) not in (3, 4) or sys.argv[2] not in ("classic", "oyen"):
         sys.exit(__doc__)
     src, theme = Path(sys.argv[1]), sys.argv[2]
+    lang = sys.argv[3] if len(sys.argv) == 4 else None
+    keep = {"page-media"} if lang else KEEP
     dst = ROOT / "site" / "assets" / "shots" / theme
     dst.mkdir(parents=True, exist_ok=True)
     for shot in sorted(src.glob("[0-9][0-9]-*.png")):
         name = re.sub(r"^\d\d-", "", shot.stem)
         alpha = shot.with_name(shot.stem + "-alpha.png")
-        if name.endswith("-alpha") or name not in KEEP or not alpha.exists():
+        if name.endswith("-alpha") or name not in keep or not alpha.exists():
             continue
         img = cut(shot, alpha)
-        img.save(dst / f"{name}.webp", lossless=True, method=6)
-        print(f"{theme}/{name}.webp  {img.width}x{img.height}")
+        out = f"{name}-{lang}" if lang else name
+        img.save(dst / f"{out}.webp", lossless=True, method=6)
+        print(f"{theme}/{out}.webp  {img.width}x{img.height}")
 
 
 if __name__ == "__main__":
