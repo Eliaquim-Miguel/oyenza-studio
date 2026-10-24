@@ -421,7 +421,7 @@ fn draw_header(ui: &mut Ui, st: &AppState, l: &Local, head: Rect, items: &[Shelf
     if l.undo.as_ref().is_some_and(|(_, t)| st.now - t < UNDO_SECS) {
         let undo_w = ui.pill_width("Undo", true, true);
         let undo_r = Rect::new(clear_r.x - PILL_GAP - undo_w, head.y, undo_w, PILL_SMALL);
-        if ui.pill(wid("shelf.undo"), undo_r, "Undo", Some(Icon::Undo), PillStyle::Primary(st.accent)).clicked {
+        if ui.pill(wid("shelf.undo"), undo_r, "Undo", Some(Icon::Undo), PillStyle::UtilityAccent(st.accent)).clicked {
             actions.push(Action::Undo);
         }
         right = undo_r.x;
@@ -517,7 +517,7 @@ fn draw_empty(ui: &mut Ui, st: &AppState, l: &Local, area: Rect, actions: &mut V
     if undo_live {
         let w = ui.pill_width("Undo", true, true);
         let r = Rect::new(c.x - w / 2.0, c.y + 18.0, w, PILL_SMALL);
-        if ui.pill(wid("shelf.undo"), r, "Undo", Some(Icon::Undo), PillStyle::Primary(accent)).clicked {
+        if ui.pill(wid("shelf.undo"), r, "Undo", Some(Icon::Undo), PillStyle::UtilityAccent(accent)).clicked {
             actions.push(Action::Undo);
         }
     } else {
@@ -566,4 +566,9 @@ fn fade_edge(ui: &mut Ui, r: Rect, from_left: bool) {
 fn drop_zone(ui: &mut Ui, zone: Rect, radius: f32, fill: Color, stroke: Color) {
     ui.c.fill_rrect(zone, radius, fill);
     ui.c.stroke_rrect(zone, (radius - ZONE_STROKE / 2.0).max(0.0), stroke, ZONE_STROKE);
+}
+
+/// When the Undo pill lapses (the page needs a frame then), if one is up.
+pub fn next_wake(_st: &AppState) -> Option<f64> {
+    LOCAL.with(|l| l.borrow().undo.as_ref().map(|(_, t)| t + UNDO_SECS))
 }

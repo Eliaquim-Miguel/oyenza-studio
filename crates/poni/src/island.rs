@@ -8,7 +8,9 @@ pub const SHOULDER: f32 = 9.0;
 /// Room around the island in the canvas. While expanded it is filled at
 /// alpha 1/255 so it still catches the mouse (a forgiving edge for the big
 /// panel); collapsed it stays fully transparent and clicks pass through.
-pub const HIT_MARGIN: f32 = 10.0;
+/// SHOULDER + HIT_MARGIN is kept even (20) so the body edge lands on a whole
+/// pixel at 150 % scaling.
+pub const HIT_MARGIN: f32 = 11.0;
 
 /// Spring tunings (stiffness, damping). Growing goes wide first, then drops:
 /// height trails width a little. Shrinking is nearly critically damped so the

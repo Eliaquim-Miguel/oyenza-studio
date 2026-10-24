@@ -12,7 +12,7 @@
 //! in and the checkbox pops. All of it is event-driven: nothing animates
 //! while idle.
 
-use crate::gfx::{TextStyle, Weight};
+use crate::gfx::TextStyle;
 use crate::icons::Icon;
 use crate::state::AppState;
 use crate::ui::{wid, wid_n, PillStyle, Ui, WidgetId, PILL_SMALL};
@@ -401,14 +401,7 @@ fn undo_pill(ui: &mut Ui, st: &mut AppState, anim: &mut ListAnim, id: WidgetId, 
     let accent = st.accent;
     let w = ui.pill_width("Undo", true, true);
     let r = Rect::new(row.right() - w, row.y, w, row.h);
-    // The button system draws the capsule and its states; the label is ours (accent, not dim).
-    let clicked = ui.pill(id, r, "", None, PillStyle::Utility).clicked;
-    let style = TextStyle::footnote().weight(Weight::Semibold).color(accent);
-    let tw = ui.c.measure("Undo", &style, r.w).0;
-    let (isz, gap) = (13.0, 6.0);
-    let x = r.x + (r.w - isz - gap - tw) / 2.0;
-    ui.c.icon(Icon::Undo, Rect::new(x, r.center().y - isz / 2.0, isz, isz), accent);
-    ui.c.text("Undo", Rect::new(x + isz + gap, r.y, tw + 2.0, r.h), &style);
+    let clicked = ui.pill(id, r, "Undo", Some(Icon::Undo), PillStyle::UtilityAccent(accent)).clicked;
     if clicked {
         restore(st, anim);
     }
@@ -501,4 +494,18 @@ mod tests {
         assert_eq!(tasks.iter().map(|t| t.id).collect::<Vec<_>>(), vec![1, 2]);
         assert_eq!(t0, 3.0);
     }
+}
+
+/// When the page next changes on its own (Undo lapsing, frozen order ending).
+pub fn next_wake(_st: &AppState) -> Option<f64> {
+    ANIM.with(|c| {
+        let a = c.take();
+        let undo = a.undo.as_ref().map(|(_, t0)| t0 + UNDO_SECS);
+        let frozen = a.frozen.as_ref().map(|(_, t0)| t0 + FREEZE_S);
+        c.set(a);
+        match (undo, frozen) {
+            (Some(x), Some(y)) => Some(x.min(y)),
+            (x, y) => x.or(y),
+        }
+    })
 }

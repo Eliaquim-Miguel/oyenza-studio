@@ -1579,6 +1579,11 @@ impl App {
         if let Some(t) = activities::next_wake(&self.mode, &self.st).filter(|_| visible) {
             consider(t);
         }
+        if let Mode::Expanded(p) = self.mode {
+            if let Some(t) = pages::next_wake(p, &self.st).filter(|_| visible) {
+                consider(t + 0.005);
+            }
+        }
         if let Some(t) = next {
             let ms = (((t - now) * 1000.0).ceil() as u32).clamp(10, 3_600_000);
             unsafe {

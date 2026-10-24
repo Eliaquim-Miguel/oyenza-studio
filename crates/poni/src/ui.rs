@@ -131,6 +131,8 @@ pub enum PillStyle {
     Neutral,
     /// The page's one primary action: accent at 0.20 fill, accent label.
     Primary(Color),
+    /// A utility capsule whose label is in an accent colour (e.g. "Undo").
+    UtilityAccent(Color),
 }
 
 pub struct Ui<'a, 'g> {
@@ -284,6 +286,10 @@ impl<'a, 'g> Ui<'a, 'g> {
             PillStyle::Primary(c) => {
                 let a = if resp.pressed { 0.36 } else if resp.hovered { 0.28 } else { 0.20 };
                 (c.with_alpha(a), c)
+            }
+            PillStyle::UtilityAccent(c) => {
+                let f = if resp.pressed { Color::white(0.22) } else if resp.hovered { Color::white(0.15) } else { palette::SURFACE };
+                (f, c)
             }
         };
         self.c.fill_rrect(r, r.h / 2.0, fill);

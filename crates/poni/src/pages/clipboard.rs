@@ -96,7 +96,7 @@ fn draw_summary(ui: &mut Ui, st: &mut AppState, r: Rect, undo: bool) {
     if undo {
         let w = snap(ui.pill_width("Undo", true, true), scale);
         let pr = Rect::new(snap(r.right() - w, scale), pill_y, w, PILL_SMALL);
-        if ui.pill(wid("clip.undo"), pr, "Undo", Some(Icon::Undo), PillStyle::Utility).clicked {
+        if ui.pill(wid("clip.undo"), pr, "Undo", Some(Icon::Undo), PillStyle::UtilityAccent(st.accent)).clicked {
             if let Some(u) = take_undo() {
                 restore(&mut st.clip, &u);
             }

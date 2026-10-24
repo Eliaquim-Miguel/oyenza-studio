@@ -129,10 +129,11 @@ pub fn content_height(p: PageKind, st: &AppState) -> f32 {
 /// needs a frame without input, if any (e.g. an Undo pill expiring). Meant
 /// for the app's wake timer; until it asks, such changes show on the next
 /// repaint.
-#[allow(dead_code)]
 pub fn next_wake(page: PageKind, st: &AppState) -> Option<f64> {
     match page {
         PageKind::Clipboard => clipboard::next_wake(st),
+        PageKind::Tasks => tasks::next_wake(st),
+        PageKind::Shelf => shelf::next_wake(st),
         _ => None,
     }
 }

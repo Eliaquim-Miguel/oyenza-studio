@@ -16,7 +16,7 @@ use crate::app::App;
 use crate::clock;
 use crate::gfx::{Image, ImageData};
 use crate::icons::Icon;
-use crate::pages::{PageKind, HEADER_H, PAD};
+use crate::pages::PageKind;
 use crate::paths;
 use crate::png;
 use crate::state::{AppState, Hud, HudKind, LyricsState, LyricsStatus, MediaSession, Notice, NoticeAction, PowerState, SysStats, VolumeState};
@@ -1013,7 +1013,7 @@ fn window_check(hwnd: HWND, present: (i32, i32), w: i32, h: i32) -> Check {
 /// Centre of the first header tab. Mirrors `pages::draw_header`: tabs start at
 /// the header's left edge and are 30 DIPs wide while inactive.
 fn first_tab_point(body: Rect) -> Point {
-    let header = Rect::new(body.x + PAD - 6.0, body.y + 6.0, body.w - 2.0 * PAD + 12.0, HEADER_H - 8.0);
+    let header = crate::pages::header_rect(body);
     Point::new(header.x + 15.0, header.center().y)
 }
 
