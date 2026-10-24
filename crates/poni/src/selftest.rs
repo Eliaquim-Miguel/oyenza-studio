@@ -81,9 +81,10 @@ const SETTLE_TIMEOUT: f64 = 3.0;
 const SOFT_GPU_SETTLE_TIMEOUT: f64 = 8.0;
 /// Seconds to wait for a simulated tab click to switch the page.
 const CLICK_TIMEOUT: f64 = 1.5;
-/// Stop visiting scenes after this many seconds. 36 scenes take about 22 s
-/// on CI's slowest run (Oyen theme, Japanese lyrics); the CI and Store test
-/// steps wait 120 s for the whole run, the Wine runner 180 s.
+/// Stop visiting scenes after this many seconds. The 64 scenes take about
+/// 32 s under Wine at 100 % and 33 to 38 s at 200 % (a busy machine is the
+/// slow end); a CI step takes under 30 s for the whole run. The CI and Store
+/// test steps wait 120 s for the whole run, the Wine runner 180 s.
 const SCENE_DEADLINE: f64 = 50.0;
 /// Give up waiting for PNG writers at this point.
 const WRITE_DEADLINE: f64 = 43.5;
