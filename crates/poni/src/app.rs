@@ -57,6 +57,13 @@ const TIMER_MINUTE: usize = 6;
 pub const TIMER_SELFTEST: usize = 7;
 const TIMER_TRAY: usize = 8;
 const TIMER_RAISE: usize = 9;
+/// Show over games: the readout's peek ends.
+const TIMER_PEEK: usize = 10;
+/// Show over games: how long the readout shows over a game, the least time
+/// between two peeks for a frame-rate drop, and Alt+Shift+F's id.
+const PEEK_S: f64 = 5.0;
+const DROP_PEEK_EVERY_S: f64 = 30.0;
+const HOTKEY_PEEK: i32 = 1;
 /// Raises that follow a new foreground window, and their spacing.
 const RAISE_REPEATS: u8 = 4;
 const RAISE_INTERVAL_MS: u32 = 500;
@@ -350,6 +357,13 @@ pub struct App {
     frames: Option<services::frames::Frames>,
     /// The process whose frames count (the full-screen app).
     game_pid: Option<u32>,
+    /// Show over games: the readout shows over the game until this mono time
+    /// (a peek), else the island hides so the game goes straight to the screen.
+    game_peek_until: f64,
+    /// When a frame-rate drop last made it peek.
+    game_drop_at: f64,
+    /// Alt+Shift+F is registered (only while a game is in front).
+    peek_hotkey: bool,
     /// App icons the System page asked for and hasn't got yet (the Shelf's
     /// thumbnail worker answers both pages with the same event).
     icon_wait: HashSet<String>,
@@ -521,6 +535,9 @@ impl App {
             oyenza_watch: false,
             frames: None,
             game_pid: None,
+            game_peek_until: 0.0,
+            game_drop_at: f64::NEG_INFINITY,
+            peek_hotkey: false,
             icon_wait: HashSet::new(),
             tray: None,
             taskbar_created_msg,
@@ -590,6 +607,7 @@ impl App {
         self.save_now();
         // Stops the frame count's trace session (it would outlive Poni).
         self.frames = None;
+        self.set_peek_hotkey(false);
         self.glass.stop(self.hwnd, &mut self.gfx);
         if let Some(p) = self.phone.take() {
             p.stop();
@@ -1078,6 +1096,11 @@ impl App {
                 self.request_frame();
                 Some(LRESULT(0))
             }
+            WM_HOTKEY if wp.0 == HOTKEY_PEEK as usize => {
+                self.toggle_peek();
+                self.request_frame();
+                Some(LRESULT(0))
+            }
             WM_QUERYENDSESSION => Some(LRESULT(1)),
             WM_ENDSESSION => {
                 self.save_now();
@@ -1124,6 +1147,22 @@ impl App {
                     unsafe {
                         let _ = KillTimer(self.hwnd, TIMER_RAISE);
                     }
+                }
+            }
+            TIMER_PEEK => {
+                unsafe {
+                    let _ = KillTimer(self.hwnd, TIMER_PEEK);
+                }
+                let now = clock::mono();
+                if self.expanded || self.hovering {
+                    // Not from under the pointer: it hides once the island closes.
+                    self.game_peek_until = now + 1.0;
+                    unsafe {
+                        SetTimer(self.hwnd, TIMER_PEEK, 1000, None);
+                    }
+                } else {
+                    self.game_peek_until = 0.0;
+                    self.apply_fullscreen(now);
                 }
             }
             TIMER_COLLAPSE => {
@@ -1634,11 +1673,12 @@ impl App {
             AppEvent::Lyrics { track_key, result } => {
                 if self.st.lyrics.track_key == track_key {
                     match result {
-                        crate::events::LyricsResult::Found { lyrics, source, ruby } => {
+                        crate::events::LyricsResult::Found { lyrics, source, ruby, wants_ja_readings } => {
                             self.st.lyrics.status = LyricsStatus::Found;
                             self.st.lyrics.lyrics = Some(lyrics);
                             self.st.lyrics.source = source;
                             self.st.lyrics.ruby = ruby;
+                            self.st.lyrics.wants_ja_readings = wants_ja_readings;
                         }
                         crate::events::LyricsResult::Instrumental => self.st.lyrics.status = LyricsStatus::Instrumental,
                         crate::events::LyricsResult::NotFound => self.st.lyrics.status = LyricsStatus::NotFound,
@@ -1670,33 +1710,8 @@ impl App {
                 }
             }
             AppEvent::Fullscreen(on) => {
-                let hide = on && self.st.settings.hide_in_fullscreen;
-                if hide != self.fullscreen_hidden {
-                    self.fullscreen_hidden = hide;
-                    unsafe {
-                        let _ = ShowWindow(self.hwnd, if hide { SW_HIDE } else { SW_SHOWNOACTIVATE });
-                    }
-                    if hide {
-                        self.collapse();
-                        self.cancel_hover();
-                        unsafe {
-                            let _ = KillTimer(self.hwnd, TIMER_COLLAPSE);
-                        }
-                        self.hovering = false;
-                        self.input.mouse = None;
-                    }
-                    pinfo!("fullscreen app {}: island {}", if on { "detected" } else { "gone" }, if hide { "hidden" } else { "shown" });
-                    if !hide {
-                        self.show_held_notice(now);
-                    }
-                }
                 self.fullscreen_on = on;
-                if !hide {
-                    // A borderless game or a browser in F11 may have taken the
-                    // top of the topmost band, and an island shown again after
-                    // a full-screen app is not raised by showing it.
-                    self.start_raises();
-                }
+                // The readout and its peeks first, then whether the island shows.
                 self.sync_game();
             }
             AppEvent::Foreground => self.start_raises(),
@@ -1745,7 +1760,16 @@ impl App {
                 if self.st.game.active {
                     self.st.game.rate = self.frames.as_ref().and_then(|f| f.rate());
                     let fps = self.st.game.rate.map(|r| r.fps);
+                    let before: Vec<f32> = self.st.game.history.values().collect();
                     self.st.game.history.push(fps);
+                    // A sharp drop shows the readout (at most every half minute).
+                    let now = clock::mono();
+                    if let Some(fps) = fps {
+                        if now >= self.game_peek_until && now - self.game_drop_at >= DROP_PEEK_EVERY_S && poni_core::frames::sharp_drop(&before, fps) {
+                            self.game_drop_at = now;
+                            self.peek_game("the frame rate dropped");
+                        }
+                    }
                 }
             }
             AppEvent::FpsAccess(a) => {
@@ -1780,6 +1804,16 @@ impl App {
                         self.prayer_ready();
                     } else if status == AddonStatus::Off {
                         self.prayer_off();
+                    }
+                }
+                // Japanese readings arrived for the song that asked for them:
+                // read it again (its lyrics come from the cache).
+                if id == poni_core::addons::JAPANESE_READINGS.id && status == AddonStatus::Ready && self.st.lyrics.wants_ja_readings {
+                    if let (Some(svc), Some(m)) = (self.services.as_ref(), self.st.media.as_ref()) {
+                        if m.track_key == self.st.lyrics.track_key {
+                            pinfo!("lyrics: Japanese readings are on this PC; reading the song again");
+                            svc.request_lyrics(m);
+                        }
                     }
                 }
             }
@@ -1977,14 +2011,106 @@ impl App {
         }
     }
 
+    /// Over a full-screen app the island hides when the setting says Hide, and
+    /// under Show over games between the readout's peeks: then nothing covers
+    /// the game, and Windows sends its frames straight to the screen.
+    fn fullscreen_hides(&self, now: f64) -> bool {
+        self.fullscreen_on && (self.st.settings.hide_in_fullscreen || (self.st.game.active && now >= self.game_peek_until))
+    }
+
+    /// Shows or hides the island for what is in front now.
+    fn apply_fullscreen(&mut self, now: f64) {
+        let hide = self.fullscreen_hides(now);
+        if hide != self.fullscreen_hidden {
+            self.fullscreen_hidden = hide;
+            unsafe {
+                let _ = ShowWindow(self.hwnd, if hide { SW_HIDE } else { SW_SHOWNOACTIVATE });
+            }
+            if hide {
+                self.collapse();
+                self.cancel_hover();
+                unsafe {
+                    let _ = KillTimer(self.hwnd, TIMER_COLLAPSE);
+                }
+                self.hovering = false;
+                self.input.mouse = None;
+            }
+            let why = if self.fullscreen_on && !self.st.settings.hide_in_fullscreen && self.st.game.active { " (show over games)" } else { "" };
+            pinfo!("fullscreen app {}: island {}{why}", if self.fullscreen_on { "in front" } else { "gone" }, if hide { "hidden" } else { "shown" });
+            // Notices held back wait for the game to leave, not for a peek.
+            if !hide && !self.fullscreen_on {
+                self.show_held_notice(now);
+            }
+        }
+        if !hide {
+            // A borderless game or a browser in F11 may have taken the
+            // top of the topmost band, and an island shown again after
+            // a full-screen app is not raised by showing it.
+            self.start_raises();
+        }
+    }
+
+    /// Show over games: the readout shows over the game for a few seconds.
+    fn peek_game(&mut self, why: &str) {
+        let now = clock::mono();
+        self.game_peek_until = now + PEEK_S;
+        unsafe {
+            SetTimer(self.hwnd, TIMER_PEEK, (PEEK_S * 1000.0) as u32, None);
+        }
+        pinfo!("show over games: readout shows ({why})");
+        self.apply_fullscreen(now);
+    }
+
+    /// Alt+Shift+F: show the readout, or hide it again before its time.
+    fn toggle_peek(&mut self) {
+        if !self.st.game.active {
+            return;
+        }
+        let now = clock::mono();
+        if now < self.game_peek_until {
+            self.game_peek_until = 0.0;
+            unsafe {
+                let _ = KillTimer(self.hwnd, TIMER_PEEK);
+            }
+            self.apply_fullscreen(now);
+        } else {
+            self.peek_game("Alt+Shift+F");
+        }
+    }
+
+    /// Alt+Shift+F belongs to Poni only while a game is in front.
+    fn set_peek_hotkey(&mut self, on: bool) {
+        if on == self.peek_hotkey {
+            return;
+        }
+        unsafe {
+            if on {
+                match RegisterHotKey(self.helper, HOTKEY_PEEK, MOD_ALT | MOD_SHIFT | MOD_NOREPEAT, u32::from(b'F')) {
+                    Ok(()) => self.peek_hotkey = true,
+                    Err(e) => pwarn!("show over games: Alt+Shift+F is taken ({e})"),
+                }
+            } else {
+                let _ = UnregisterHotKey(self.helper, HOTKEY_PEEK);
+                self.peek_hotkey = false;
+            }
+        }
+    }
+
     /// Show over games: the readout shows while the setting is on and a
     /// full-screen app has the island's monitor with the island over it.
     /// It follows the full-screen app; the readings and the frame count run
     /// only meanwhile.
     fn sync_game(&mut self) {
-        let want = self.st.settings.game_stats && self.fullscreen_on && !self.fullscreen_hidden && self.selftest.is_none();
+        let want = self.st.settings.game_stats && self.fullscreen_on && !self.st.settings.hide_in_fullscreen && self.selftest.is_none();
         if want != self.st.game.active {
             self.st.game.active = want;
+            self.set_peek_hotkey(want);
+            if !want {
+                self.game_peek_until = 0.0;
+                unsafe {
+                    let _ = KillTimer(self.hwnd, TIMER_PEEK);
+                }
+            }
             if want && self.sysmon.is_none() {
                 self.start_sysmon();
             }
@@ -2007,6 +2133,7 @@ impl App {
             pinfo!("show over games: readout {}", if want { "on" } else { "off" });
         }
         if !want {
+            self.apply_fullscreen(clock::mono());
             return;
         }
         let pid = services::fullscreen::fullscreen_pid();
@@ -2019,6 +2146,10 @@ impl App {
                 f.set_target(p);
             }
             pinfo!("show over games: {} in front", self.st.game.app.as_deref().unwrap_or("an app"));
+            // A game came to the front: the readout shows for a moment.
+            self.peek_game("a game came to the front");
+        } else {
+            self.apply_fullscreen(clock::mono());
         }
         let Some(pid) = pid else { return };
         if self.frames.is_none() && matches!(self.st.game.access, FpsAccess::Unknown | FpsAccess::Ready) {
@@ -2423,12 +2554,15 @@ impl App {
         // before the frame starts. The look follows the glass, light or dark.
         let glass_theme = self.st.settings.theme == Theme::Glass;
         let window_px = RECT { left: self.surface.x, top: self.surface.y, right: self.surface.x + sw, bottom: self.surface.y + sh };
-        // Only while someone can see it: not while hidden, locked or the display is off.
+        // Only while someone can see it: not while hidden, locked or the display
+        // is off. Not over a full-screen app either: copying a game's screen
+        // every frame costs the game (Glass draws smoked glass there).
         let copy_on = glass_theme
             && self.selftest.is_none()
             && !hidden_idle
             && !self.locked
             && !self.display_off
+            && !self.fullscreen_on
             && matches!(self.gfx.renderer(), crate::gfx::Renderer::Gpu { .. });
         self.glass.sync(copy_on, self.hwnd, &self.sink, self.monitor.handle, window_px, &mut self.gfx);
         let mut glass_moving = false;

@@ -323,7 +323,7 @@ footer a { color: var(--muted); }
           </a>
           <a class="btn btn-line" href="https://github.com/lucacadalora/poni">Source on GitHub</a>
         </div>
-        <p class="small">Free and open source (MIT) · Windows <span data-release="size">6.3&nbsp;MB</span>, Mac <span data-release="mac-size">10.8&nbsp;MB</span> · No account needed · <a data-release="notes" href="https://github.com/lucacadalora/poni/releases/latest">What's new in <span data-release="version">0.1.19</span></a></p>
+        <p class="small">Free and open source (MIT) · Windows <span data-release="size">2.4&nbsp;MB</span>, Mac <span data-release="mac-size">10.8&nbsp;MB</span> · No account needed · <a data-release="notes" href="https://github.com/lucacadalora/poni/releases/latest">What's new in <span data-release="version">0.1.21</span></a></p>
         <div class="look-switch" role="group" aria-label="Island look">
           <button type="button" data-look="classic" aria-pressed="true"><span class="dot"></span>Classic</button>
           <button type="button" data-look="oyen" aria-pressed="false"><span class="dot dot-oyen"></span>Oyen theme</button>
@@ -456,15 +456,15 @@ footer a { color: var(--muted); }
         </div></div>
         <div>
           <h3>Music, with the words</h3>
-          <p>Controls for whatever is playing: Spotify, Apple Music, YouTube in your browser, or any app that shows up in Windows' media controls. Lyrics scroll in time with the song, from the free LRCLIB library, or Apple Music's own synced lyrics if you have a subscription. YouTube videos find theirs too, even when the title carries subtitle tags or puts the song name first. After an intro or a break, the waiting dots fold away the moment the next line starts. Drag the time bar to jump anywhere in a song: the times follow as you slide, and it jumps when you let go.</p>
+          <p>Controls for whatever is playing: Spotify, Apple Music, YouTube in your browser, or any app that shows up in Windows' media controls. Lyrics scroll in time with the song, from the free LRCLIB library, or Apple Music's own synced lyrics if you have a subscription. YouTube videos find theirs too, even when the title carries subtitle tags or puts the song name first. After an intro or a break, the waiting dots fold away the moment the next line starts. Drag the time bar to jump anywhere in a song: the times follow as you slide, and it jumps when you let go. Since 0.1.20 that works with Apple Music too, and so does Back: the island uses Apple Music's own slider and back button. Lyrics glide into place instead of stepping a pixel at a time.</p>
           <img class="oyen-pose" src="brand/art/poses/oyen-music.webp" alt="Oyen in headphones" width="480" height="560" loading="lazy">
         </div>
       </div>
       <div class="music flip">
         <div>
-          <p class="eyebrow">New in 0.1.7 · Better Japanese in 0.1.15</p>
+          <p class="eyebrow">New in 0.1.7 · Better Japanese in 0.1.15 · Japanese readings add-on in 0.1.20</p>
           <h3>Read along in Korean, Japanese and Chinese</h3>
-          <p>Like Apple Music's Show Pronunciation, each word of a lyric line gets its reading in Latin letters, set small underneath: the syllables for Korean, romaji for Japanese and pinyin with tone marks for Chinese. Since 0.1.12 every Japanese line gets romaji on any PC: Oyen Poni reads kanji with its own built-in dictionary, with nothing to install and nothing leaving your PC. Since 0.1.15 it reads closer to how the words are sung: numbers with their counters (二人 futari, 一歩 ippo), は as "wa" after every word (心には kokoro ni wa), and words like 愛おしい and 失くす. Turn it off in Settings or the tray menu.</p>
+          <p>Like Apple Music's Show Pronunciation, each word of a lyric line gets its reading in Latin letters, set small underneath: the syllables for Korean, romaji for Japanese and pinyin with tone marks for Chinese. Japanese kanji are read with Windows' own reading analyzer. On PCs without Windows' Japanese data, kana lines read right away and the Music page offers Japanese readings, a 3.8 MB add-on that reads every kanji line. Since 0.1.15 it reads closer to how the words are sung: numbers with their counters (二人 futari, 一歩 ippo), は as "wa" after every word (心には kokoro ni wa), and words like 愛おしい and 失くす. Turn it off in Settings or the tray menu.</p>
         </div>
         <div class="sky"><div class="island">
           <img class="look-classic" src="assets/shots/classic/page-media-ko.webp" alt="The Music page with Korean lyrics, each word's reading in Latin letters set small underneath" width="660" height="227" loading="lazy">
@@ -535,13 +535,13 @@ footer a { color: var(--muted); }
       </div>
       <div class="music" id="addons">
         <div class="sky"><div class="island">
-          <img class="look-classic" src="assets/shots/classic/page-addons.webp" alt="The Add-ons tab: Prayer times, 1.9 MB, with its switch off" width="660" height="159" loading="lazy">
-          <img class="look-oyen" src="assets/shots/oyen/page-addons.webp" alt="The Add-ons tab in the Oyen theme" width="660" height="159" loading="lazy">
+          <img class="look-classic" src="assets/shots/classic/page-addons.webp" alt="The Add-ons tab: Prayer times (1.9 MB) and Japanese readings (3.8 MB), each with its switch off" width="660" height="211" loading="lazy">
+          <img class="look-oyen" src="assets/shots/oyen/page-addons.webp" alt="The Add-ons tab in the Oyen theme" width="660" height="211" loading="lazy">
         </div></div>
         <div>
           <p class="eyebrow">New in 0.1.17</p>
           <h3>Add-ons: download only what you use</h3>
-          <p>The + at the end of the tabs lists features that aren't in the download. Switch one on and it downloads then, from this project's releases, each file checked against the fingerprint built into the app. Switch it off and its files are deleted. Prayer times is the first.</p>
+          <p>The + at the end of the tabs lists features that aren't in the download. Switch one on and it downloads then, from this project's releases, each file checked against the fingerprint built into the app. Switch it off and its files are deleted. Prayer times was the first, and since 0.1.20 Japanese readings (3.8 MB) is one too.</p>
         </div>
       </div>
       <div class="music flip" id="phone-drop">
@@ -582,7 +582,7 @@ footer a { color: var(--muted); }
         <div>
           <p class="eyebrow">New in 0.1.11 · Redone in 0.1.17 · On the Mac in 0.1.19</p>
           <h3>System: your PC at a glance</h3>
-          <p>CPU, GPU, memory, drives, network and battery in rings and charts: each core's load with performance and efficiency cores apart, the graphics card's engines and memory, memory pressure and what fills memory, read, write, download and upload speeds, and the processes using the most. Since 0.1.17 it reads Windows' own kernel counters and keeps the last minute while the page is closed, so the charts are full the moment it opens. No driver, no admin rights, and nothing leaves your PC. On a Mac it reads macOS's own counters the way Stats does, and rests while the screen is asleep or the Mac is locked.</p>
+          <p>CPU, GPU, memory, drives, network and battery in rings and charts: each core's load with performance and efficiency cores apart, the graphics card's engines and memory, memory pressure and what fills memory, read, write, download and upload speeds, and the processes using the most. Since 0.1.17 it reads Windows' own kernel counters and keeps the last minute while the page is closed, so the charts are full the moment it opens. Since 0.1.20 that minute rests while your PC is locked, the screen is off or battery saver is on. No driver, no admin rights, and nothing leaves your PC. On a Mac it reads macOS's own counters the way Stats does, and rests while the screen is asleep or the Mac is locked.</p>
         </div>
         <div class="sky"><div class="island">
           <img class="look-classic" src="assets/shots/classic/page-system.webp" alt="The System page: a strip of every part's live value, the CPU's rings and details, a minute of history, each core's load and the processes using the most" width="660" height="335" loading="lazy">
@@ -603,10 +603,10 @@ footer a { color: var(--muted); }
       </div>
       <div class="music flip" id="games">
         <div>
-          <p class="eyebrow">New in 0.1.18</p>
+          <p class="eyebrow">New in 0.1.18 · Peeks instead of staying in 0.1.20</p>
           <h3>Show over games: FPS, GPU and CPU</h3>
-          <p>While a game fills the screen in borderless full-screen, the island becomes a small readout: frames per second, the graphics card's load and temperature, and the CPU's load, once a second. Hover it and it opens as usual. Switch it on in <b>System</b> › <b>Games</b>, or right-click the island › <b>In full-screen apps</b> › <b>Show FPS, GPU and CPU over games</b>.</p>
-          <p>Frames are counted the way Intel's PresentMon and Xbox Game Bar count them, from Windows' own log of each frame a game shows. Nothing is loaded into the game, so anti-cheat has nothing to see. DirectX 9 to 12, Vulkan and OpenGL. The first time, Windows asks once for an admin OK, as Game Bar's FPS counter does, and FPS shows from your next sign-in. Nothing runs while no game is in front.</p>
+          <p>While a game fills the screen in borderless full-screen, the island becomes a small readout: frames per second, the graphics card's load and temperature, and the CPU's load. It shows for a few seconds when the game comes to the front, when the frame rate drops sharply, and whenever you press <b>Alt+Shift+F</b>, then gets out of the way: any window over a borderless game makes Windows combine the two before they reach the screen, which costs about a frame, so with the island gone the game's frames go straight to the screen again. Switch it on in <b>System</b> › <b>Games</b>, or right-click the island › <b>In full-screen apps</b> › <b>Show FPS, GPU and CPU over games</b>.</p>
+          <p>Frames are counted the way Intel's PresentMon and Xbox Game Bar count them, from Windows' own log of each frame a game shows. Nothing is loaded into the game, so anti-cheat has nothing to see. DirectX 9 to 12, Vulkan and OpenGL. The first time, Windows asks once for an admin OK, as Game Bar's FPS counter does, and FPS shows from your next sign-in. Over a full-screen app, Glass draws smoked glass instead of copying the screen.</p>
         </div>
         <div class="sky"><div class="island">
           <img class="look-classic" src="assets/shots/classic/game-stats.webp" style="width:291px" alt="The island over a game: 144 fps, GPU 97% at 71°, CPU 38%" width="291" height="33" loading="lazy">
@@ -705,7 +705,7 @@ footer a { color: var(--muted); }
   <section class="pill-theme" id="pill">
     <div class="wrap">
       <div class="head">
-        <p class="eyebrow">Optional theme · New in 0.1.20 (to confirm)</p>
+        <p class="eyebrow">Optional theme · New in 0.1.21 (to confirm)</p>
         <h2>Pill: the island floats</h2>
         <p>Pill changes the island's shape, not just its colour. It floats a little below the top of the screen as a black capsule, with layouts of its own: the time and battery while it rests, the song while music plays, and a rounded card when it opens.</p>
       </div>
@@ -795,7 +795,7 @@ footer a { color: var(--muted); }
       <div class="facts">
         <div class="fact"><h3>No account needed</h3><p>No sign-up and no tracking. Tasks, shelf and focus history are files in your own user folder.</p></div>
         <div class="fact"><h3>Clipboard in memory</h3><p>Copied text is never written to disk, and anything a password manager marks private is skipped.</p></div>
-        <div class="fact"><h3>Smooth and light</h3><p>Drawn on your graphics card in step with your screen's refresh rate (60, 144 or 240 Hz). Native Rust, no web view, and nothing drawn while nothing moves. Keeping the System page's last minute takes about a third of a millisecond each second, and the tray menu turns it off.</p></div>
+        <div class="fact"><h3>Smooth and light</h3><p>Drawn on your graphics card in step with your screen's refresh rate (60, 144 or 240 Hz). Native Rust, no web view, and nothing drawn while nothing moves. Keeping the System page's last minute takes about a third of a millisecond each second and rests while you're away, and the tray menu turns it off.</p></div>
       </div>
     </div>
   </section>

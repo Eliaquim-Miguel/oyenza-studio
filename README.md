@@ -81,7 +81,7 @@ CPU, GPU, memory, drives, network and battery: rings and gauges, each core's loa
 
 ### Black, Oyen, Glass or Pill
 
-The island is black by default, like the one on a phone. **Oyen** turns it warm cream, and Oyen the cat moves in: he peeks over the edge, follows your pointer and sleeps from midnight to five. **Glass** bends and frosts whatever is behind it, after Apple's Liquid Glass. **Pill**, new in 0.1.20 (to confirm), changes the shape: the island floats just below the top of the screen as a black capsule, with the time and battery at rest, the song and the line being sung while music plays, and a rounded card when it opens.
+The island is black by default, like the one on a phone. **Oyen** turns it warm cream, and Oyen the cat moves in: he peeks over the edge, follows your pointer and sleeps from midnight to five. **Glass** bends and frosts whatever is behind it, after Apple's Liquid Glass. **Pill**, new in 0.1.21 (to confirm), changes the shape: the island floats just below the top of the screen as a black capsule, with the time and battery at rest, the song and the line being sung while music plays, and a rounded card when it opens.
 
 <p align="center"><img src="docs/brand/readme/themes.webp" width="880" alt="The Music page in Classic, in the Oyen theme, in the Glass theme over a light and a dark page, and in the Pill theme as a card floating below the top edge, beside Pill's capsule while music plays"></p>
 
@@ -115,7 +115,7 @@ On a MacBook, the island lives around the camera notch: the album art on one sid
 
 <table>
 <tr>
-<td align="center" width="25%"><h3>6.3 MB</h3>download on Windows</td>
+<td align="center" width="25%"><h3>2.4 MB</h3>download on Windows</td>
 <td align="center" width="25%"><h3>Rust</h3>native code, no web view, no runtime</td>
 <td align="center" width="25%"><h3>60–240 Hz</h3>drawn on the GPU, in step with your screen</td>
 <td align="center" width="25%"><h3>0</h3>accounts, ads or analytics</td>
@@ -230,7 +230,7 @@ The island stays black by default. Switch on the Oyen theme (the gear › **Them
 
 Glass turns the island into liquid glass, after Apple's Liquid Glass. Its rim bends and magnifies what's under it, the middle is frosted, a light runs along the edge, and the shadow under it deepens over busy pages. The collapsed island turns light or dark with what's behind it, and the open island follows Windows' light or dark mode. Its tint goes only as deep as the text needs to stay readable (4.5:1).
 
-To bend what's under it, Glass copies the part of the screen behind its window (the island and the space it opens into) whenever something there changes, and not while the island is hidden or the PC is locked. The copy stays in your PC's memory and on its graphics card, and each new copy replaces the last; it's never saved or sent. While Glass is on, Windows leaves Oyen Poni out of screenshots, screen recordings and screen sharing. On a display in HDR, Poni maps the copy back to ordinary colours itself. Where Poni can't copy the screen (the software renderer, Windows 10 before version 2004, Remote Desktop, a laptop display that no graphics card lets it copy), Glass draws smoked glass instead: the same shape, light and shadow over a see-through tint, and it stays in screenshots.
+To bend what's under it, Glass copies the part of the screen behind its window (the island and the space it opens into) whenever something there changes, and not while the island is hidden, a full-screen app is in front (there it draws smoked glass, so a game's frames aren't copied) or the PC is locked. The copy stays in your PC's memory and on its graphics card, and each new copy replaces the last; it's never saved or sent. While Glass is on, Windows leaves Oyen Poni out of screenshots, screen recordings and screen sharing. On a display in HDR, Poni maps the copy back to ordinary colours itself. Where Poni can't copy the screen (the software renderer, Windows 10 before version 2004, Remote Desktop, a laptop display that no graphics card lets it copy), Glass draws smoked glass instead: the same shape, light and shadow over a see-through tint, and it stays in screenshots.
 
 ### The Pill theme
 
@@ -246,7 +246,7 @@ The pages and features are the same as in Classic.
 
 ### Show over games
 
-Switch on **Show over games** (System › Games, or right-click › In full-screen apps) and, while a game fills the screen in borderless full-screen, the island becomes a small readout: frames per second, the GPU's load and temperature and the CPU's load, once a second. Hover it to open the island as usual. Turning it on also keeps the island on top of full-screen apps; picking Hide there turns it off again.
+Switch on **Show over games** (System › Games, or right-click › In full-screen apps) and, while a game fills the screen in borderless full-screen, the island becomes a small readout: frames per second, the GPU's load and temperature and the CPU's load. It shows for a few seconds when the game comes to the front, when the frame rate drops sharply, and whenever you press **Alt+Shift+F** (press it again to hide it sooner), then hides. Any window over a borderless game, the island included, makes Windows combine the two before they reach the screen, which costs the game about a frame of delay; with the island hidden, the game's frames go straight to the screen again. Turning it on also lets the island show over full-screen apps; picking Hide there turns it off again. Alt+Shift+F belongs to Oyen Poni only while a game is in front.
 
 The frame rate is counted the way Intel's PresentMon and Xbox Game Bar count it: Windows logs every frame a game hands to the screen, and Oyen Poni reads that log for the game in front. Nothing is loaded into the game, so there is nothing for anti-cheat to see. DirectX 9 to 12 games are counted from their own Present calls; Vulkan and OpenGL games from the graphics kernel's log of their frames. The GPU and CPU numbers come from the same readers as the System page. Nothing runs while no game is in front or while the readout is off.
 
@@ -334,6 +334,8 @@ The **+** at the end of the tabs lists features that aren't part of the download
 - **Your place:** Windows' location picks the nearest of Kemenag's 517 places and checks again every few hours, so a trip moves the place. The point is used once on your PC and never saved or sent. With location off, the PC's time zone suggests a place; **Change place** lets you type yours.
 - **Accuracy:** replayed against Kemenag's published 2026 schedule for all 517 places, 98.2% of 227,367 times match to the minute and none is more than a minute off (`cargo test -p poni-core prayer`; details in [addons/sholat](addons/sholat/README.md)).
 
+**Japanese readings** (3.8 MB) gives romaji under the kanji in Japanese lyrics on PCs where Windows can't read them (Windows keeps its Japanese reading data in the Japanese typing feature, which most PCs outside Japan don't have). Only people who play Japanese songs need it: when a song's kanji go unread, the Music page offers it under the lyrics, and one click switches it on. Kana, Korean and Chinese read without it. On a Mac the dictionary is built into the app for now. Details in [addons/ja](addons/ja/README.md).
+
 ## Build
 
 Oyen Poni is a Cargo workspace:
@@ -408,4 +410,4 @@ Early, but in daily use on Windows 11. The Mac app is newer: it runs on GitHub's
 
 ## License
 
-The code is [MIT](LICENSE). The Oyen Poni name, its logo and the Oyen character (the files in `docs/brand`, `installer/art` and the app icon) are not covered by the MIT license, so please don't reuse them in other projects. The Japanese reading dictionary (`crates/poni-core/data/ja-readings.dic.zst`) is derived from mecab-ipadic and keeps its own license. [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt), which ships with every download, holds that license and those of the Unicode data and the Rust crates Oyen Poni is built from.
+The code is [MIT](LICENSE). The Oyen Poni name, its logo and the Oyen character (the files in `docs/brand`, `installer/art` and the app icon) are not covered by the MIT license, so please don't reuse them in other projects. The Japanese reading dictionary (`crates/poni-core/data/ja-readings.dic.zst`, the Japanese readings add-on) is derived from mecab-ipadic and keeps its own license, which the add-on's `NOTICE.txt` carries. [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt), which ships with every download, holds that license and those of the Unicode data and the Rust crates Oyen Poni is built from.
