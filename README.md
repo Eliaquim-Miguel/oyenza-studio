@@ -6,11 +6,26 @@
 
 <p align="center">Like the Dynamic Island on a phone, for your computer. A small island hangs from the top of your screen, shows what's playing, counting down and arriving, and opens into quick pages when you point at it.</p>
 
-<p align="center">
-  <a href="https://github.com/lucacadalora/oyenza-studio/releases/latest/download/Oyenza-Studio-Setup.exe"><img src="https://img.shields.io/badge/Download_for_Windows-0078D4?style=for-the-badge&logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0iI2ZmZiI%2BPHBhdGggZD0iTTIgMmg5LjJ2OS4ySDJ6bTEwLjggMEgyMnY5LjJoLTkuMnpNMiAxMi44aDkuMlYyMkgyem0xMC44IDBIMjJWMjJoLTkuMnoiLz48L3N2Zz4=" height="34" alt="Download for Windows"></a>
-  &nbsp;
-  <a href="https://github.com/lucacadalora/oyenza-studio/releases/latest/download/Oyenza-Studio-Mac.dmg"><img src="https://img.shields.io/badge/Download_for_Mac-333333?style=for-the-badge&logo=apple&logoColor=white" height="34" alt="Download for Mac"></a>
-</p>
+> [!IMPORTANT]
+> **Este é um fork comunitário do Oyenza Studio, com Português do Brasil e melhorias no modo compacto.**
+> O aplicativo e sua base continuam sendo o projeto open source criado pela [Jatevo Labs / Luca Cadalora](https://github.com/lucacadalora/oyenza-studio). Este repositório mantém a atribuição e a licença MIT do projeto original.
+
+## O que mudou neste fork
+
+- **Português do Brasil selecionável**, usado como idioma padrão desta versão.
+- **Calendário e datas em PT-BR**, incluindo dias da semana, meses e abreviações.
+- **Tradução das áreas principais**: menu da bandeja, configurações, Hoje, Foco, Tarefas, Área de Transferência e estados principais de Música.
+- **Modo compacto persistente sobre janelas maximizadas**: os visuais Relógio, Oyen, Minimal e Status continuam visíveis como uma pequena barra em vez de desaparecer após alguns segundos.
+- **Abertura ao passar o mouse**: a ilha compacta continua abrindo normalmente quando o ponteiro chega até ela.
+- **Tamanho original preservado** quando não há uma janela maximizada; o visual Minimal não fica espremido.
+
+> A tradução ainda não cobre todas as páginas especializadas. Algumas telas de Sistema, Shelf/Phone Drop, Health, Prayer e complementos podem continuar em inglês.
+
+### Como usar esta versão
+
+Por enquanto, este fork publica **o código-fonte** das alterações. Consulte [Build](#build) para compilar. Os instaladores do projeto original não incluem as mudanças deste fork.
+
+Para conhecer o projeto original, consultar a documentação oficial ou baixar a versão oficial, visite [`lucacadalora/oyenza-studio`](https://github.com/lucacadalora/oyenza-studio).
 
 <p align="center">
   <a href="https://studio.oyenza.com/"><b>Website</b></a>
