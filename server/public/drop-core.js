@@ -1,4 +1,4 @@
-// Oyen Poni paired phone drop: the shared rules of docs/paired-drop.md.
+// Oyenza Studio paired phone drop: the shared rules of docs/paired-drop.md.
 //
 // One plain ES module, WebCrypto only, used by the phone page (app.js), the
 // PC emulator in tools/pairdrop-e2e and the Node tests (Node 20+ has the same

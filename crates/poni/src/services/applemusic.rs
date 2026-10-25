@@ -14,7 +14,7 @@ use poni_core::lrclib::{LrclibRecord, TrackQuery, MIN_LINES};
 use poni_core::ttml::parse_ttml;
 use std::time::Duration;
 
-const USER_AGENT: &str = "Poni/0.1 (+https://github.com/lucacadalora/poni)";
+const USER_AGENT: &str = "Poni/0.1 (+https://github.com/lucacadalora/oyenza-studio)";
 /// API replies are small.
 const API_TIMEOUT: Duration = Duration::from_secs(8);
 /// The web player page and its script bundle are several MB each.

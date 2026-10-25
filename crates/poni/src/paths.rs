@@ -53,13 +53,13 @@ pub fn apple_music_web_token_path() -> PathBuf {
     cache_dir().join("apple-music-web.json")
 }
 
-/// Where files sent from a phone land: `Downloads\Oyen Poni` (wherever the
+/// Where files sent from a phone land: `Downloads\Oyenza Studio` (wherever the
 /// user moved Downloads to). Under `PONI_HOME` for the self-test.
 pub fn phone_inbox_dir() -> PathBuf {
     if let Some(h) = home_override() {
         return h.join("phone-drop");
     }
-    downloads_dir().unwrap_or_else(|| env_dir("USERPROFILE").join("Downloads")).join("Oyen Poni")
+    downloads_dir().unwrap_or_else(|| env_dir("USERPROFILE").join("Downloads")).join("Oyenza Studio")
 }
 
 fn downloads_dir() -> Option<PathBuf> {

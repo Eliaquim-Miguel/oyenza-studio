@@ -3,7 +3,7 @@
 //! Oyen is drawn from the Oyenza app's own built face ([`poni_core::oyen`]),
 //! never from a picture, so he is the same character, with the same moods, as
 //! in the app. He peeks over a line near the island's bottom edge the way the
-//! Oyen Poni logo does, his chin hidden behind it. (The logo's cream paws are
+//! Oyenza Studio logo does, his chin hidden behind it. (The logo's cream paws are
 //! left out: at island size they read as teeth, and Oyen has no mouth.)
 //!
 //! Moods only ever follow what the island is doing (resting, music, the

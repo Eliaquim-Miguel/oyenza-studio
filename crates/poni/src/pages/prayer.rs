@@ -209,7 +209,7 @@ fn picker(ui: &mut Ui, st: &mut AppState, area: Rect) {
     let top = area.y + SEARCH_H + 12.0;
     if st.prayer.query.trim().is_empty() {
         let hint = match st.prayer.locate {
-            Locate::Denied => "Windows' location is off for Oyen Poni. Turn it on to find your place, or type it.",
+            Locate::Denied => "Windows' location is off for Oyenza Studio. Turn it on to find your place, or type it.",
             Locate::Unknown => "Windows couldn't tell where this PC is. Type your kab/kota.",
             Locate::Far { .. } => "Prayer times know Indonesia's kab/kota and Makkah, Madinah, Jeddah for now.",
             _ => "Every kab/kota in Kemenag's schedule, and Makkah, Madinah, Jeddah.",

@@ -50,9 +50,9 @@ use std::ptr::NonNull;
 use std::sync::mpsc::{self, Receiver};
 
 /// Where the README explains the project.
-const ABOUT_URL: &str = "https://github.com/lucacadalora/poni";
+const ABOUT_URL: &str = "https://github.com/lucacadalora/oyenza-studio";
 /// Steps for copying the Apple Music token (README).
-const APPLE_MUSIC_HELP_URL: &str = "https://github.com/lucacadalora/poni#apple-music-lyrics";
+const APPLE_MUSIC_HELP_URL: &str = "https://github.com/lucacadalora/oyenza-studio#apple-music-lyrics";
 
 /// The grow springs overshoot by about 3 %; the window leaves 5 %.
 const OVERSHOOT: f32 = 1.05;
@@ -142,12 +142,12 @@ pub fn main_entry() -> i32 {
         std::env::set_var("PONI_HOME", &home);
     }
     crate::plog::init(paths::log_path());
-    pinfo!("Oyen Poni {} starting on macOS (args: {:?})", env!("CARGO_PKG_VERSION"), &args[1..]);
+    pinfo!("Oyenza Studio {} starting on macOS (args: {:?})", env!("CARGO_PKG_VERSION"), &args[1..]);
     std::panic::set_hook(Box::new(|info| {
         perror!("panic: {info}");
     }));
     let Some(mtm) = MainThreadMarker::new() else {
-        eprintln!("Oyen Poni must start on the main thread");
+        eprintln!("Oyenza Studio must start on the main thread");
         return 2;
     };
     let _lock = match single_instance() {
@@ -505,7 +505,7 @@ impl App {
         }
         if self.first_run && self.smoke.is_none() {
             let place = if self.screen.notch.is_some() { "Point at the notch to open it" } else { "Point at the island to open it" };
-            self.st.notify(Icon::CheckCircle, self.st.accent, "Oyen Poni is on", place, 6.0, None);
+            self.st.notify(Icon::CheckCircle, self.st.accent, "Oyenza Studio is on", place, 6.0, None);
         }
         if self.smoke.is_some() {
             self.set_timer(Timer::Smoke, 600);
@@ -518,7 +518,7 @@ impl App {
     fn quit(&mut self, code: i32) {
         self.save_now();
         self.save_settings();
-        pinfo!("Oyen Poni exiting with code {code}");
+        pinfo!("Oyenza Studio exiting with code {code}");
         std::process::exit(code);
     }
 
@@ -800,7 +800,7 @@ impl App {
                 pinfo!("start at login: {now:?}");
                 if now == Login::NeedsApproval {
                     services::login::open_settings();
-                    self.st.notify(Icon::Sliders, palette::ORANGE, "Allow Oyen Poni to start at login", "Turn it on in Login Items", 8.0, None);
+                    self.st.notify(Icon::Sliders, palette::ORANGE, "Allow Oyenza Studio to start at login", "Turn it on in Login Items", 8.0, None);
                 }
             }
         }
@@ -2243,7 +2243,7 @@ impl App {
                 self.st.pomodoro.start(self.st.now);
             }
             "notice" => {
-                self.st.notify(Icon::CheckCircle, self.st.accent, "Oyen Poni is on", "Point at the island to open it", 30.0, None);
+                self.st.notify(Icon::CheckCircle, self.st.accent, "Oyenza Studio is on", "Point at the island to open it", 30.0, None);
             }
             "volume-hud" => {
                 self.st.notice = None;
@@ -2741,7 +2741,7 @@ const SMOKE_STEPS: [&str; 32] = [
 /// The track CI announces as Spotify's own notification would.
 const SMOKE_TRACK: &str = "Blinding Lights";
 /// What CI copies with `pbcopy` during the clipboard step.
-const SMOKE_CLIP: &str = "Oyen Poni smoke test";
+const SMOKE_CLIP: &str = "Oyenza Studio smoke test";
 
 #[derive(Clone, Copy, Debug)]
 enum SmokePhase {

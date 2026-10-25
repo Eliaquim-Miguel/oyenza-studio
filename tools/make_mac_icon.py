@@ -1,11 +1,11 @@
-"""Draw the Mac app icon's iconset from Oyen Poni's logo (tools/make_brand.py draws the logo itself).
+"""Draw the Mac app icon's iconset from Oyenza Studio's logo (tools/make_brand.py draws the logo itself).
 
 macOS icons sit on Apple's grid: the tile is 824 of the icon's 1024 px, centred, with clear space around it.
 Each size is drawn on its own (the logo leaves out the album cover and the bars below 32 px), never scaled
 from a bigger one.
 
 Run: python3 tools/make_mac_icon.py <out.iconset>   (needs Pillow), then on a Mac:
-     iconutil -c icns <out.iconset> -o OyenPoni.icns
+     iconutil -c icns <out.iconset> -o OyenzaStudio.icns
 """
 import sys
 from pathlib import Path

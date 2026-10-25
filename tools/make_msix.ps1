@@ -2,15 +2,15 @@
 #
 #   ./tools/make_msix.ps1 -Exe target\release\poni.exe -Version 0.1.2
 #
-# Writes dist\Oyen-Poni-<version>.msix, unsigned: the Store signs what it ships.
+# Writes dist\Oyenza-Studio-<version>.msix, unsigned: the Store signs what it ships.
 # Needs the Windows SDK (makepri.exe, makeappx.exe) and Python with Pillow.
 param(
     [Parameter(Mandatory = $true)][string]$Exe,
     [Parameter(Mandatory = $true)][string]$Version,
     [string]$OutDir = "dist",
-    # Partner Center > Oyen Poni > Product identity. These are stand-ins until
+    # Partner Center > Oyenza Studio > Product identity. These are stand-ins until
     # the name is reserved; the Store refuses a package whose identity differs.
-    [string]$IdentityName = "JatevoLabs.OyenPoni",
+    [string]$IdentityName = "JatevoLabs.OyenzaStudio",
     [string]$Publisher = "CN=Jatevo Labs",
     [string]$PublisherDisplayName = "Jatevo Labs"
 )
@@ -72,7 +72,7 @@ foreach ($node in @($cfg.SelectNodes("/resources/packaging"))) { $null = $node.P
 $cfg.Save($priConfig)
 Invoke-Tool $makepri @("new", "/pr", $layout, "/cf", $priConfig, "/mn", $manifestPath, "/of", (Join-Path $layout "resources.pri"), "/o")
 
-$msix = Join-Path $OutDir "Oyen-Poni-$Version.msix"
+$msix = Join-Path $OutDir "Oyenza-Studio-$Version.msix"
 $makeappx = Find-SdkTool "makeappx.exe"
 Invoke-Tool $makeappx @("pack", "/d", $layout, "/p", $msix, "/o")
 Get-Item $msix | Format-List Name, Length

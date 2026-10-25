@@ -1039,7 +1039,7 @@ pub fn fetch_phone_page(url: &str) -> (bool, String) {
         Ok(out)
     };
     match fetch() {
-        Ok(resp) if resp.starts_with("HTTP/1.1 200") && resp.contains("<title>Oyen Poni") && resp.trim_end().ends_with("</html>") => {
+        Ok(resp) if resp.starts_with("HTTP/1.1 200") && resp.contains("<title>Oyenza Studio") && resp.trim_end().ends_with("</html>") => {
             (true, format!("served the page at {addr} ({} bytes)", resp.len()))
         }
         Ok(resp) => (false, format!("unexpected answer from {addr}: {}", resp.lines().next().unwrap_or(""))),
@@ -1307,10 +1307,10 @@ impl SelfTest {
         // PONI_SELFTEST_ANALYZER: "required" (Windows CI) = Windows' own
         // analyzer must work and every line must read, kanji lines included;
         // "off" = read the song the way a PC without Windows' Japanese reading
-        // data does (Oyen Poni's own dictionary), every line too; "kana" = the
+        // data does (Oyenza Studio's own dictionary), every line too; "kana" = the
         // way 0.1.11 and older read it there (kana lines only), for
         // before/after pictures. Without it, Wine has no analyzer, so its
-        // lines come from Oyen Poni's own dictionary.
+        // lines come from Oyenza Studio's own dictionary.
         let analyzer = std::env::var("PONI_SELFTEST_ANALYZER").map(|v| v.trim().to_ascii_lowercase()).unwrap_or_default();
         let texts: Vec<&str> = parsed.lines.iter().map(|l| l.text.trim()).collect();
         let japanese = poni_core::romanize::song_script(&texts) == Some(poni_core::romanize::Script::Japanese);
@@ -2183,7 +2183,7 @@ impl SelfTest {
             let n = f.total();
             drop(f);
             if self.renderer != "software" {
-                self.checks.push(check("frame-count", n > 0, format!("{n} of Oyen Poni's own frames counted from Windows' frame log")));
+                self.checks.push(check("frame-count", n > 0, format!("{n} of Oyenza Studio's own frames counted from Windows' frame log")));
             } else {
                 crate::pinfo!("selftest: frame count saw {n} frames (the software renderer presents none)");
             }

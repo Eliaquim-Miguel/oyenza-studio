@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Oyen Poni meeting server for paired phone drop (MIT).
+// Oyenza Studio meeting server for paired phone drop (MIT).
 //
 // The contract is docs/paired-drop.md. Node 20+, no dependencies. It tells a
 // phone whether its PC is online, passes the two sides' signed connection

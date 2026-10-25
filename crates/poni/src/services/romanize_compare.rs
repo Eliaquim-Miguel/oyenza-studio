@@ -1,4 +1,4 @@
-//! Windows' Japanese reading analyzer against Oyen Poni's own dictionary, on
+//! Windows' Japanese reading analyzer against Oyenza Studio's own dictionary, on
 //! real songs. The "Japanese readings compared" CI job
 //! (`.github/workflows/ja-compare.yml`) fetches the lyrics of Apple Music
 //! Japan's chart at run time (`tools/ja_compare_fetch.py`; song lyrics never
@@ -38,7 +38,7 @@ struct Stats {
 fn compare_readings() {
     let dir = std::env::var("PONI_JA_COMPARE").expect("PONI_JA_COMPARE: a folder of .lrc files");
     // The repo's copy of the Japanese readings add-on's dictionary.
-    let dict = JaDict::load(include_bytes!("../../../poni-core/data/ja-readings.dic.zst")).expect("Oyen Poni's dictionary loads");
+    let dict = JaDict::load(include_bytes!("../../../poni-core/data/ja-readings.dic.zst")).expect("Oyenza Studio's dictionary loads");
     let mut files: Vec<_> = std::fs::read_dir(&dir).expect("the folder reads").filter_map(|e| e.ok().map(|e| e.path())).filter(|p| p.extension().is_some_and(|x| x == "lrc")).collect();
     files.sort();
 
@@ -135,7 +135,7 @@ fn report(s: &Stats, diffs: HashMap<(String, String, String), usize>) -> String 
     let mut rows: Vec<_> = diffs.into_iter().collect();
     rows.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
     let cell = |t: &str| if t.is_empty() { "(none)".to_string() } else { t.replace('|', "\\|") };
-    let mut out = String::from("### Japanese readings: Windows' analyzer and Oyen Poni's dictionary\n\n");
+    let mut out = String::from("### Japanese readings: Windows' analyzer and Oyenza Studio's dictionary\n\n");
     out += &format!(
         "{} Japanese songs from Apple Music Japan's chart, lyrics from LRCLIB (fetched for this run, not stored).\n\n\
          - {} different lines; both read {} of them the same way ({:.1}%).\n\
@@ -145,7 +145,7 @@ fn report(s: &Stats, diffs: HashMap<(String, String, String), usize>) -> String 
     if rows.is_empty() {
         return out;
     }
-    out += &format!("The {} most frequent differences:\n\n| Times | Text | Windows | Oyen Poni |\n|---:|---|---|---|\n", rows.len().min(LIST_MAX));
+    out += &format!("The {} most frequent differences:\n\n| Times | Text | Windows | Oyenza Studio |\n|---:|---|---|---|\n", rows.len().min(LIST_MAX));
     for ((text, win, own), n) in rows.iter().take(LIST_MAX) {
         out += &format!("| {n} | {} | {} | {} |\n", cell(text), cell(win), cell(own));
     }

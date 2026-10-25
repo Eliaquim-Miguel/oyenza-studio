@@ -1,4 +1,4 @@
-// Oyen Poni phone page: pair with a PC once, then send it photos and files
+// Oyenza Studio phone page: pair with a PC once, then send it photos and files
 // from any network, and save Shelf files on the phone.
 // Contract: docs/paired-drop.md. No dependencies, no inline code (strict CSP).
 
@@ -902,8 +902,8 @@ async function deliver(file, button) {
 
 function problemText(code, name, during = 'connect') {
   switch (code) {
-    case 'offline': return `${name} is offline. Start Oyen Poni on it, then try again.`;
-    case 'no-answer': return `${name} didn't answer. Check that Oyen Poni is running on it, then try again.`;
+    case 'offline': return `${name} is offline. Start Oyenza Studio on it, then try again.`;
+    case 'no-answer': return `${name} didn't answer. Check that Oyenza Studio is running on it, then try again.`;
     case 'busy': return `${name} is busy with other phones. Try again in a moment.`;
     case 'no-route': return `Couldn't reach ${name} from this network. Try again, or join the same Wi-Fi as the PC.`;
     case 'no-webrtc': return 'This browser can\'t make direct connections. Open this page in Safari or Chrome.';
@@ -942,7 +942,7 @@ function showView(name) {
     islandRest = () => setIsland('idle');
     islandRest();
   }
-  document.title = name === 'pc' && pcv.pair ? `${PcName(pcv.pair)} · Oyen Poni` : 'Oyen Poni';
+  document.title = name === 'pc' && pcv.pair ? `${PcName(pcv.pair)} · Oyenza Studio` : 'Oyenza Studio';
   if (name === 'home' || name === 'share') startPolling();
   else stopPolling();
   scrollTo(0, 0);
@@ -1032,7 +1032,7 @@ function setPairState(state, detail) {
     setIsland('idle');
     setIsland('done', { title: 'Paired', sub: detail, hold: 3200 });
     titleWithName('pair-title', 'Paired with', detail);
-    sub.textContent = `Send photos and files to ${detail} from anywhere, whenever Oyen Poni is running on it.`;
+    sub.textContent = `Send photos and files to ${detail} from anywhere, whenever Oyenza Studio is running on it.`;
     sub.hidden = false;
     setStatus('pair', '');
     $('pair-done').hidden = false;
@@ -1660,7 +1660,7 @@ function renderSharePcs() {
   const box = $('share-pcs');
   box.textContent = '';
   if (!store.pairs.length) {
-    box.appendChild(el('p', 'small', 'No PC paired yet. On your PC, open Oyen Poni › Shelf › Phone › Pair a phone, and scan the code.'));
+    box.appendChild(el('p', 'small', 'No PC paired yet. On your PC, open Oyenza Studio › Shelf › Phone › Pair a phone, and scan the code.'));
     return;
   }
   for (const p of store.pairs) {

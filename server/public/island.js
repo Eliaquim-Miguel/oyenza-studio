@@ -1,4 +1,4 @@
-// The island at the top of the page. Like Oyen Poni's island on the PC, it
+// The island at the top of the page. Like Oyenza Studio's island on the PC, it
 // says what is happening right now and grows to fit: a green dot when idle,
 // the road to the PC once connected, a progress ring while sending, a check
 // when the files are on the Shelf. Short news (done, oops) shows for a moment
@@ -25,7 +25,7 @@ function icon(name) {
   return s;
 }
 
-let base = { mode: 'idle', title: 'Oyen Poni' };
+let base = { mode: 'idle', title: 'Oyenza Studio' };
 let shown = null;
 let backTimer = null;
 let thumbUrl = null;
@@ -37,7 +37,7 @@ let thumbUrl = null;
  *   o: { title, sub, icon, progress (0..1), thumb (File), live (bool), hold }
  */
 export function setIsland(mode, o = {}) {
-  const s = { mode, title: o.title || 'Oyen Poni', sub: o.sub || '', icon: o.icon || null, progress: o.progress ?? null, thumb: o.thumb || null, live: Boolean(o.live) };
+  const s = { mode, title: o.title || 'Oyenza Studio', sub: o.sub || '', icon: o.icon || null, progress: o.progress ?? null, thumb: o.thumb || null, live: Boolean(o.live) };
   if (o.hold) {
     clearTimeout(backTimer);
     render(s);

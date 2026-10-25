@@ -10,7 +10,7 @@ small web page on the local network so a phone can send files to it.
 
 | Crate | What | Builds on |
 |---|---|---|
-| `crates/poni-core` | Pure logic + models: geometry/colour, springs, LRC parsing, LRCLIB URL/JSON, Apple Music lyrics (web-player token, API replies, TTML), romaji under Japanese, Korean and Chinese lyrics (`romanize/`; Japanese kanji come from Windows' reading analyzer, or from Oyen Poni's own dictionary, `romanize/ja_dict.rs` with `data/ja-readings.dic.zst`, built by `tools/make_ja_dict.py`, which Windows downloads as the Japanese readings add-on and the Mac app carries built in), player metadata fix-ups, Pomodoro, the steps snapshot Oyenza sends (`health.rs`), tasks, shelf, clipboard history, settings, JSON store, SVG path parser, Oyen's face (`oyen/`, a port of the Oyenza app's built face, checked against its Swift port by `oyen/swift_check.rs`), Phone drop (`phonedrop/`: the LAN web server, the phone page, safe file names, QR codes), add-ons (`addons.rs`: each add-on's files with their size and SHA-256, and what the Add-ons page says; `sha256.rs` checks them), prayer times (`prayer/`: Adhan's sun math ported from adhan-js, with Kemenag RI's rules for Indonesia and Umm al-Qura for Saudi Arabia, checked against Kemenag's published 2026 schedule and Oyen Umroh's engine; the place list is `addons/sholat/places.json`), and the System page's arithmetic (`sysmon.rs`: CPU load, per-app usage from two process lists, the process list's binary layout, a minute of history, number formats). **No OS calls** beyond `std` file and socket I/O (`store`, `phonedrop`), so the server's tests run over real sockets anywhere. | any OS (`cargo test -p poni-core`) |
+| `crates/poni-core` | Pure logic + models: geometry/colour, springs, LRC parsing, LRCLIB URL/JSON, Apple Music lyrics (web-player token, API replies, TTML), romaji under Japanese, Korean and Chinese lyrics (`romanize/`; Japanese kanji come from Windows' reading analyzer, or from Oyenza Studio's own dictionary, `romanize/ja_dict.rs` with `data/ja-readings.dic.zst`, built by `tools/make_ja_dict.py`, which Windows downloads as the Japanese readings add-on and the Mac app carries built in), player metadata fix-ups, Pomodoro, the steps snapshot Oyenza sends (`health.rs`), tasks, shelf, clipboard history, settings, JSON store, SVG path parser, Oyen's face (`oyen/`, a port of the Oyenza app's built face, checked against its Swift port by `oyen/swift_check.rs`), Phone drop (`phonedrop/`: the LAN web server, the phone page, safe file names, QR codes), add-ons (`addons.rs`: each add-on's files with their size and SHA-256, and what the Add-ons page says; `sha256.rs` checks them), prayer times (`prayer/`: Adhan's sun math ported from adhan-js, with Kemenag RI's rules for Indonesia and Umm al-Qura for Saudi Arabia, checked against Kemenag's published 2026 schedule and Oyen Umroh's engine; the place list is `addons/sholat/places.json`), and the System page's arithmetic (`sysmon.rs`: CPU load, per-app usage from two process lists, the process list's binary layout, a minute of history, number formats). **No OS calls** beyond `std` file and socket I/O (`store`, `phonedrop`), so the server's tests run over real sockets anywhere. | any OS (`cargo test -p poni-core`) |
 | `crates/poni` | The Windows app (Win32 + Direct2D + WinRT via `windows` 0.58) | Windows only (`cargo wcheck` / `cargo wbuild` cross from macOS/Linux) |
 | `crates/poni/src/mac/` | The Mac app (AppKit + Core Graphics + Core Text via `objc2`): its own window, renderer, main loop, notch layouts and menu bar item around the same state, pages, activities and Oyen. See [The Mac app](#the-mac-app). | macOS 14+ (`cargo mcheck` type-checks it from Linux) |
 
@@ -160,7 +160,7 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect);  // draw + handle input
 * Cache + log: `%LOCALAPPDATA%\Poni\` (`lyrics\*.json`, `poni.log`), plus the Apple Music
   token sealed with DPAPI (`apple-music-token.bin`) and the web player's public
   developer token (`apple-music-web.json`).
-* Phone drop: received files go to `Downloads\Oyen Poni` (`paths::phone_inbox_dir`),
+* Phone drop: received files go to `Downloads\Oyenza Studio` (`paths::phone_inbox_dir`),
   staged in a `.oyen-poni-incoming-<n>` folder there until every file of a send has arrived.
 * Oyenza (optional): the sign-in, this PC's own key, sealed with DPAPI
   (`%LOCALAPPDATA%\Poni\oyenza-link.bin`; `oyenza-revoke.bin` while a sign-out
@@ -208,6 +208,6 @@ the Windows files are untouched.
 CI (`.github/workflows/mac.yml`, on `main` and `mac-*` branches) builds for
 Apple Silicon and Intel, renders every state, runs the real window through a
 few states with screenshots (`poni --smoke <dir>` writes where its window is
-and waits for each screenshot), and packages `Oyen-Poni-<version>-mac-unsigned.dmg`
+and waits for each screenshot), and packages `Oyenza-Studio-<version>-mac-unsigned.dmg`
 (ad-hoc signed; Developer ID signing and notarization need the Apple secrets).
 

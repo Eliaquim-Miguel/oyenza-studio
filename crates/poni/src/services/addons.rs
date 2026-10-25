@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
-const USER_AGENT: &str = concat!("OyenPoni/", env!("CARGO_PKG_VERSION"), " (+https://github.com/lucacadalora/poni)");
+const USER_AGENT: &str = concat!("OyenzaStudio/", env!("CARGO_PKG_VERSION"), " (+https://github.com/lucacadalora/oyenza-studio)");
 /// Budget for one file: slow connections still bring 2 MB in this time.
 const FILE_TIMEOUT: Duration = Duration::from_secs(180);
 const FIRST_RETRY: Duration = Duration::from_secs(5);

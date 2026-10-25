@@ -7,7 +7,7 @@
 //! it (opening brackets on the piece after) and reads as ASCII in `roman`.
 //! Japanese lines with kanji need readings from a morphological analyzer:
 //! Windows' JapanesePhoneticAnalyzer, passed in as [`JaWord`]s, or, where
-//! Windows has no Japanese data, Oyen Poni's own dictionary ([`JaDict`]).
+//! Windows has no Japanese data, Oyenza Studio's own dictionary ([`JaDict`]).
 
 mod hangul;
 mod ja_dict;
@@ -525,7 +525,7 @@ mod tests {
         assert_eq!(joined(&japanese_ruby(&words)).1, "shite wa ikenai");
         // A word ending in the particle (本当は, one word in the dictionaries).
         assert_eq!(japanese_ruby(&[w("本当は", "ほんとうは", true)]), vec![rb("本当は", "hontou wa")]);
-        // Oyen Poni's dictionary gives kana words no reading: the display is the kana.
+        // Oyenza Studio's dictionary gives kana words no reading: the display is the kana.
         let words = [w("時", "とき", true), w("には", "", false)];
         assert_eq!(joined(&japanese_ruby(&words)).1, "toki ni wa");
         // は starting a line, and words that only end in は, stay as they are.

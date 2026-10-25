@@ -1,4 +1,4 @@
-# Oyen Poni's own Japanese reading dictionary (crates/poni-core/data/ja-readings.dic.zst)
+# Oyenza Studio's own Japanese reading dictionary (crates/poni-core/data/ja-readings.dic.zst)
 # must be exactly what tools/make_ja_dict.py builds from the pinned mecab-ipadic.
 name: Japanese dictionary
 

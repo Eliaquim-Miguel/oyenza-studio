@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build crates/poni-core/data/ja-readings.dic.zst, Oyen Poni's own Japanese
+"""Build crates/poni-core/data/ja-readings.dic.zst, Oyenza Studio's own Japanese
 reading dictionary, from mecab-ipadic 2.7.0-20070801.
 
 Usage:
@@ -15,7 +15,7 @@ Steps:
 2. Keep what lyrics need: drop person and company names (Noun.name, Noun.org);
    keep place names and other proper nouns only when common (cost below 8000,
    so 東京 and 渋谷 stay).
-3. Add Oyen Poni's own fixes (tools/ja_dict_fixes.csv): words the 2007 list
+3. Add Oyenza Studio's own fixes (tools/ja_dict_fixes.csv): words the 2007 list
    lacks or misreads in lyrics.
 4. Cut each entry's features to "<class>" or "<class>,<reading>", the reading
    (katakana) only when the surface has kanji. romanize/ja_dict.rs reads the
@@ -91,7 +91,7 @@ def source_tarball(path):
         with open(path, "rb") as f:
             data = f.read()
     else:
-        req = urllib.request.Request(SOURCE, headers={"User-Agent": "oyen-poni-make-ja-dict"})
+        req = urllib.request.Request(SOURCE, headers={"User-Agent": "oyenza-studio-make-ja-dict"})
         with urllib.request.urlopen(req, timeout=120) as r:
             data = r.read()
     got = hashlib.sha256(data).hexdigest()

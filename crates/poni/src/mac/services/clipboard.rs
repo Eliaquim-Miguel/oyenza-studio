@@ -6,7 +6,7 @@
 //! be recorded are skipped: password managers mark them concealed or
 //! transient (the nspasteboard.org conventions 1Password, Bitwarden and
 //! others follow), the same promise the Windows app keeps with its formats.
-//! If the person set Oyen Poni's pasteboard access to "deny" (macOS 15.4+),
+//! If the person set Oyenza Studio's pasteboard access to "deny" (macOS 15.4+),
 //! nothing is read at all.
 
 use crate::events::{AppEvent, EventSink};

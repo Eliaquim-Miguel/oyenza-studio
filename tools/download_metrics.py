@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Count Oyen Poni's downloads on GitHub and keep the stats page.
+"""Count Oyenza Studio's downloads on GitHub and keep the stats page.
 
 GitHub keeps one running download counter per release file and nothing else:
 no dates, no history. .github/workflows/metrics.yml runs this every hour and
@@ -84,7 +84,7 @@ DOWNLOAD_URL = re.compile(r"github\.com/([\w.-]+/[\w.-]+)/releases/download/([^/
 def kind(file: str) -> str:
     if file.endswith("-portable.zip"):
         return "zip"
-    # The website's and README's Download link: releases/latest/download/Oyen-Poni-Setup.exe.
+    # The website's and README's Download link: releases/latest/download/Oyenza-Studio-Setup.exe.
     if re.fullmatch(r"(Oyen-)?Poni-Setup\.exe", file):
         return "button"
     if file.endswith(".exe"):
@@ -419,7 +419,7 @@ def chart_svg(releases: list[dict], days: list[tuple[date, int]]) -> str:
     H = round(y + PAD - 8)
     body = "\n".join(grid + marks + labels)
     return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}" role="img" aria-labelledby="title">\n'
-            f'<title id="title">Oyen Poni downloads per release{" and per day" if len(days) >= 3 else ""}</title>\n'
+            f'<title id="title">Oyenza Studio downloads per release{" and per day" if len(days) >= 3 else ""}</title>\n'
             f'<rect width="{W}" height="{H}" rx="16" fill="{CREAM}"/>\n'
             f'<g font-family="{FONT}">\n{body}\n</g>\n</svg>\n')
 
@@ -493,7 +493,7 @@ def page(s: dict, days: list[tuple[date, int]], steps: dict, traffic: list[dict]
     facts.append(f'Last 7 days: <b>{s["last_7_days"]:,}</b>')
     facts.append(f'<b>{s["stars"]:,}</b> star{"" if s["stars"] == 1 else "s"} on GitHub')
     since = f' since {day_text(date.fromisoformat(s["since"]))}' if s["since"] else ""
-    out += [f'<p align="center">of Oyen Poni for Windows, from GitHub{since}<br>{" · ".join(facts)}</p>', ""]
+    out += [f'<p align="center">of Oyenza Studio for Windows, from GitHub{since}<br>{" · ".join(facts)}</p>', ""]
     alt = "Bar chart of downloads per release: " + ", ".join(f"{label} {n:,}" for label, n in chart_rows(s["releases"]))
     if len(days) >= 3:
         alt += f"; and per day, for the last {min(len(days), 30)} days"
@@ -537,8 +537,8 @@ def page(s: dict, days: list[tuple[date, int]], steps: dict, traffic: list[dict]
 
     fetched = sorted({f"{file} ({tag.removeprefix('v')})" for names in steps.values() for tag, file in names.values()})
     out += ["<details>", "<summary>How we count</summary>", ""]
-    out.append("- GitHub counts every download of a release file. The Download button on the [website](https://lucacadalora.github.io/poni/) "
-               "and in the README always fetches `Oyen-Poni-Setup.exe` from the newest release; the versioned installer and the portable zip "
+    out.append("- GitHub counts every download of a release file. The Download button on the [website](https://studio.oyenza.com/) "
+               "and in the README always fetches `Oyenza-Studio-Setup.exe` from the newest release; the versioned installer and the portable zip "
                "are on each release's page.")
     if s["ci_count"] or fetched:
         what = f"downloads {', '.join(fetched)}" if fetched else "downloaded release files"
@@ -548,7 +548,7 @@ def page(s: dict, days: list[tuple[date, int]], steps: dict, traffic: list[dict]
                "taken off. Each file's number keeps its highest reading, so numbers only go up.")
     out.append("- Still in the numbers: our own check of each new release (one download through the Download button) and any bots. "
                "GitHub can't tell those apart.")
-    out.append("- Oyen Poni itself sends nothing: no accounts, no tracking. These are GitHub's download counters, read every hour.")
+    out.append("- Oyenza Studio itself sends nothing: no accounts, no tracking. These are GitHub's download counters, read every hour.")
     if s["since"]:
         out.append(f"- GitHub keeps no dates for downloads, so everything before the first reading counts on {day_text(days[0][0]) if days else 'that day'}.")
     if not traffic:
@@ -586,9 +586,9 @@ def read_traffic(repo: str, token: str, today: date, traffic: list[dict], referr
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Count Oyen Poni's downloads on GitHub and keep the stats page.")
+    ap = argparse.ArgumentParser(description="Count Oyenza Studio's downloads on GitHub and keep the stats page.")
     ap.add_argument("--out", type=Path, required=True, help="the metrics branch's checkout")
-    ap.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY") or "lucacadalora/poni")
+    ap.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY") or "lucacadalora/oyenza-studio")
     ap.add_argument("--now", help="pretend it's this UTC time (for tests)")
     args = ap.parse_args()
     out: Path = args.out

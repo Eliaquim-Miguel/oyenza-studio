@@ -301,7 +301,7 @@ class Run:
         c.expect("home shows the PC offline with when it was seen", lambda: expect(phone.locator("#pcs")).to_contain_text(f"{PC}Offline · seen just now", timeout=15000))
         self.shot(phone, "10-offline")
         phone.click("#pcs .pc-open")
-        c.expect("PC view says the PC is offline", lambda: expect(phone.locator("#pc-error-text")).to_have_text(f"{PC} is offline. Start Oyen Poni on it, then try again.", timeout=30000))
+        c.expect("PC view says the PC is offline", lambda: expect(phone.locator("#pc-error-text")).to_have_text(f"{PC} is offline. Start Oyenza Studio on it, then try again.", timeout=30000))
         self.shot(phone, "11-pc-offline")
 
         print(f"  [{self.label}] removed on the PC")

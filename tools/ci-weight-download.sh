@@ -2,7 +2,7 @@
 # Weight check, download size (CI): the installer people download, against
 # "download_mb" in tools/weight-budget.json (AGENTS.md, Keep it light). Over
 # budget is a warning until "warn_only_until", then it fails the run.
-#   tools/ci-weight-download.sh dist/Oyen-Poni-Setup-<version>.exe
+#   tools/ci-weight-download.sh dist/Oyenza-Studio-Setup-<version>.exe
 set -euo pipefail
 file="$1"
 budget_file="$(dirname "$0")/weight-budget.json"

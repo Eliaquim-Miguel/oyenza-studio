@@ -1,5 +1,5 @@
 # Reads the Japanese songs on Apple Music Japan's chart with Windows' own
-# reading analyzer and with Oyen Poni's dictionary, and lists the words they
+# reading analyzer and with Oyenza Studio's dictionary, and lists the words they
 # read differently (crates/poni/src/services/romanize_compare.rs). The lyrics
 # come from LRCLIB at run time and are never stored; the report shows words,
 # not lines. It informs the dictionary's fix list (tools/ja_dict_fixes.csv),
@@ -24,7 +24,7 @@ permissions:
 
 jobs:
   compare:
-    name: Windows' analyzer and Oyen Poni's dictionary
+    name: Windows' analyzer and Oyenza Studio's dictionary
     # Windows Server ships the analyzer's Japanese data.
     runs-on: windows-2025
     steps:

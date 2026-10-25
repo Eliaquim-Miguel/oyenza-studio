@@ -42,12 +42,12 @@ pub fn lock_path() -> PathBuf {
     cache_dir().join("poni.lock")
 }
 
-/// Where files from a phone land (Phone drop): `~/Downloads/Oyen Poni`.
+/// Where files from a phone land (Phone drop): `~/Downloads/Oyenza Studio`.
 pub fn phone_inbox_dir() -> PathBuf {
     if let Some(h) = home_override() {
         return h.join("phone-drop");
     }
-    std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(".")).join("Downloads").join("Oyen Poni")
+    std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(".")).join("Downloads").join("Oyenza Studio")
 }
 
 pub fn lyrics_cache_dir() -> PathBuf {

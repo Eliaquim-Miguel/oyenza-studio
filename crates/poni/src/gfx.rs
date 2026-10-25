@@ -789,7 +789,7 @@ fn pick_font_family(dwrite: &IDWriteFactory) -> Vec<u16> {
 }
 
 /// Fonts shipped inside the exe: Outfit (SIL Open Font License 1.1, see
-/// `res/fonts/OFL.txt`), the Oyen Poni website's typeface, in the four weights
+/// `res/fonts/OFL.txt`), the Oyenza Studio website's typeface, in the four weights
 /// the island uses.
 const EMBEDDED_FONTS: [&[u8]; 4] = [
     include_bytes!("../res/fonts/Outfit-Regular.ttf"),

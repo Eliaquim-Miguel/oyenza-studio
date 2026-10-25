@@ -2,7 +2,7 @@
 //! the numbers came from.
 //!
 //! The numbers come from the person's phone: Oyenza reads daily totals from
-//! Apple Health or Health Connect and a signed-in Oyen Poni receives them
+//! Apple Health or Health Connect and a signed-in Oyenza Studio receives them
 //! (`AppState::health`). Until then the page says how it will work. Nothing
 //! here animates; the page only redraws when new numbers arrive.
 

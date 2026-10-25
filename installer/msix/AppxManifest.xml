@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Microsoft Store package (MSIX) for Oyen Poni. tools/make_msix.ps1 fills in
+  Microsoft Store package (MSIX) for Oyenza Studio. tools/make_msix.ps1 fills in
   the $...$ values, adds poni.exe, the images and resources.pri, and packs it.
   The Store signs the package after review, so the upload is unsigned.
 
   Identity Name, Publisher and PublisherDisplayName must be the values on
-  Partner Center > Oyen Poni > Product identity, or the Store refuses the upload.
+  Partner Center > Oyenza Studio > Product identity, or the Store refuses the upload.
 -->
 <Package
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
@@ -17,7 +17,7 @@
   <Identity Name="$IdentityName$" Publisher="$Publisher$" Version="$Version$" ProcessorArchitecture="x64" />
 
   <Properties>
-    <DisplayName>Oyen Poni</DisplayName>
+    <DisplayName>Oyenza Studio</DisplayName>
     <PublisherDisplayName>$PublisherDisplayName$</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
@@ -35,7 +35,7 @@
   <Applications>
     <Application Id="Poni" Executable="poni.exe" EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
-        DisplayName="Oyen Poni"
+        DisplayName="Oyenza Studio"
         Description="A living notch for Windows: music with synced lyrics, a focus timer, your steps, a file shelf, tasks and clipboard history."
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"
@@ -43,7 +43,7 @@
       <Extensions>
         <!-- "Start with Windows". TaskId must match TASK_ID in crates/poni/src/autostart.rs. -->
         <uap5:Extension Category="windows.startupTask" Executable="poni.exe" EntryPoint="Windows.FullTrustApplication">
-          <uap5:StartupTask TaskId="PoniStartup" Enabled="true" DisplayName="Oyen Poni" />
+          <uap5:StartupTask TaskId="PoniStartup" Enabled="true" DisplayName="Oyenza Studio" />
         </uap5:Extension>
       </Extensions>
     </Application>

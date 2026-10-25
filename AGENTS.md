@@ -4,7 +4,7 @@ Codex, Claude Code, Kimi or any other agent working in this repo: read this befo
 
 ## Keep it light
 
-Oyen Poni sits on screen all day, so how little it costs is part of the product. The maintainer's rule (24 Oct 2026): keep it very light on CPU, memory and download size, and fast, however many features it gets. Every change follows these:
+Oyenza Studio sits on screen all day, so how little it costs is part of the product. The maintainer's rule (24 Oct 2026): keep it very light on CPU, memory and download size, and fast, however many features it gets. Every change follows these:
 
 - **Nothing runs at rest unless the person switched it on or its page is open.** No new thread, timer, poll or network call that keeps going while the island is idle. React to Windows' own notifications where there are some. When something has to repeat, give the interval a reason in a comment and stop it as soon as nothing needs it.
 - **Anything that repeats rests when nobody is there:** while the session is locked, the display is off or battery saver is on. The app already knows all three (`App::locked`, `App::display_off`, `st.power.saver`), and ambient animation already pauses for the first two.
@@ -13,13 +13,13 @@ Oyen Poni sits on screen all day, so how little it costs is part of the product.
 - **Big data is an add-on, never part of poni.exe.** Dictionaries, sounds, place lists and models go on a GitHub pre-release and download when first needed, checked against the size and SHA-256 in `poni_core::addons` (`addons/`, `services/addons.rs`). `include_bytes!` is for small things the app can't start without, such as the icon and the Outfit font.
 - **A new crate needs a reason and its size.** Build with `CARGO_PROFILE_RELEASE_STRIP=false cargo wbuild` before and after, and compare `x86_64-w64-mingw32-nm --size-sort -S -C` totals per crate. Code that runs for moments (a handshake, a parser, a file format) can be built for size in the workspace `Cargo.toml` (`[profile.release.package.<name>] opt-level = "s"`). Code that runs every frame stays at full speed.
 - **Measure CPU in cycles, not milliseconds.** `TotalProcessorTime`, `GetProcessTimes` and Task Manager count in 15.6 ms clock ticks, so a reading that takes a fraction of a millisecond shows as zero. Use `QueryProcessCycleTime` or `QueryThreadCycleTime`.
-- **Every PR says what it costs:** download size (the installer in the `oyen-poni-setup` artifact), memory at rest (`smoke-out/metrics.txt` in the `poni-screens` artifact), and anything new that runs at rest or on every frame. "Nothing new" is a fine answer.
+- **Every PR says what it costs:** download size (the installer in the `oyenza-studio-setup` artifact), memory at rest (`smoke-out/metrics.txt` in the `poni-screens` artifact), and anything new that runs at rest or on every frame. "Nothing new" is a fine answer.
 
 ## Every release updates the website
 
-The landing page, https://lucacadalora.github.io/poni/, is `site/index.html`. The Website workflow (`.github/workflows/pages.yml`) publishes it whenever `site/` or `docs/brand/` changes on main. A release changes neither, so it never updates the page by itself. Every release ships with a website update, and a release isn't done until the page shows it.
+The landing page, https://studio.oyenza.com/, is `site/index.html`. The Website workflow (`.github/workflows/pages.yml`) publishes it whenever `site/` or `docs/brand/` changes on main. A release changes neither, so it never updates the page by itself. Every release ships with a website update, and a release isn't done until the page shows it.
 
-Two things on the page follow the latest release on their own: the Download buttons (`releases/latest/download/Oyen-Poni-Setup.exe` for Windows, `releases/latest/download/Oyen-Poni-Mac.dmg` for Mac) and the download line's version, sizes and notes link, which the page reads from the GitHub API when it loads. Everything else is written by hand:
+Two things on the page follow the latest release on their own: the Download buttons (`releases/latest/download/Oyenza-Studio-Setup.exe` for Windows, `releases/latest/download/Oyenza-Studio-Mac.dmg` for Mac) and the download line's version, sizes and notes link, which the page reads from the GitHub API when it loads. Everything else is written by hand:
 
 - Set the fallback version, `<span data-release="version">`, to the new version, and the fallback size next to it. The checks below read this number to tell which release the page describes, so change it once the rest of the page is up to date.
 - Add a "New in X" section for each change people will notice, and fix copy the release makes out of date, such as "coming soon" lines.
@@ -38,6 +38,6 @@ Put the website change in the release PR, or merge it to main just before you pu
 
 Merges, tags and releases happen only when the maintainer says so.
 
-The version lives in several files: copy the last "Release x.y.z" commit (`git log --grep '^Release '`). Add `docs/release-notes/vX.md`, which becomes the release text, and the website change above. Then push an annotated tag `vX`. The `ci` workflow builds, tests and publishes the release from the tag. The `mac` workflow builds the Mac app from the same tag and, once the release is up, adds `Oyen-Poni-X-mac.dmg` and `Oyen-Poni-Mac.dmg` (the name the Mac download buttons use) to it.
+The version lives in several files: copy the last "Release x.y.z" commit (`git log --grep '^Release '`). Add `docs/release-notes/vX.md`, which becomes the release text, and the website change above. Then push an annotated tag `vX`. The `ci` workflow builds, tests and publishes the release from the tag. The `mac` workflow builds the Mac app from the same tag and, once the release is up, adds `Oyenza-Studio-X-mac.dmg` and `Oyenza-Studio-Mac.dmg` (the name the Mac download buttons use) to it.
 
 To try the release path without releasing, run `ci` by hand with `release_dry_run` on (`gh workflow run ci.yml --ref <branch> -f release_dry_run=true`). It runs every job a tag runs and publishes nothing: no tag, release or issue, and no website deploy. Its summary says what a tag would publish and what would happen to the website.

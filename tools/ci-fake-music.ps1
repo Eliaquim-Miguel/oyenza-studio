@@ -1,6 +1,6 @@
 # A stand-in music player for the weight check (CI): it tells Windows a song
 # is playing, the way Apple Music or Spotify do, without playing a sound (CI
-# machines have no audio device). Oyen Poni then shows its music pill with
+# machines have no audio device). Oyenza Studio then shows its music pill with
 # the equalizer, and tools/ci-weight.ps1 measures what that costs.
 #
 # Windows PowerShell 5.1 only (WinRT types don't load in pwsh 7):
@@ -30,7 +30,7 @@ try {
     $d = $smtc.DisplayUpdater
     $d.Type = [Windows.Media.MediaPlaybackType]::Music
     $d.MusicProperties.Title = "Weight check"
-    $d.MusicProperties.Artist = "Oyen Poni CI"
+    $d.MusicProperties.Artist = "Oyenza Studio CI"
     $d.Update()
 
     $t = New-Object Windows.Media.SystemMediaTransportControlsTimelineProperties

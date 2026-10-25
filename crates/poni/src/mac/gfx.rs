@@ -302,7 +302,7 @@ fn cgrect(r: Rect) -> CGRect {
 // ---------------------------------------------------------------- fonts and text layout
 
 /// Fonts shipped inside the app: Outfit (SIL Open Font License 1.1, see
-/// `res/fonts/OFL.txt`), the Oyen Poni website's typeface, in the island's
+/// `res/fonts/OFL.txt`), the Oyenza Studio website's typeface, in the island's
 /// four weights. Letters Outfit lacks (Japanese, Korean, emoji, ...) come
 /// from the system's fonts through Core Text's fallback.
 const EMBEDDED_FONTS: [&[u8]; 4] = [

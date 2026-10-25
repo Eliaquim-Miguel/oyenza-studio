@@ -1,5 +1,5 @@
 // A stand-in for Apple Music for Windows in CI: a window in a process named
-// AppleMusic.exe with the two controls Oyen Poni presses through UI
+// AppleMusic.exe with the two controls Oyenza Studio presses through UI
 // Automation, under Apple Music's automation ids (a progress slider
 // "LCDScrubber" counting seconds and a back button
 // "TransportControl_SkipBack"). Every change lands in the log file named on

@@ -1,5 +1,5 @@
 //! The PC side of paired phone drop, on any OS, for testing the phone page
-//! and the meeting server end to end with the real Rust code (Oyen Poni
+//! and the meeting server end to end with the real Rust code (Oyenza Studio
 //! itself runs the same `poni_core::pairdrop` behind its island).
 //!
 //! ```text

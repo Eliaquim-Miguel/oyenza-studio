@@ -1,9 +1,9 @@
-; Oyen Poni installer (Inno Setup 6.5.2+, for the PNG wizard images).
+; Oyenza Studio installer (Inno Setup 6.5.2+, for the PNG wizard images).
 ;
 ; Releases ship installer/poni.nsi (NSIS), which 0.1.x installs came from; CI builds this one too as a check.
 ;
 ; Build after `cargo build -p poni --release`:
-;   iscc installer\poni.iss                      -> dist\Oyen-Poni-Setup-0.1.21.exe
+;   iscc installer\poni.iss                      -> dist\Oyenza-Studio-Setup-0.1.21.exe
 ;   iscc /DAppVersion=0.2.0 installer\poni.iss   (another version)
 ;
 ; Per-user install: no admin rights and no UAC prompt. The app goes to
@@ -16,7 +16,7 @@
 #ifndef ExeSource
   #define ExeSource "..\target\release\poni.exe"
 #endif
-#define AppName "Oyen Poni"
+#define AppName "Oyenza Studio"
 ; Folder, data and Run value names stay "Poni" (the app and 0.1.x installs use them).
 #define AppDir "Poni"
 #define AppPublisher "Jatevo Labs"
@@ -45,7 +45,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
 OutputDir=..\dist
-OutputBaseFilename=Oyen-Poni-Setup-{#AppVersion}
+OutputBaseFilename=Oyenza-Studio-Setup-{#AppVersion}
 SetupIconFile=..\crates\poni\res\poni.ico
 UninstallDisplayIcon={app}\{#AppExe}
 UninstallDisplayName={#AppName}

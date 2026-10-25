@@ -1,6 +1,6 @@
-"""Draw Oyen Poni's brand files: the app icon, the installer pictures and the logo used in the docs.
+"""Draw Oyenza Studio's brand files: the app icon, the installer pictures and the logo used in the docs.
 
-Oyen Poni belongs to the Oyen family. Oyen is the orange cat of the Oyenza logo; docs/brand/oyen-mark*.svg are
+Oyenza Studio belongs to the Oyen family. Oyen is the orange cat of the Oyenza logo; docs/brand/oyen-mark*.svg are
 that logo, copied unchanged from the brand kit. The logo is an orange tile with Poni's island hanging from its top
 edge, playing music (album cover and equalizer, as on the real island), and the white Oyen below it. The plush Oyen
 pictures in docs/brand/art are the source for the installer's welcome picture.
@@ -176,7 +176,7 @@ def logo_svg() -> str:
     white = mark_paths("oyen-mark-white.svg")[0]
     r = 0.15 * a
     return (
-        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {s:g} {s:g}"><title>Oyen Poni</title>'
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {s:g} {s:g}"><title>Oyenza Studio</title>'
         f'<defs><clipPath id="tile"><rect x="{inset:.1f}" y="{inset:.1f}" width="{t:.1f}" height="{t:.1f}" rx="{TILE_R * t:.1f}"/></clipPath>'
         f'<linearGradient id="cover" x1="0" y1="0" x2="0" y2="1">{stops}</linearGradient></defs>'
         f'<g clip-path="url(#tile)"><rect x="0" y="0" width="{s:g}" height="{s:g}" fill="{ORANGE}"/>'

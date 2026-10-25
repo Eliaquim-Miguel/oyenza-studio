@@ -1,8 +1,8 @@
-/* Oyen Poni phone page.
+/* Oyenza Studio phone page.
    Layout: one column on a warm cream page; the island hangs from the top and
    grows with what's happening; Oyen stands on every screen (peeking while it
    pairs, sitting on the island once paired, carrying files, napping when the
-   PC is away). Colours and type are Oyen Poni's own Oyen theme: cream ground,
+   PC is away). Colours and type are Oyenza Studio's own Oyen theme: cream ground,
    brown ink, Oyen orange, Outfit. */
 
 @font-face { font-family: "Outfit"; src: url("/outfit-400.woff2") format("woff2"); font-weight: 400; font-display: swap; }
@@ -209,7 +209,7 @@ li.file:first-child { border-top: 0; padding-top: 2px; }
   appearance: none; border: 0; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; border-radius: 24px;
   -webkit-tap-highlight-color: transparent;
 }
-/* The PC: a tiny screen with Oyen Poni's island hanging from its top edge. */
+/* The PC: a tiny screen with Oyenza Studio's island hanging from its top edge. */
 .pc-icon { width: 58px; height: 48px; display: grid; justify-items: center; align-content: start; gap: 0; }
 .mini-screen {
   width: 56px; height: 36px; border-radius: 9px; background: linear-gradient(180deg, #fff4e6, #ffe2c2); border: 2px solid var(--ink);

@@ -3,7 +3,7 @@
 //!
 //! Korean and Chinese need nothing from the system (`poni_core::romanize`).
 //! Japanese kanji have no single reading: Windows asks its own analyzer and
-//! falls back to Oyen Poni's dictionary (`poni_core::romanize::JaDict`, built
+//! falls back to Oyenza Studio's dictionary (`poni_core::romanize::JaDict`, built
 //! into the app and loaded only for that song); the Mac reads every Japanese
 //! song with that dictionary. Called on the lyrics worker thread.
 
@@ -39,7 +39,7 @@ fn each_line(texts: &[&str], mut read: impl FnMut(&str) -> Vec<Ruby>) -> Vec<Vec
     texts.iter().map(|t| if romanize::needs_roman(t) { read(t) } else { Vec::new() }).collect()
 }
 
-/// Every line of a Japanese song through Oyen Poni's own dictionary. If it
+/// Every line of a Japanese song through Oyenza Studio's own dictionary. If it
 /// can't load, kana lines still read.
 pub fn own_song(texts: &[&str]) -> Vec<Vec<Ruby>> {
     let dict = romanize::JaDict::embedded().map_err(|e| pwarn!("lyrics: {e}; only kana lines get romaji")).ok();

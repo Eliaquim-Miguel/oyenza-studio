@@ -1,4 +1,4 @@
-// Oyen Poni phone page service worker.
+// Oyenza Studio phone page service worker.
 // Keeps the page opening without a connection (network first, cache as the
 // fallback; /api/ is never cached) and receives Android's share sheet:
 // POST /share (multipart/form-data, field "files") goes into IndexedDB
