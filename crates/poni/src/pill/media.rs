@@ -100,8 +100,8 @@ pub fn geom(_st: &AppState) -> Option<Geom> {
 pub fn draw(ui: &mut Ui, st: &mut AppState, body: Rect) -> bool {
     let now = st.now;
     let playing = st.media.as_ref().is_some_and(|m| m.is_playing());
-    let level = play_level(playing, now);
-    if level > 0.0 && level < 1.0 {
+    let (level, easing) = play_level(playing, now);
+    if easing {
         ui.request_anim();
     }
     let cy = body.center().y;
@@ -152,7 +152,11 @@ pub fn next_wake(st: &AppState) -> Option<f64> {
 
 /// How playing the pill looks, 0 (paused) to 1 (playing), easing over
 /// [`PLAY_FADE`] after each change.
-fn play_level(playing: bool, now: f64) -> f32 {
+/// How far the pill has eased into playing (1) or paused (0), and whether
+/// it's still easing. The ease asks for frames from its first frame on: a
+/// pause arrives as one event, and with the bars stopped the frame clock
+/// would stop on that frame, leaving the pill looking as if it still played.
+fn play_level(playing: bool, now: f64) -> (f32, bool) {
     let (was, since) = PLAYING.get();
     let since = if was == playing {
         since
@@ -160,12 +164,10 @@ fn play_level(playing: bool, now: f64) -> f32 {
         PLAYING.set((playing, now));
         now
     };
-    let k = smooth(clamp01(((now - since) / PLAY_FADE) as f32));
-    if playing {
-        k
-    } else {
-        1.0 - k
-    }
+    let t = (now - since) / PLAY_FADE;
+    let k = smooth(clamp01(t as f32));
+    // (A hair short of 1: `since + PLAY_FADE - since` can land just under it.)
+    (if playing { k } else { 1.0 - k }, t < 1.0 - 1e-6)
 }
 
 fn smooth(t: f32) -> f32 {
@@ -192,11 +194,11 @@ fn faded<R>(ui: &mut Ui, a: f32, f: impl FnOnce(&mut Ui) -> R) -> R {
 fn draw_text(ui: &mut Ui, st: &AppState, area: Rect, paused_a: f32, now: f64) -> f32 {
     // The title holds the middle while a new track peeks. The line still
     // draws then, unseen, so the lyric lane keeps its fade state frame to
-    // frame; it dims a paused line itself.
+    // frame. A paused line dims with `paused_a`, as the song does.
     let peeking = now < st.ui.peek_until;
     let (was_sung, since) = SUNG.get();
     let k = smooth(clamp01(((now - since) / HANDOFF) as f32));
-    let line_a = if was_sung && !peeking { k } else { 0.0 };
+    let line_a = if was_sung && !peeking { k * paused_a } else { 0.0 };
     let sung = faded(ui, line_a, |ui| super::lyric::draw(ui, st, area)) && !peeking;
     let since = if sung == was_sung {
         since
@@ -438,13 +440,15 @@ mod tests {
     #[test]
     fn play_and_pause_ease_and_settle() {
         // Each test runs on its own thread, so this starts "paused since ever".
-        assert_eq!(play_level(false, 5.0), 0.0, "a pill that first shows paused doesn't fade");
-        assert_eq!(play_level(true, 10.0), 0.0, "playing starts the ease");
-        let mid = play_level(true, 10.0 + PLAY_FADE / 2.0);
-        assert!(mid > 0.0 && mid < 1.0, "halfway: {mid}");
-        assert_eq!(play_level(true, 10.0 + PLAY_FADE), 1.0, "settled: no more frames asked for");
-        assert_eq!(play_level(false, 20.0), 1.0, "a pause eases out from playing");
-        assert_eq!(play_level(false, 20.0 + PLAY_FADE), 0.0);
+        assert_eq!(play_level(false, 5.0), (0.0, false), "a pill that first shows paused doesn't fade");
+        // The first frame of a change already asks for the next one: a pause
+        // comes as one event, and nothing else would draw the ease.
+        assert_eq!(play_level(true, 10.0), (0.0, true), "playing starts the ease");
+        let (mid, easing) = play_level(true, 10.0 + PLAY_FADE / 2.0);
+        assert!(mid > 0.0 && mid < 1.0 && easing, "halfway: {mid}");
+        assert_eq!(play_level(true, 10.0 + PLAY_FADE), (1.0, false), "settled: no more frames asked for");
+        assert_eq!(play_level(false, 20.0), (1.0, true), "a pause eases out from playing");
+        assert_eq!(play_level(false, 20.0 + PLAY_FADE), (0.0, false));
     }
 
     #[test]

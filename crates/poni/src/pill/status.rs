@@ -166,7 +166,8 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, body: Rect) -> bool {
     x0 += (room - cw) / 2.0;
     let chip = Rect::new(x0, cy - CHIP_H / 2.0, cw, CHIP_H);
     ui.c.fill_rrect(chip, CHIP_H / 2.0, CHIP_FILL);
-    ui.c.stroke_rrect(chip.inset(0.5, 0.5), CHIP_H / 2.0 - 0.5, CHIP_RIM, 1.0);
+    // stroke_rrect keeps the stroke inside `chip` itself.
+    ui.c.stroke_rrect(chip, CHIP_H / 2.0 - 0.5, CHIP_RIM, 1.0);
     let tx = chip.x + (cw - (dw + DATE_GAP + tw)) / 2.0;
     ui.c.text(&date, Rect::new(tx, body.y, dw + 2.0, body.h), &ts);
     ui.c.text(&time, Rect::new(tx + dw + DATE_GAP, body.y, tw + 2.0, body.h), &ts);
@@ -211,7 +212,8 @@ fn battery(ui: &mut Ui, r: Rect, percent: u8, charging: bool) {
     }
     // The outline last, so the bolt's dark edge never cuts it.
     let stroke = 1.25;
-    ui.c.stroke_rrect(r.inset(stroke / 2.0, stroke / 2.0), 3.0 - stroke / 2.0, OUTLINE, stroke);
+    // stroke_rrect keeps the stroke inside `r` itself, as the pop-ups' battery does.
+    ui.c.stroke_rrect(r, 3.0 - stroke / 2.0, OUTLINE, stroke);
     ui.c.fill_rrect(Rect::new(r.right() + NUB.0, r.center().y - NUB.2 / 2.0, NUB.1, NUB.2), 0.75, OUTLINE);
 }
 
