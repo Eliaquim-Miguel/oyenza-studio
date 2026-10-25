@@ -1584,6 +1584,7 @@ impl App {
         if !self.expanded {
             self.expanded = true;
             self.cancel_hover();
+            self.st.recorder = services::recorder::installed();
         }
         self.request_frame();
     }
@@ -1737,6 +1738,7 @@ impl App {
                         None => pages::script::note(&mut self.st, "Copy your script first"),
                     }
                 }
+                Command::RecordScreen => services::recorder::record_screen(self.mtm),
                 Command::SaveSettings => {
                     let before = self.saved_settings.clone();
                     self.settings_changed(&before);

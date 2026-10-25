@@ -350,20 +350,36 @@ fn draw_bar(ui: &mut Ui, st: &mut AppState, area: Rect, y: f32, lines: &[Line], 
     }
     x += ICON_BTN + PILL_GAP + 4.0;
 
-    // Right: Clear, then Paste (a new script replaces this one).
+    // Right: Clear, then Paste (a new script replaces this one). With Oyenza
+    // Studio Recorder installed, Paste shows as its icon and the red record dot
+    // sits before it, so the status text keeps its room. Record only starts the
+    // recorder; reading stays on Read.
     let clear_r = btn(area.right() - ICON_BTN);
     if ui.icon_button(wid("script.clear"), clear_r, Icon::Trash, palette::TEXT_DIM, 14.0).clicked {
         set_text(st, String::new());
     }
-    let paste = "Paste";
-    let pw = ui.pill_width(paste, true, false);
-    let paste_r = Rect::new(clear_r.x - PILL_GAP - pw, y, pw, PILL_REGULAR);
-    if ui.pill(wid("script.paste"), paste_r, paste, Some(Icon::Clipboard), PillStyle::Utility).clicked {
-        st.cmd(Command::ScriptPaste);
-    }
+    let right = if st.recorder {
+        let paste_r = btn(clear_r.x - PILL_GAP - ICON_BTN);
+        if ui.icon_button(wid("script.paste"), paste_r, Icon::Clipboard, palette::TEXT_DIM, 14.0).clicked {
+            st.cmd(Command::ScriptPaste);
+        }
+        let rec_r = btn(paste_r.x - PILL_GAP - ICON_BTN);
+        if ui.icon_button(wid("script.record"), rec_r, Icon::Record, palette::RED, 15.0).clicked {
+            st.cmd(Command::RecordScreen);
+        }
+        rec_r.x
+    } else {
+        let paste = "Paste";
+        let pw = ui.pill_width(paste, true, false);
+        let paste_r = Rect::new(clear_r.x - PILL_GAP - pw, y, pw, PILL_REGULAR);
+        if ui.pill(wid("script.paste"), paste_r, paste, Some(Icon::Clipboard), PillStyle::Utility).clicked {
+            st.cmd(Command::ScriptPaste);
+        }
+        paste_r.x
+    };
 
     // What's going on, in the room left between the two groups.
-    let room = Rect::new(x, y, (paste_r.x - PILL_GAP - x).max(0.0), PILL_REGULAR);
+    let room = Rect::new(x, y, (right - PILL_GAP - x).max(0.0), PILL_REGULAR);
     let status = status_line(ui, st, now, lines, wpm, focused);
     if room.w > 40.0 {
         let style = TextStyle::new(ts::FOOTNOTE).color(palette::TEXT_DIM);

@@ -1903,6 +1903,7 @@ impl App {
         if !self.expanded {
             self.expanded = true;
             self.cancel_hover();
+            self.st.recorder = crate::services::recorder::installed();
             if self.st.page == PageKind::Oyenza {
                 self.oyenza(OyenzaCmd::Refresh);
             }
@@ -3266,6 +3267,7 @@ impl App {
                         None => pages::script::note(&mut self.st, "Copy your script first"),
                     }
                 }
+                Command::RecordScreen => crate::services::recorder::record_screen(self.hwnd),
                 Command::SaveSettings => {
                     let before = self.saved_settings.clone();
                     self.settings_changed(&before);

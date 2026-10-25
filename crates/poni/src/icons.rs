@@ -21,6 +21,8 @@ pub enum Icon {
     Check,
     CheckCircle,
     Circle,
+    /// The record dot (filled, unlike Circle).
+    Record,
     Plus,
     Minus,
     Close,
@@ -157,6 +159,7 @@ pub fn parts(icon: Icon) -> &'static [Part] {
         Check => p![s("M5 12.5l4.5 4.5L19 7.5")],
         CheckCircle => p![s(CIRCLE_9), s("M8 12.3l2.8 2.8L16.3 9.5")],
         Circle => p![s(CIRCLE_9)],
+        Record => p![f("M5 12a7 7 0 1 0 14 0a7 7 0 1 0-14 0")],
         Plus => p![s("M12 5v14"), s("M5 12h14")],
         Minus => p![s("M5 12h14")],
         Close => p![s("M6.5 6.5l11 11"), s("M17.5 6.5l-11 11")],

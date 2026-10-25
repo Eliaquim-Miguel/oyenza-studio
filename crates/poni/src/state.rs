@@ -457,6 +457,9 @@ pub struct AppState {
     pub script: poni_core::script::Reader,
     /// A message under the script until a time (mono seconds).
     pub script_note: Option<(&'static str, f64)>,
+    /// Oyenza Studio Recorder is installed: read each time the island
+    /// expands, so the Script page can offer Record.
+    pub recorder: bool,
     /// Whether Windows leaves the island out of screen capture while the
     /// Script page shows (None = not asked yet, or not on Windows).
     pub script_hidden: Option<bool>,
@@ -523,6 +526,7 @@ impl AppState {
             prayer: PrayerState::default(),
             script: poni_core::script::Reader::default(),
             script_note: None,
+            recorder: false,
             script_hidden: None,
             cmds: Vec::new(),
         };
