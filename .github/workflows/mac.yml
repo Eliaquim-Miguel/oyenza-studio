@@ -62,13 +62,13 @@ jobs:
         run: |
           python3 -m venv .icon-venv
           .icon-venv/bin/pip install --quiet pillow
-          .icon-venv/bin/python tools/make_mac_icon.py build/OyenPoni.iconset
-          iconutil -c icns build/OyenPoni.iconset -o build/OyenPoni.icns
+          .icon-venv/bin/python tools/make_mac_icon.py build/OyenzaStudio.iconset
+          iconutil -c icns build/OyenzaStudio.iconset -o build/OyenzaStudio.icns
 
       - name: App bundle and DMG
         run: |
           chmod +x tools/make_mac_app.sh
-          tools/make_mac_app.sh target/aarch64-apple-darwin/release/poni target/x86_64-apple-darwin/release/poni build/OyenPoni.icns dist
+          tools/make_mac_app.sh target/aarch64-apple-darwin/release/poni target/x86_64-apple-darwin/release/poni build/OyenzaStudio.icns dist
 
       # The real app on the runner's screen: idle, hover, open (Focus, then
       # Today with live stats), the timer, a notice, the volume and charging
@@ -79,22 +79,22 @@ jobs:
       # has, and the menu. At each state the app writes where its window is
       # and waits; tools/mac-smoke.sh takes the screenshot and answers.
       - name: Smoke run (the real window, with screenshots)
-        run: bash tools/mac-smoke.sh "dist/Oyen Poni.app/Contents/MacOS/poni"
+        run: bash tools/mac-smoke.sh "dist/Oyenza Studio.app/Contents/MacOS/poni"
 
       - name: Check the DMG
         run: |
           dmg=$(ls dist/*.dmg)
           hdiutil attach "$dmg" -nobrowse -readonly -mountpoint /tmp/poni-dmg
           ls -la /tmp/poni-dmg
-          plutil -p "/tmp/poni-dmg/Oyen Poni.app/Contents/Info.plist"
-          lipo -info "/tmp/poni-dmg/Oyen Poni.app/Contents/MacOS/poni"
-          codesign --verify --deep --strict "/tmp/poni-dmg/Oyen Poni.app"
-          spctl --assess --type execute -vv "/tmp/poni-dmg/Oyen Poni.app" || echo "(expected: Gatekeeper turns down a build that isn't signed with a Developer ID yet)"
+          plutil -p "/tmp/poni-dmg/Oyenza Studio.app/Contents/Info.plist"
+          lipo -info "/tmp/poni-dmg/Oyenza Studio.app/Contents/MacOS/poni"
+          codesign --verify --deep --strict "/tmp/poni-dmg/Oyenza Studio.app"
+          spctl --assess --type execute -vv "/tmp/poni-dmg/Oyenza Studio.app" || echo "(expected: Gatekeeper turns down a build that isn't signed with a Developer ID yet)"
           hdiutil detach /tmp/poni-dmg
 
       - uses: actions/upload-artifact@v4
         with:
-          name: oyen-poni-mac-dmg
+          name: oyenza-studio-mac-dmg
           path: dist/*.dmg
       - uses: actions/upload-artifact@v4
         if: always()
@@ -122,16 +122,16 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: oyen-poni-mac-dmg
+          name: oyenza-studio-mac-dmg
           path: dmg
       - name: Smoke run (the real window, with screenshots)
         run: |
           sw_vers
           hdiutil attach dmg/*.dmg -nobrowse -readonly -mountpoint /tmp/poni-dmg
           mkdir -p dist
-          cp -R "/tmp/poni-dmg/Oyen Poni.app" dist/
+          cp -R "/tmp/poni-dmg/Oyenza Studio.app" dist/
           hdiutil detach /tmp/poni-dmg
-          bash tools/mac-smoke.sh "dist/Oyen Poni.app/Contents/MacOS/poni"
+          bash tools/mac-smoke.sh "dist/Oyenza Studio.app/Contents/MacOS/poni"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -142,10 +142,12 @@ jobs:
             smoke/stdout.txt
             smoke/home/poni.log
 
-  # The Mac app on the release: Oyen-Poni-<version>-mac.dmg, plus
-  # Oyen-Poni-Mac.dmg, the fixed name the README's and the website's Mac
-  # buttons download from releases/latest. ci publishes the release once the
-  # Windows build, installer and install test pass, so this waits for it.
+  # The Mac app on the release: Oyenza-Studio-<version>-mac.dmg, plus
+  # Oyenza-Studio-Mac.dmg, the fixed name the README's and the website's Mac
+  # buttons download from releases/latest, and Oyen-Poni-Mac.dmg, the fixed
+  # name from before the rename (0.1.17 to the last 0.1.x), which links out there still
+  # use. ci publishes the release once the Windows build, installer and install
+  # test pass, so this waits for it.
   release:
     name: Put the DMG on the GitHub release (tags v*)
     if: startsWith(github.ref, 'refs/tags/v')
@@ -156,7 +158,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: oyen-poni-mac-dmg
+          name: oyenza-studio-mac-dmg
           path: dist
       - name: Wait for the release, then add the DMG
         env:
@@ -165,10 +167,11 @@ jobs:
         run: |
           tag="$GITHUB_REF_NAME"
           src=$(ls dist/*.dmg | head -1)
-          [ "$src" = "dist/Oyen-Poni-${tag#v}-mac.dmg" ] || cp "$src" "dist/Oyen-Poni-${tag#v}-mac.dmg"
+          [ "$src" = "dist/Oyenza-Studio-${tag#v}-mac.dmg" ] || cp "$src" "dist/Oyenza-Studio-${tag#v}-mac.dmg"
+          cp "$src" dist/Oyenza-Studio-Mac.dmg
           cp "$src" dist/Oyen-Poni-Mac.dmg
           for i in $(seq 1 90); do
             gh release view "$tag" > /dev/null 2>&1 && break
             sleep 30
           done
-          gh release upload "$tag" "dist/Oyen-Poni-${tag#v}-mac.dmg" dist/Oyen-Poni-Mac.dmg --clobber
+          gh release upload "$tag" "dist/Oyenza-Studio-${tag#v}-mac.dmg" dist/Oyenza-Studio-Mac.dmg dist/Oyen-Poni-Mac.dmg --clobber

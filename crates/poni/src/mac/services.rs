@@ -40,7 +40,7 @@ pub mod sysstats;
 pub mod thumbs;
 
 use objc2_app_kit::{NSColor, NSColorSpace, NSSound, NSWorkspace};
-use objc2_foundation::{NSArray, NSString, NSURL};
+use objc2_foundation::{NSArray, NSFileManager, NSString, NSURL};
 use poni_core::geom::Color;
 
 pub mod imaging {
@@ -79,6 +79,37 @@ pub fn system_accent() -> Option<Color> {
 pub fn reveal(path: &str) {
     let url = NSURL::fileURLWithPath(&NSString::from_str(path));
     NSWorkspace::sharedWorkspace().activateFileViewerSelectingURLs(&NSArray::from_retained_slice(&[url]));
+}
+
+/// The app was called Oyen Poni before 0.2.0, and a copy from then has the same
+/// bundle id, so Spotlight or the login item could start it instead of this one.
+/// Moves "Oyen Poni.app" from /Applications or ~/Applications to the Trash, where
+/// it can be put back, and returns the folder it was in.
+pub fn trash_app_from_before_rename() -> Option<String> {
+    let running = std::env::current_exe().ok()?;
+    let mut dirs = vec![std::path::PathBuf::from("/Applications")];
+    if let Some(home) = std::env::var_os("HOME") {
+        dirs.push(std::path::PathBuf::from(home).join("Applications"));
+    }
+    for dir in dirs {
+        let old = dir.join("Oyen Poni.app");
+        if running.starts_with(&old) {
+            continue;
+        }
+        let plist = std::fs::read_to_string(old.join("Contents/Info.plist")).unwrap_or_default();
+        if !plist.contains("<string>com.oyenza.poni</string>") {
+            continue;
+        }
+        let url = NSURL::fileURLWithPath(&NSString::from_str(&old.to_string_lossy()));
+        match NSFileManager::defaultManager().trashItemAtURL_resultingItemURL_error(&url, None) {
+            Ok(()) => {
+                pinfo!("moved {} to the Trash (the app from before the rename)", old.display());
+                return Some(dir.to_string_lossy().into_owned());
+            }
+            Err(e) => pwarn!("couldn't move {} to the Trash: {}", old.display(), e.localizedDescription()),
+        }
+    }
+    None
 }
 
 /// Open a URL (or a file path) with its default app.

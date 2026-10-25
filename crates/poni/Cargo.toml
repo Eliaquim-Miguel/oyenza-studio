@@ -13,7 +13,7 @@ name = "poni"
 path = "src/main.rs"
 
 [dependencies]
-# Oyen Poni's own Japanese reading dictionary (3.8 MB) is not built into
+# Oyenza Studio's own Japanese reading dictionary (3.8 MB) is not built into
 # poni.exe: Windows downloads it as the Japanese readings add-on
 # (poni_core::addons::JAPANESE_READINGS) for the people who want it.
 poni-core = { path = "../poni-core" }

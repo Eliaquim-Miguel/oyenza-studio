@@ -1,4 +1,4 @@
-//! Phone drop: a small web page Oyen Poni serves on the local network while
+//! Phone drop: a small web page Oyenza Studio serves on the local network while
 //! the Shelf's phone panel is open. A phone scans the island's QR code, opens
 //! the page in its browser, and sends files to the Shelf or saves Shelf files.
 //!

@@ -52,7 +52,7 @@ notch around it, so they are kept as screen pictures, as
 mac/<theme>/<state>.webp; the resting states are cut to the middle of the
 menu bar:
 
-    gh run download <mac run> -R lucacadalora/poni -n mac-renders -D mac-renders
+    gh run download <mac run> -R lucacadalora/oyenza-studio -n mac-renders -D mac-renders
     python3 tools/site_shots.py mac-renders mac
 
 Pill's Mac pictures (mac/pill/, MAC_PILL_KEEP) are cut taller: what hangs

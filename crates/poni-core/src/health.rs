@@ -2,7 +2,7 @@
 //!
 //! Poni has no health data of its own: Oyenza on the person's iPhone or
 //! Android phone reads daily totals from Apple Health or Health Connect, and
-//! a signed-in Oyen Poni receives them. Only daily totals travel, never
+//! a signed-in Oyenza Studio receives them. Only daily totals travel, never
 //! samples, places or heart data.
 
 use crate::datetime::LocalDateTime;

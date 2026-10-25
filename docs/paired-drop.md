@@ -1,14 +1,14 @@
 # Paired phone drop
 
-Pair a phone with Oyen Poni once, by scanning a QR code on the Shelf. After
+Pair a phone with Oyenza Studio once, by scanning a QR code on the Shelf. After
 that the phone finds the PC on any network (same Wi-Fi, another Wi-Fi, mobile
-data) whenever Oyen Poni is running, and sends files straight onto the Shelf.
+data) whenever Oyenza Studio is running, and sends files straight onto the Shelf.
 
 Three parts work together:
 
 | Part | Where | What it does |
 |---|---|---|
-| Oyen Poni | the PC (`crates/poni-core/src/pairdrop`, `crates/poni/src/services/pairdrop.rs`) | keeps the pairs, waits for phones through the meeting server, answers with a direct WebRTC link, saves the files |
+| Oyenza Studio | the PC (`crates/poni-core/src/pairdrop`, `crates/poni/src/services/pairdrop.rs`) | keeps the pairs, waits for phones through the meeting server, answers with a direct WebRTC link, saves the files |
 | Phone page | `server/public`, served at `https://drop.oyenza.com` | pairing, your PCs (online or offline), send, save Shelf files; installs to the Home Screen; joins Android's share sheet |
 | Meeting server | `server/drop-server.mjs` | tells a phone whether its PC is online and passes the two sides' connection details; hands out short-lived relay passes |
 
@@ -130,7 +130,7 @@ The phone makes the offer with one data channel labelled `oyen-drop`
 | PC | `{"t":"ok"}` or `{"t":"no","why":"busy"\|"too-many"\|"too-large"\|"declined"}` | |
 | phone | binary frames | every file's bytes in the order listed, nothing in between; the announced sizes split the stream. Frames of at most 64 KB (16 KB recommended) |
 | PC | `{"t":"got","n":<bytes so far>}` | progress, at most every 250 ms |
-| PC | `{"t":"saved","files":<n>}` | every file is in `Downloads\Oyen Poni` and on the Shelf |
+| PC | `{"t":"saved","files":<n>}` | every file is in `Downloads\Oyenza Studio` and on the Shelf |
 | PC | `{"t":"failed","why":"size"\|"disk"\|"stopped"}` | nothing from this send was kept |
 | phone | `{"t":"get","id":0}` | save a Shelf file on the phone |
 | PC | `{"t":"file","id":0,"name":"a.pdf","size":274000}` then binary frames totalling `size` | or `{"t":"nofile","id":0}` |
@@ -149,6 +149,6 @@ node server/drop-server.mjs --port 8797
 
 Put it behind HTTPS (the phone page needs a secure context). For the relay,
 set `TURN_KEY_ID` and `TURN_KEY_API_TOKEN` from a Cloudflare Realtime TURN key;
-without them, phones and PCs connect directly or not at all. Oyen Poni reads
+without them, phones and PCs connect directly or not at all. Oyenza Studio reads
 the server address from the environment variable `PONI_DROP_SERVER`
 (default `https://drop.oyenza.com`).

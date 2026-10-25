@@ -1,5 +1,5 @@
 //! Phone drop on the Mac: picks the Mac's Wi-Fi or wired address, makes the
-//! session secret and the inbox folder (`~/Downloads/Oyen Poni`), and runs
+//! session secret and the inbox folder (`~/Downloads/Oyenza Studio`), and runs
 //! `poni_core::phonedrop`'s web server while the Shelf's phone panel is open
 //! (the same server the Windows app runs; only this glue differs).
 

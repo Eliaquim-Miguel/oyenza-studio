@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Build the fonts Oyen Poni ships (crates/poni/res/fonts) from Outfit.
+"""Build the fonts Oyenza Studio ships (crates/poni/res/fonts) from Outfit.
 
 Outfit (SIL Open Font License 1.1, github.com/Outfitio/Outfit-Fonts) is the
-Oyen Poni website's typeface; the Oyen theme writes every Latin letter in it.
+Oyenza Studio website's typeface; the Oyen theme writes every Latin letter in it.
 Google Fonts publishes it as one variable font. The island wants four plain
 weights (Regular, Medium, SemiBold, Bold) that every Windows text stack loads,
 so this script cuts them out of the variable font, and adds the pinyin tone

@@ -84,9 +84,9 @@ pub fn menu_items(s: &Settings, pinned: bool, login: Login) -> Vec<MenuItem> {
         item("Open settings file", MenuCmd::OpenSettings, false),
         item("Reload settings", MenuCmd::ReloadSettings, false),
         item("Open data folder", MenuCmd::OpenDataFolder, false),
-        item(&format!("About Oyen Poni {}", env!("CARGO_PKG_VERSION")), MenuCmd::About, false),
+        item(&format!("About Oyenza Studio {}", env!("CARGO_PKG_VERSION")), MenuCmd::About, false),
         MenuItem::Separator,
-        MenuItem::Item { label: "Quit Oyen Poni".into(), cmd: MenuCmd::Quit, checked: false, key: "q" },
+        MenuItem::Item { label: "Quit Oyenza Studio".into(), cmd: MenuCmd::Quit, checked: false, key: "q" },
     ]
 }
 
@@ -152,7 +152,7 @@ impl MenuBar {
                 Some(img) => button.setImage(Some(&img)),
                 None => button.setTitle(&NSString::from_str("Poni")),
             }
-            button.setToolTip(Some(&NSString::from_str("Oyen Poni")));
+            button.setToolTip(Some(&NSString::from_str("Oyenza Studio")));
         }
         let target: Retained<MenuTarget> = unsafe { objc2::msg_send![MenuTarget::alloc(mtm), init] };
         let menu = build(mtm, &target, &menu_items(s, pinned, login));

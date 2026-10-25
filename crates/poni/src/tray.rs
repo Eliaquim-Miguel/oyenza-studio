@@ -33,7 +33,7 @@ impl Tray {
                 hIcon: icon,
                 ..Default::default()
             };
-            let tip: Vec<u16> = "Oyen Poni".encode_utf16().collect();
+            let tip: Vec<u16> = "Oyenza Studio".encode_utf16().collect();
             nid.szTip[..tip.len()].copy_from_slice(&tip);
             if !Shell_NotifyIconW(NIM_ADD, &nid).as_bool() {
                 return Err(windows::core::Error::from_win32());
@@ -140,7 +140,7 @@ pub fn menu_items(s: &Settings, pinned: bool, oyenza: &OyenzaLink) -> Vec<MenuIt
         item("Open data folder", MenuCmd::OpenDataFolder, false),
         item("Lyrics by LRCLIB", MenuCmd::About, false),
         MenuItem::Separator,
-        item("Quit Oyen Poni", MenuCmd::Quit, false),
+        item("Quit Oyenza Studio", MenuCmd::Quit, false),
     ]
 }
 

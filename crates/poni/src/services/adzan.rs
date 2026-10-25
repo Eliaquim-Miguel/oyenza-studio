@@ -1,7 +1,7 @@
 //! Plays the Prayer times add-on's adzan (`adzan.m4a`) with WinRT's
 //! `MediaPlayer`. Its automatic media controls are switched off, so the
 //! adzan never shows up as a playing song: not in Windows' volume flyout,
-//! and not on Oyen Poni's own Music page.
+//! and not on Oyenza Studio's own Music page.
 //!
 //! One adzan at a time; a new one replaces it. `AppEvent::AdzanEnded` comes
 //! when it finishes or fails, from a thread-pool thread.

@@ -7,7 +7,7 @@
 //! `poni_core::romanize` spells in romaji. Where Windows has no Japanese
 //! reading data (Windows 11 keeps it in the Japanese typing feature, which
 //! most PCs outside Japan don't have) or the analyzer fails, the song is read
-//! with Oyen Poni's own dictionary instead (`poni_core::romanize::JaDict`),
+//! with Oyenza Studio's own dictionary instead (`poni_core::romanize::JaDict`),
 //! which the Japanese readings add-on brings (`poni_core::addons::
 //! JAPANESE_READINGS`, loaded only for that song). Without the add-on, kana
 //! lines still read and the Music page offers it. Korean and Chinese need no
@@ -53,7 +53,7 @@ pub fn pronounce(lyrics: &Lyrics) -> Pronounced {
         Some(Script::Korean) => Pronounced::read(each_line(&texts, romanize::korean_ruby)),
         Some(Script::Chinese) => Pronounced::read(each_line(&texts, |t| split_long(romanize::chinese_ruby(t)))),
         Some(Script::Japanese) => on_sta(|| japanese_song(&texts)).unwrap_or_else(|| {
-            crate::pwarn!("lyrics: couldn't start the Japanese reading thread; reading with Oyen Poni's own dictionary");
+            crate::pwarn!("lyrics: couldn't start the Japanese reading thread; reading with Oyenza Studio's own dictionary");
             own_song(&texts)
         }),
     }
@@ -66,7 +66,7 @@ fn each_line(texts: &[&str], mut read: impl FnMut(&str) -> Vec<Ruby>) -> Vec<Vec
 
 /// Every line of a Japanese song through the analyzer. If it fails outright
 /// (no Japanese reading data, or an error) it isn't asked again for this
-/// song, and the rest is read with Oyen Poni's own dictionary. A word that
+/// song, and the rest is read with Oyenza Studio's own dictionary. A word that
 /// can't be read costs just that word's reading.
 fn japanese_song(texts: &[&str]) -> Pronounced {
     let mut analyzer = true;
@@ -81,7 +81,7 @@ fn japanese_song(texts: &[&str]) -> Pronounced {
                 }
                 Err(e) => {
                     analyzer = false;
-                    crate::pinfo!("lyrics: {e}; reading with Oyen Poni's own dictionary");
+                    crate::pinfo!("lyrics: {e}; reading with Oyenza Studio's own dictionary");
                 }
             }
         }
@@ -95,7 +95,7 @@ fn japanese_song(texts: &[&str]) -> Pronounced {
     Pronounced { ruby: out, wants_ja_readings: own.wanted(texts) }
 }
 
-/// Every line of a Japanese song through Oyen Poni's own dictionary (when the
+/// Every line of a Japanese song through Oyenza Studio's own dictionary (when the
 /// analyzer's thread can't start, and for the self-test).
 pub fn own_song(texts: &[&str]) -> Pronounced {
     let mut own = OwnDictionary::default();
@@ -103,7 +103,7 @@ pub fn own_song(texts: &[&str]) -> Pronounced {
     Pronounced { ruby, wants_ja_readings: own.wanted(texts) }
 }
 
-/// Oyen Poni's own reading dictionary from the Japanese readings add-on,
+/// Oyenza Studio's own reading dictionary from the Japanese readings add-on,
 /// loaded on first use (about 0.1 s and 30 MB) and dropped with the song.
 /// Without it, kana lines still read.
 #[derive(Default)]
@@ -350,7 +350,7 @@ mod tests {
 
     #[test]
     fn every_japanese_line_reads_with_or_without_windows_data() {
-        // Windows' analyzer where it has its data (Windows CI), Oyen Poni's own
+        // Windows' analyzer where it has its data (Windows CI), Oyenza Studio's own
         // dictionary where it doesn't (Wine, most Windows 11 PCs outside Japan).
         let lyrics = poni_core::lrc::parse_lrc("[00:01.00]朝の光を浴びて\n[00:02.00]遠くへ行こう\n[00:03.00]la la la\n");
         let song = pronounce(&lyrics);

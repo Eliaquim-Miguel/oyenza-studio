@@ -113,7 +113,7 @@ def section(crates, head):
         HEADING,
         "",
         "Written by tools/make_notices.py from Cargo.lock. Each of these crates offers the",
-        "MIT license (some also Apache-2.0 or the Unlicense), and Oyen Poni uses each one",
+        "MIT license (some also Apache-2.0 or the Unlicense), and Oyenza Studio uses each one",
         "under MIT, except those whose notice is written out above. Crates with the same",
         "license text share one copy.",
         "",
