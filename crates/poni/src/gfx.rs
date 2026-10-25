@@ -585,17 +585,67 @@ pub struct HitMask {
     pub rect: Option<Rect>,
     /// The island silhouette: body, bottom corner radius, shoulder.
     pub notch: Option<(Rect, f32, f32)>,
+    /// The floating island's outline (the Pill theme): body, corner radius.
+    pub pill: Option<(Rect, f32)>,
 }
 
 impl HitMask {
     fn bounds(&self) -> Option<Rect> {
         let a = self.rect;
         let b = self.notch.map(|(body, _, s)| Rect::new(body.x - s, body.y, body.w + 2.0 * s, body.h));
-        match (a, b) {
-            (Some(a), Some(b)) => Some(union_rect(a, b)),
-            (a, b) => a.or(b),
-        }
+        let c = self.pill.map(|(body, _)| body);
+        [a, b, c].into_iter().flatten().reduce(union_rect)
     }
+
+    /// Whether `p` (DIPs) is inside the mask: the same shapes the mask is
+    /// filled with, so the app's own tests agree with where the window takes
+    /// the mouse.
+    pub fn contains(&self, p: Point) -> bool {
+        self.rect.is_some_and(|r| r.contains(p))
+            || self.pill.is_some_and(|(body, radius)| in_rounded_rect(body, radius, p))
+            || self.notch.is_some_and(|(body, radius, shoulder)| in_notch(body, radius, shoulder, p))
+    }
+}
+
+/// `p` inside `body` with every corner rounded by `radius` (clamped as
+/// `pill::shape::segments` clamps it, so a short body is a capsule).
+fn in_rounded_rect(body: Rect, radius: f32, p: Point) -> bool {
+    if !body.contains(p) {
+        return false;
+    }
+    let r = radius.min(body.h / 2.0).min(body.w / 2.0).max(0.0);
+    // max/min, not clamp: for a capsule (r = h/2) at fractional positions,
+    // as while it moves, `y + r` can round one step past `bottom - r`, and
+    // clamp panics when its bounds cross.
+    let cx = p.x.max(body.x + r).min(body.right() - r);
+    let cy = p.y.max(body.y + r).min(body.bottom() - r);
+    (p.x - cx).hypot(p.y - cy) <= r
+}
+
+/// `p` inside [`notch_segments`]' outline: from the top edge down, the body
+/// with rounded bottom corners, and the concave shoulders flaring into the
+/// edge beside it.
+fn in_notch(body: Rect, radius: f32, shoulder: f32, p: Point) -> bool {
+    if p.y < 0.0 || p.y >= body.bottom() {
+        return false;
+    }
+    if p.x >= body.x && p.x < body.right() {
+        let r = radius.min(body.h).min(body.w / 2.0).max(0.0);
+        // max/min, not clamp (see in_rounded_rect).
+        let cx = p.x.max(body.x + r).min(body.right() - r);
+        let cy = p.y.min(body.bottom() - r);
+        return (p.x - cx).hypot(p.y - cy) <= r;
+    }
+    // A shoulder: the corner between the edge and the body's side, outside
+    // the arc from `shoulder` out along the edge to `shoulder` down the side
+    // (an ellipse when the body is shorter than that).
+    let (sw, sh) = (shoulder.max(0.0), shoulder.max(0.0).min(body.h));
+    let out = if p.x < body.x { body.x - p.x } else { p.x - body.right() };
+    if sw <= 0.0 || sh <= 0.0 || out > sw || p.y >= sh {
+        return false;
+    }
+    let (u, v) = ((sw - out) / sw, (sh - p.y) / sh);
+    u * u + v * v >= 1.0
 }
 
 /// Smallest rectangle holding both.
@@ -688,6 +738,9 @@ pub struct Gfx {
     /// Offscreen layers for [`Canvas::layered`], reused frame to frame.
     layers: Vec<ID2D1BitmapRenderTarget>,
     layers_used: usize,
+    /// Gradient brushes for [`Canvas::rrect_shadow`], by stops and colour
+    /// (made on `main`, so they start over with it).
+    shadows: HashMap<u64, (ID2D1RadialGradientBrush, ID2D1LinearGradientBrush)>,
     frame_no: u64,
     /// Pixels the software present copies this frame.
     dirty: RECT,
@@ -736,7 +789,7 @@ fn pick_font_family(dwrite: &IDWriteFactory) -> Vec<u16> {
 }
 
 /// Fonts shipped inside the exe: Outfit (SIL Open Font License 1.1, see
-/// `res/fonts/OFL.txt`), the Oyen Poni website's typeface, in the four weights
+/// `res/fonts/OFL.txt`), the Oyenza Studio website's typeface, in the four weights
 /// the island uses.
 const EMBEDDED_FONTS: [&[u8]; 4] = [
     include_bytes!("../res/fonts/Outfit-Regular.ttf"),
@@ -837,6 +890,7 @@ impl Gfx {
                 mask_stack: Vec::new(),
                 layers: Vec::new(),
                 layers_used: 0,
+                shadows: HashMap::new(),
                 frame_no: 0,
                 dirty: RECT::default(),
                 soft_full: true,
@@ -950,6 +1004,7 @@ impl Gfx {
         self.main = main;
         self.bitmaps.clear();
         self.layers.clear();
+        self.shadows.clear();
         Ok(())
     }
 
@@ -1243,6 +1298,11 @@ impl Gfx {
                     rt.FillGeometry(&geo, &self.mask_brush, None);
                 }
             }
+            if let Some((body, radius)) = mask.pill {
+                if let Ok(geo) = self.path_geometry(&crate::pill::shape::segments(body, radius), true) {
+                    rt.FillGeometry(&geo, &self.mask_brush, None);
+                }
+            }
             rt.PopAxisAlignedClip();
             rt.EndDraw(None, None)?;
             let full_push = self.soft_full || prev.is_none();
@@ -1450,6 +1510,36 @@ impl Gfx {
         self.icon_geoms.insert(icon, out.clone());
         out
     }
+
+    /// The gradient brushes [`Canvas::rrect_shadow`] fills with for `stops`
+    /// in `c` (its opacity is set per fill), made on first use.
+    fn shadow_brushes(&mut self, stops: &[(f32, f32)], c: Color) -> Option<(ID2D1RadialGradientBrush, ID2D1LinearGradientBrush)> {
+        // FNV-1a over the stops and the colour.
+        let key = stops
+            .iter()
+            .flat_map(|&(p, a)| [p, a])
+            .chain([c.r, c.g, c.b])
+            .fold(0xcbf2_9ce4_8422_2325u64, |h, v| (h ^ v.to_bits() as u64).wrapping_mul(0x0100_0000_01b3));
+        if let Some(b) = self.shadows.get(&key) {
+            return Some(b.clone());
+        }
+        let grad: Vec<D2D1_GRADIENT_STOP> = stops.iter().map(|&(position, a)| D2D1_GRADIENT_STOP { position, color: d2d_color(c.with_alpha(a)) }).collect();
+        let made = unsafe {
+            self.main.CreateGradientStopCollection(&grad, D2D1_GAMMA_2_2, D2D1_EXTEND_MODE_CLAMP).and_then(|coll| {
+                let radial = D2D1_RADIAL_GRADIENT_BRUSH_PROPERTIES { center: pt(0.0, 0.0), gradientOriginOffset: pt(0.0, 0.0), radiusX: 1.0, radiusY: 1.0 };
+                let linear = D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES { startPoint: pt(0.0, 0.0), endPoint: pt(0.0, 1.0) };
+                Ok((self.main.CreateRadialGradientBrush(&radial, None, &coll)?, self.main.CreateLinearGradientBrush(&linear, None, &coll)?))
+            })
+        };
+        let b = made.ok()?;
+        // A morph walks through radii (whole half DIPs); a long session
+        // never keeps more than a few pages of them.
+        if self.shadows.len() >= 96 {
+            self.shadows.clear();
+        }
+        self.shadows.insert(key, b.clone());
+        Some(b)
+    }
 }
 
 // ---------------------------------------------------------------- Canvas
@@ -1617,6 +1707,44 @@ impl<'a> Canvas<'a> {
         }
     }
 
+    /// A soft shadow round the rounded rectangle `r` (corner `radius`): `c`
+    /// at the opacity `ramp` gives by distance from the edge (DIPs, negative
+    /// inside, in order), from its first stop inside the edge to its last
+    /// outside it, where it should reach 0. Deeper inside than the first
+    /// stop it may draw or not: cover that, as the floating island's body
+    /// covers its shadow. A few gradient fills (corners and sides: four for
+    /// a capsule, eight for a card, see `pill::shape::shadow_plan`) that meet
+    /// on whole pixels, so draw it without a content transform. The
+    /// gradients are kept between frames.
+    pub fn rrect_shadow(&mut self, r: Rect, radius: f32, c: Color, ramp: &[(f32, f32)]) {
+        let Some(plan) = crate::pill::shape::shadow_plan(r, radius, ramp, self.scale()) else { return };
+        let c = self.g.look.paint(c);
+        let opacity = (c.a * self.alpha).clamp(0.0, 1.0);
+        if opacity <= 0.0 {
+            return;
+        }
+        let Some((radial, linear)) = self.g.shadow_brushes(&plan.stops, c) else { return };
+        unsafe {
+            radial.SetOpacity(opacity);
+            radial.SetRadiusX(plan.reach);
+            radial.SetRadiusY(plan.reach);
+            for (square, o) in plan.corners.into_iter().flatten() {
+                radial.SetCenter(pt(o.x, o.y));
+                self.g.rt.FillRectangle(&rectf(square), &radial);
+            }
+            linear.SetOpacity(opacity);
+            for (strip, a, b) in plan.sides.into_iter().flatten() {
+                linear.SetStartPoint(pt(a.x, a.y));
+                linear.SetEndPoint(pt(b.x, b.y));
+                self.g.rt.FillRectangle(&rectf(strip), &linear);
+            }
+            if let Some((m, a)) = plan.middle {
+                self.g.brush.SetColor(&d2d_color(c.with_alpha(a * opacity)));
+                self.g.rt.FillRectangle(&rectf(m), &self.g.brush);
+            }
+        }
+    }
+
     /// The island silhouette: flat top flush with the screen edge, concave
     /// "shoulders" flaring into the top edge and rounded bottom corners.
     /// `body` is the main rectangle; shoulders extend `shoulder` DIPs outside it.
@@ -1670,7 +1798,13 @@ impl<'a> Canvas<'a> {
     /// Mask subsequent drawing to the island silhouette (anti-aliased) until
     /// [`Canvas::pop_shape_mask`]. Push it before any content scale transform.
     pub fn push_shape_mask(&mut self, body: Rect, radius: f32, shoulder: f32) {
-        let pushed = match self.g.path_geometry(&notch_segments(body, radius, shoulder), true).and_then(|g| g.cast::<ID2D1Geometry>()) {
+        self.push_outline_mask(&notch_segments(body, radius, shoulder));
+    }
+
+    /// Mask subsequent drawing to the closed outline `segs` (anti-aliased)
+    /// until [`Canvas::pop_shape_mask`] (the floating island's outline).
+    pub fn push_outline_mask(&mut self, segs: &[Seg]) {
+        let pushed = match self.g.path_geometry(segs, true).and_then(|g| g.cast::<ID2D1Geometry>()) {
             Ok(geom) => unsafe {
                 let params = D2D1_LAYER_PARAMETERS {
                     contentBounds: D2D_RECT_F { left: -1.0e7, top: -1.0e7, right: 1.0e7, bottom: 1.0e7 },
@@ -1895,4 +2029,78 @@ pub fn notch_segments(body: Rect, radius: f32, shoulder: f32) -> Vec<Seg> {
     }
     segs.push(Seg::Close);
     segs
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pt(x: f32, y: f32) -> Point {
+        Point::new(x, y)
+    }
+
+    #[test]
+    fn mask_bounds_cover_each_shape() {
+        let body = Rect::new(100.0, 0.0, 84.0, 30.0);
+        let notch = HitMask { rect: None, notch: Some((body, 14.0, 9.0)), pill: None };
+        assert_eq!(notch.bounds(), Some(Rect::new(91.0, 0.0, 102.0, 30.0)), "Classic: the body and both shoulders");
+
+        let floating = Rect::new(100.0, 8.0, 152.0, 32.0);
+        let gap = Rect::new(100.0, 0.0, 152.0, 24.0);
+        let pill = HitMask { rect: Some(gap), notch: None, pill: Some((floating, 16.0)) };
+        assert_eq!(pill.bounds(), Some(Rect::new(100.0, 0.0, 152.0, 40.0)), "Pill: from the top edge to the pill's bottom, no wider");
+
+        let open = Rect::new(80.0, 0.0, 660.0, 245.0);
+        assert_eq!(HitMask { rect: Some(open), notch: None, pill: None }.bounds(), Some(open));
+        assert_eq!(HitMask { rect: None, notch: None, pill: None }.bounds(), None);
+    }
+
+    #[test]
+    fn capsule_contains_its_shape_only() {
+        let body = Rect::new(100.0, 8.0, 152.0, 32.0);
+        let m = HitMask { rect: None, notch: None, pill: Some((body, 16.0)) };
+        assert!(m.contains(pt(176.0, 24.0)), "centre");
+        assert!(m.contains(pt(100.5, 24.0)), "the left end's middle");
+        assert!(m.contains(pt(251.5, 24.0)), "the right end's middle");
+        assert!(!m.contains(pt(100.5, 8.5)), "the top-left corner is round");
+        assert!(!m.contains(pt(251.5, 39.5)), "the bottom-right corner is round");
+        assert!(!m.contains(pt(99.5, 24.0)) && !m.contains(pt(252.0, 24.0)), "beside");
+        assert!(!m.contains(pt(176.0, 7.5)) && !m.contains(pt(176.0, 40.0)), "above and below");
+        // A radius past half the height still makes a capsule, not a lens.
+        let big = HitMask { rect: None, notch: None, pill: Some((body, 40.0)) };
+        assert!(big.contains(pt(130.0, 9.0)) && !big.contains(pt(101.0, 9.0)));
+    }
+
+    #[test]
+    fn a_moving_capsule_never_panics_the_hit_test() {
+        // Mid-morph values (from the review's float32 spring simulation)
+        // where `y + h/2` rounds past `bottom - h/2`: clamp would panic here.
+        let body = Rect::new(100.0, 5.903_092_9, 152.0, 38.169_205);
+        let m = HitMask { rect: None, notch: None, pill: Some((body, 20.0)) };
+        assert!(m.contains(pt(176.0, 40.0)), "the lower half of a capsule in motion");
+        for i in 0..400 {
+            let (y, h) = (5.0 + i as f32 * 0.0173, 30.0 + i as f32 * 0.0311);
+            let b = Rect::new(100.3, y, 151.7, h);
+            let m = HitMask { rect: None, notch: Some((b, h / 2.0, 9.0)), pill: Some((b, h / 2.0)) };
+            let _ = m.contains(pt(176.0, y + h * 0.75));
+        }
+    }
+
+    #[test]
+    fn notch_contains_body_and_shoulders() {
+        let body = Rect::new(100.0, 0.0, 84.0, 30.0);
+        let m = HitMask { rect: None, notch: Some((body, 14.0, 9.0)), pill: None };
+        assert!(m.contains(pt(142.0, 0.0)) && m.contains(pt(142.0, 29.5)), "the body from the top edge down");
+        assert!(m.contains(pt(100.5, 0.5)), "the body's flat top corner");
+        assert!(!m.contains(pt(100.5, 29.5)), "the bottom corners are round");
+        assert!(m.contains(pt(99.0, 0.5)) && m.contains(pt(185.0, 0.5)), "a shoulder next to the body at the edge");
+        assert!(!m.contains(pt(99.0, 8.5)), "the shoulder thins out down the side");
+        assert!(!m.contains(pt(91.5, 0.2)), "and out along the edge");
+        assert!(!m.contains(pt(90.0, 0.0)) && !m.contains(pt(194.5, 0.0)), "past the shoulders");
+        assert!(!m.contains(pt(142.0, 30.0)), "below");
+        // A body shorter than the shoulder (the Hidden style's strip): the shoulders shrink with it.
+        let strip = Rect::new(100.0, 0.0, 150.0, 5.0);
+        let h = HitMask { rect: None, notch: Some((strip, 2.5, 9.0)), pill: None };
+        assert!(h.contains(pt(99.0, 0.5)) && !h.contains(pt(99.0, 5.5)));
+    }
 }

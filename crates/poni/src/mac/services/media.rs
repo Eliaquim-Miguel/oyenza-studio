@@ -9,7 +9,7 @@
 //! * The exact position, the album art and the buttons (play/pause, next,
 //!   previous, seek) go through each app's own AppleScript, only while that
 //!   app runs (a script never starts it). The first time, macOS asks
-//!   "Oyen Poni wants to control Music".
+//!   "Oyenza Studio wants to control Music".
 //!
 //! A worker thread owns the state and runs the scripts (`osascript`, which
 //! can take a moment), and reports `AppEvent::Media`, `MediaTimeline` and
@@ -43,7 +43,7 @@ const DENIED_RETRY: Duration = Duration::from_secs(60);
 const ART_PX: u32 = 240;
 /// Separates the fields a script returns (ASCII "record separator").
 const SEP: char = '\u{1e}';
-const USER_AGENT: &str = "Poni/0.1 (+https://github.com/lucacadalora/poni)";
+const USER_AGENT: &str = "Poni/0.1 (+https://github.com/lucacadalora/oyenza-studio)";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Player {
@@ -350,7 +350,7 @@ impl Worker {
         match osascript(script) {
             Err(e) if e.contains("-1743") => {
                 if self.denied_at[p.index()].replace(Instant::now()).is_none() {
-                    pinfo!("media: macOS doesn't let Oyen Poni control {} (System Settings > Privacy & Security > Automation)", p.name());
+                    pinfo!("media: macOS doesn't let Oyenza Studio control {} (System Settings > Privacy & Security > Automation)", p.name());
                 }
                 Err(e)
             }

@@ -1,12 +1,12 @@
-Third-party notices for Oyen Poni
+Third-party notices for Oyenza Studio
 
-Oyen Poni's own code is under the MIT license (LICENSE). The parts below come
+Oyenza Studio's own code is under the MIT license (LICENSE). The parts below come
 from others and keep their own terms.
 
 ------------------------------------------------------------------------------
 mecab-ipadic 2.7.0-20070801
 
-Used for: Oyen Poni's own Japanese reading dictionary,
+Used for: Oyenza Studio's own Japanese reading dictionary,
 crates/poni-core/data/ja-readings.dic.zst, which Windows downloads as the
 Japanese readings add-on (with this notice in its NOTICE.txt) and the Mac
 app carries built in. It is a modified copy, made by
@@ -214,7 +214,7 @@ SOFTWARE.
 Rust crates built into poni.exe
 
 Written by tools/make_notices.py from Cargo.lock. Each of these crates offers the
-MIT license (some also Apache-2.0 or the Unlicense), and Oyen Poni uses each one
+MIT license (some also Apache-2.0 or the Unlicense), and Oyenza Studio uses each one
 under MIT, except those whose notice is written out above. Crates with the same
 license text share one copy.
 

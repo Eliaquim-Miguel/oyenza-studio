@@ -3,7 +3,7 @@
 //!
 //! The numbers come from the person's phone: Oyenza reads daily totals from
 //! Apple Health or Health Connect and, with Show on Oyen Poni turned on there,
-//! a signed-in Oyen Poni receives them (`AppState::health`, in memory only).
+//! a signed-in Oyenza Studio receives them (`AppState::health`, in memory only).
 //! Without numbers the page says how to get them; numbers more than a day old
 //! stay, with a line asking to open Oyenza on the phone. Nothing here
 //! animates; the page only redraws when new numbers arrive.

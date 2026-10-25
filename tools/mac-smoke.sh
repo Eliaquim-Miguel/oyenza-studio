@@ -5,6 +5,14 @@
 # step (a real copy, a Spotify notification) and answers. Prints the report
 # and the log's tail, and exits with the app's code.
 #
+# The theme steps (glass-*, pill-*, notch-*) switch the app's own theme; the
+# notch-* steps pretend the screen has a MacBook's notch and the app paints
+# it black where the camera would be, so the pictures show what a MacBook
+# shows. Pill floats below the top edge (pill-*), and around the notch rests
+# in the menu bar's line and opens below it (notch-pill-*); its pill-theme
+# check in the report says where the island sat and which points took the
+# mouse.
+#
 # Usage: tools/mac-smoke.sh "<path to the app's poni binary>"
 # Not -e: the report must print even when a check fails.
 set +e -u
@@ -44,7 +52,7 @@ while kill -0 $pid 2>/dev/null && [ $SECONDS -lt $deadline ]; do
     IFS=, read -r x y w h < "$r"
     case "$base" in
       # A real copy: the app's clipboard history should pick it up.
-      *clipboard-copy) printf 'Oyen Poni smoke test, copied at %s' "$(date +%T)" | pbcopy; sleep 1.5 ;;
+      *clipboard-copy) printf 'Oyenza Studio smoke test, copied at %s' "$(date +%T)" | pbcopy; sleep 1.5 ;;
       # What Spotify announces when a track plays (no Spotify on the runner).
       *music-notify)
         osascript -l JavaScript -e 'ObjC.import("Foundation"); $.NSDistributedNotificationCenter.defaultCenter.postNotificationNameObjectUserInfoDeliverImmediately("com.spotify.client.PlaybackStateChanged", $("com.spotify.client"), $({"Name": "Blinding Lights", "Artist": "The Weeknd", "Album": "After Hours", "Duration": 200040, "Playback Position": 42.5, "Player State": "Playing"}), true)' || true

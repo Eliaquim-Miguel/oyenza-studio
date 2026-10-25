@@ -3,29 +3,29 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Oyen Poni · A living notch for Windows and Mac</title>
-<meta name="description" content="Oyen Poni is a free, open-source living notch for Windows 10 and 11 and macOS 14 or later: music with synced lyrics, a focus timer, a file shelf your phone can drop into, tasks and your clipboard, one hover away at the top of your screen.">
-<link rel="canonical" href="https://lucacadalora.github.io/poni/">
+<title>Oyenza Studio · A living notch for Windows and Mac</title>
+<meta name="description" content="Oyenza Studio is a free, open-source living notch for Windows 10 and 11 and macOS 14 or later: music with synced lyrics, a focus timer, a file shelf your phone can drop into, tasks and your clipboard, one hover away at the top of your screen.">
+<link rel="canonical" href="https://studio.oyenza.com/">
 <!-- Link previews (WhatsApp, X, LinkedIn, Facebook, Slack, Discord...). URLs are
      absolute because the networks read these tags without loading the page. The
      card is drawn by tools/make_share_card.py; bump its ?v= whenever it changes,
      since every network caches a preview image by its URL. -->
 <meta property="og:type" content="website">
-<meta property="og:site_name" content="Oyen Poni">
+<meta property="og:site_name" content="Oyenza Studio">
 <meta property="og:locale" content="en_US">
-<meta property="og:url" content="https://lucacadalora.github.io/poni/">
-<meta property="og:title" content="Oyen Poni · A living notch for Windows and Mac">
+<meta property="og:url" content="https://studio.oyenza.com/">
+<meta property="og:title" content="Oyenza Studio · A living notch for Windows and Mac">
 <meta property="og:description" content="A free, open-source island at the top of your screen, on Windows and Mac: music with synced lyrics, a focus timer, a file shelf your phone can drop into, tasks and your clipboard, one hover away.">
-<meta property="og:image" content="https://lucacadalora.github.io/poni/assets/share/oyen-poni-share.jpg?v=2">
+<meta property="og:image" content="https://studio.oyenza.com/assets/share/oyenza-studio-share.jpg?v=1">
 <meta property="og:image:type" content="image/jpeg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="The Oyen Poni island hanging from the top of the screen, open on the Music page with synced lyrics, and Oyen the cat peeking over the island.">
+<meta property="og:image:alt" content="The Oyenza Studio island hanging from the top of the screen, open on the Music page with synced lyrics, and Oyen the cat peeking over the island.">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Oyen Poni · A living notch for Windows and Mac">
+<meta name="twitter:title" content="Oyenza Studio · A living notch for Windows and Mac">
 <meta name="twitter:description" content="A free, open-source island at the top of your screen, on Windows and Mac: music with synced lyrics, a focus timer, a file shelf your phone can drop into, tasks and your clipboard, one hover away.">
-<meta name="twitter:image" content="https://lucacadalora.github.io/poni/assets/share/oyen-poni-share.jpg?v=2">
-<meta name="twitter:image:alt" content="The Oyen Poni island hanging from the top of the screen, open on the Music page with synced lyrics, and Oyen the cat peeking over the island.">
+<meta name="twitter:image" content="https://studio.oyenza.com/assets/share/oyenza-studio-share.jpg?v=1">
+<meta name="twitter:image:alt" content="The Oyenza Studio island hanging from the top of the screen, open on the Music page with synced lyrics, and Oyen the cat peeking over the island.">
 <link rel="icon" href="brand/oyen-poni-logo.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -76,10 +76,10 @@ p { margin: 0; }
 /* ---------- top bar */
 .bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: rgba(255, 255, 255, 0.86); backdrop-filter: saturate(1.4) blur(14px); border-bottom: 1px solid var(--line); }
 .bar .wrap { display: flex; align-items: center; gap: 24px; height: 60px; }
-.brand { display: flex; align-items: center; gap: 10px; text-decoration: none; font: 600 18px/1 var(--display); letter-spacing: -0.01em; }
+.brand { display: flex; align-items: center; gap: 10px; text-decoration: none; font: 600 18px/1 var(--display); letter-spacing: -0.01em; white-space: nowrap; }
 .brand img { width: 32px; height: 32px; }
 .bar nav { display: flex; gap: 22px; margin-left: auto; font-size: 14px; }
-.bar nav a { text-decoration: none; color: var(--muted); }
+.bar nav a { text-decoration: none; color: var(--muted); white-space: nowrap; }
 .bar nav a:hover { color: var(--ink); }
 .btn { display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 20px; border-radius: 999px; font: 600 15px/1 var(--sans); text-decoration: none; border: 1px solid transparent; cursor: pointer; white-space: nowrap; }
 .btn-dark { background: var(--ink); color: #fff; }
@@ -188,6 +188,18 @@ section { padding-block: 88px; }
 .glass-shot span { font-size: 14px; color: var(--muted); }
 .glass-flip { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .glass-flip figcaption { padding: 10px 12px 12px; }
+/* the Pill theme: the island floats below the top edge, so its pictures keep
+   that gap above it and its shadow below, and the strips are taller */
+.pill-theme { background: linear-gradient(180deg, var(--bg), var(--panel) 22%, var(--panel) 78%, var(--bg)); }
+.pill-theme figure { margin: 0; }
+.pill-theme .strip { background: var(--bg); }
+.pill-theme .island { padding-inline: 16px; }
+.pill-rest { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.pill-rest .sky, .pill-side .sky { height: 136px; }
+.pill-theme .pill-page { margin-top: 16px; }
+.pill-side { display: grid; gap: 14px; }
+.pill-theme .theme-notes { align-items: start; }
+.pill-side .how { margin-top: 0; }
 /* the Mac: screen pictures with the menu bar and the camera notch, so they keep their own frame */
 .mac-strips { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .mac-shot { margin: 0; border-radius: 18px; overflow: hidden; background: var(--bg); border: 1px solid #dfe3ea; }
@@ -196,6 +208,9 @@ section { padding-block: 88px; }
 .mac-shot strong { font: 600 16px/1.3 var(--display); }
 .mac-shot span { font-size: 14px; color: var(--muted); }
 .mac-get { display: grid; gap: 14px; justify-items: start; }
+/* Pill on a Mac: its own pictures, after the Classic and Oyen ones the switch swaps */
+.mac-pill { margin-top: 40px; }
+.mac-pill > .eyebrow { margin-bottom: 14px; }
 .mac-get .how { margin-top: 0; }
 .how { margin-top: 18px; font-size: 15px; color: var(--muted); }
 .how kbd { font: 600 13px/1 var(--sans); background: var(--bg); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 6px; padding: 3px 7px; color: var(--ink); }
@@ -236,9 +251,18 @@ footer a { color: var(--muted); }
 
 @media (max-width: 900px) {
   .hero-copy, .music, .music.flip, .theme-notes, .oyenza, .install { grid-template-columns: minmax(0, 1fr); }
-  .compare, .facts, .glass-shots, .mac-strips { grid-template-columns: minmax(0, 1fr); }
-  .hero-oyen { max-width: 320px; }
+  .compare, .facts, .glass-shots, .mac-strips, .pill-rest { grid-template-columns: minmax(0, 1fr); }
+  .hero-oyen { max-width: min(320px, 100%); }
   .oyenza { padding: 32px 24px; }
+}
+/* The bar's names never wrap: below 820 px the links sit closer, and below 760 px they give way
+   to the Download button, as on a phone. */
+@media (max-width: 820px) {
+  .bar nav { gap: 14px; }
+}
+@media (max-width: 760px) {
+  .bar nav { display: none; }
+  .bar .btn { margin-left: auto; }
 }
 @media (max-width: 640px) {
   .bar nav { display: none; }
@@ -255,17 +279,18 @@ footer a { color: var(--muted); }
 <body>
 <header class="bar">
   <div class="wrap">
-    <a class="brand" href="#top"><img src="brand/oyen-poni-logo.svg" alt="" width="32" height="32">Oyen Poni</a>
+    <a class="brand" href="#top"><img src="brand/oyen-poni-logo.svg" alt="" width="32" height="32">Oyenza Studio</a>
     <nav aria-label="Sections">
       <a href="#features">Features</a>
       <a href="#mac">Mac</a>
       <a href="#oyen">Oyen theme</a>
       <a href="#glass">Glass</a>
+      <a href="#pill">Pill</a>
       <a href="#oyenza">Oyenza</a>
       <a href="#install">Install</a>
-      <a href="https://github.com/lucacadalora/poni">GitHub</a>
+      <a href="https://github.com/lucacadalora/oyenza-studio">GitHub</a>
     </nav>
-    <a class="btn btn-dark btn-small" data-download="bar" href="https://github.com/lucacadalora/poni/releases/latest/download/Oyen-Poni-Setup.exe">Download</a>
+    <a class="btn btn-dark btn-small" data-download="bar" href="https://github.com/lucacadalora/oyenza-studio/releases/latest/download/Oyenza-Studio-Setup.exe">Download</a>
   </div>
 </header>
 
@@ -290,19 +315,20 @@ footer a { color: var(--muted); }
       <div>
         <p class="eyebrow">For Windows 10 and 11, and macOS 14 or later</p>
         <h1>A living notch <span>for Windows and Mac</span></h1>
-        <p class="lead">Oyen Poni hangs a small island from the top of your screen. It shows what is happening, and opens into quick pages when you point at it: music with synced lyrics, a focus timer, a file shelf your phone can drop into, tasks, your clipboard and, on Windows, money in and bills due from Oyenza.</p>
+        <p class="lead">Oyenza Studio hangs a small island from the top of your screen. It shows what is happening, and opens into quick pages when you point at it: music with synced lyrics, a focus timer, a file shelf your phone can drop into, tasks, your clipboard and, on Windows, money in and bills due from Oyenza.</p>
         <div class="ctas">
-          <a class="btn btn-dark" href="https://github.com/lucacadalora/poni/releases/latest/download/Oyen-Poni-Setup.exe">
+          <a class="btn btn-dark" href="https://github.com/lucacadalora/oyenza-studio/releases/latest/download/Oyenza-Studio-Setup.exe">
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2 2h9.2v9.2H2zm10.8 0H22v9.2h-9.2zM2 12.8h9.2V22H2zm10.8 0H22V22h-9.2z"/></svg>
             Download for Windows
           </a>
-          <a class="btn btn-dark" data-release="mac-link" href="https://github.com/lucacadalora/poni/releases/latest/download/Oyen-Poni-Mac.dmg">
+          <a class="btn btn-dark" data-release="mac-link" href="https://github.com/lucacadalora/oyenza-studio/releases/latest/download/Oyenza-Studio-Mac.dmg">
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"/></svg>
             Download for Mac
           </a>
-          <a class="btn btn-line" href="https://github.com/lucacadalora/poni">Source on GitHub</a>
+          <a class="btn btn-line" href="https://github.com/lucacadalora/oyenza-studio">Source on GitHub</a>
         </div>
-        <p class="small">Free and open source (MIT) · Windows <span data-release="size">2.4&nbsp;MB</span>, Mac <span data-release="mac-size">10.8&nbsp;MB</span> · No account needed · <a data-release="notes" href="https://github.com/lucacadalora/poni/releases/latest">What's new in <span data-release="version">0.1.20</span></a></p>
+        <p class="small">Free and open source (MIT) · Windows <span data-release="size">2.4&nbsp;MB</span>, Mac <span data-release="mac-size">10.8&nbsp;MB</span> · No account needed · <a data-release="notes" href="https://github.com/lucacadalora/oyenza-studio/releases/latest">What's new in <span data-release="version">0.2.0</span></a></p>
+        <p class="small">New in 0.2.0: Oyen Poni is now Oyenza Studio. Same app with a new name: updating keeps your settings and data.</p>
         <div class="look-switch" role="group" aria-label="Island look">
           <button type="button" data-look="classic" aria-pressed="true"><span class="dot"></span>Classic</button>
           <button type="button" data-look="oyen" aria-pressed="false"><span class="dot dot-oyen"></span>Oyen theme</button>
@@ -315,7 +341,7 @@ footer a { color: var(--muted); }
   <section id="mac">
     <div class="wrap">
       <div class="head">
-        <p class="eyebrow">New · Oyen Poni for Mac</p>
+        <p class="eyebrow">New · Oyenza Studio for Mac</p>
         <h2>On a Mac, it wraps the notch</h2>
         <p>On a MacBook with a camera notch, the island lives around it: what's playing sits either side of the camera, and the island opens downward from the notch when you point at it. On a Mac without a notch, or on another display, it hangs from the top of the screen as it does on Windows. Around the notch, the Oyen theme goes black like the notch itself, with Oyen's cream type, his orange and his face on it.</p>
       </div>
@@ -348,16 +374,44 @@ footer a { color: var(--muted); }
           <figcaption><strong>Today</strong><span>The date and calendar, with your Mac's CPU, memory, disk and battery.</span></figcaption>
         </figure>
       </div>
+      <div class="mac-pill">
+        <p class="eyebrow">Pill on a Mac · New in 0.1.21</p>
+        <div class="mac-strips">
+          <figure class="mac-shot">
+            <img src="assets/shots/mac/pill/idle-clock.webp" alt="Pill resting on a MacBook: attached beside the camera notch, the time on its left, the battery's percentage and the battery on its right" width="420" height="108" loading="lazy">
+            <figcaption><strong>Resting</strong><span>Beside the camera: the time on one side, the battery on the other.</span></figcaption>
+          </figure>
+          <figure class="mac-shot">
+            <img src="assets/shots/mac/pill/media-activity.webp" alt="Pill on a MacBook while a lyric line is sung: a black capsule floating just below the notch, with the album art, the line and an equalizer in the album's colour" width="420" height="108" loading="lazy">
+            <figcaption><strong>The line being sung</strong><span>It needs the room the camera takes, so it floats just below the notch.</span></figcaption>
+          </figure>
+          <figure class="mac-shot">
+            <img src="assets/shots/mac/pill/volume-hud.webp" alt="The volume pop-up in Pill on a MacBook: a capsule floating just below the notch" width="420" height="108" loading="lazy">
+            <figcaption><strong>Pop-ups and notices</strong><span>Capsules that float just below the notch.</span></figcaption>
+          </figure>
+        </div>
+        <div class="pages-2">
+          <figure class="mac-shot">
+            <img src="assets/shots/mac/pill/page-media.webp" alt="The open island in Pill on a MacBook: a black card with four rounded corners floating below the notch, on the Music page with synced lyrics" width="710" height="296" loading="lazy">
+            <figcaption><strong>Open, below the notch</strong><span>The card floats just below the menu bar, every corner rounded.</span></figcaption>
+          </figure>
+          <figure class="mac-shot">
+            <img src="assets/shots/mac/pill/page-today.webp" alt="The Today page in Pill on a MacBook, in the same floating card" width="710" height="312" loading="lazy">
+            <figcaption><strong>Every page</strong><span>Today, Focus, the Shelf and the rest open in the same card.</span></figcaption>
+          </figure>
+        </div>
+      </div>
       <div class="theme-notes">
         <ul>
           <li><span>Music and Spotify, with synced lyrics from LRCLIB, or Apple Music's own with your token, and the reading under Japanese, Korean and Chinese lines.</span></li>
           <li><span>The focus timer, the Shelf with Phone drop over the same Wi-Fi, tasks, clipboard history, and the System page with your Mac's CPU, graphics, memory, drives, network, battery and busiest apps.</span></li>
-          <li><span>Pop-ups for volume and charging, the Classic, Oyen and Glass themes, and start at login. Every option is in the menu bar, under Oyen's mark.</span></li>
+          <li><span>Pop-ups for volume and charging, the Classic, Oyen, Glass and Pill themes, and start at login. Every option is in the menu bar, under Oyen's mark.</span></li>
           <li><span>New in 0.1.19: Oyen goes black around the notch; Glass is macOS's own glass, Liquid Glass on macOS 26 and a dark blur before it, with a black strip where it meets the notch; and the System page reads your Mac, the way Stats shows it.</span></li>
+          <li><span>New in 0.1.21: Pill. On a MacBook with a notch, the resting island, the timer and music between lines stay beside the camera; the line being sung, pop-ups, notices and the open island float just below the notch. Without a notch it floats below the top of the screen, as on Windows.</span></li>
           <li><span>Not on the Mac yet: paired phones, Oyenza sign-in, add-ons, Show over games, headphone pop-ups and hiding in full-screen apps.</span></li>
         </ul>
         <div class="mac-get">
-          <a class="btn btn-dark" data-release="mac-link" href="https://github.com/lucacadalora/poni/releases/latest/download/Oyen-Poni-Mac.dmg">
+          <a class="btn btn-dark" data-release="mac-link" href="https://github.com/lucacadalora/oyenza-studio/releases/latest/download/Oyenza-Studio-Mac.dmg">
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"/></svg>
             Download for Mac
           </a>
@@ -542,8 +596,8 @@ footer a { color: var(--muted); }
         <div>
           <p class="eyebrow">New in 0.1.14</p>
           <h3>Paired phones: send from any network</h3>
-          <p>Click Pair a phone under Phone drop and scan the code once. After that, your phone finds this PC from anywhere: the same Wi-Fi, another Wi-Fi or mobile data, whenever Oyen Poni is running. Files from your own phones go straight onto the Shelf, and the island tells you when they land.</p>
-          <p>Keep the page on your iPhone's Home Screen, or install it on Android, where Oyen Poni joins the share sheet. The phone and the PC meet through drop.oyenza.com, and the files go straight between them over an encrypted link. Paired phones lists each phone with Remove.</p>
+          <p>Click Pair a phone under Phone drop and scan the code once. After that, your phone finds this PC from anywhere: the same Wi-Fi, another Wi-Fi or mobile data, whenever Oyenza Studio is running. Files from your own phones go straight onto the Shelf, and the island tells you when they land.</p>
+          <p>Keep the page on your iPhone's Home Screen, or install it on Android, where Oyenza Studio joins the share sheet. The phone and the PC meet through drop.oyenza.com, and the files go straight between them over an encrypted link. Paired phones lists each phone with Remove.</p>
         </div>
       </div>
       <div class="music" id="settings">
@@ -659,7 +713,7 @@ footer a { color: var(--muted); }
       </div>
       <div class="theme-notes">
         <ul>
-          <li><span>To draw the glass, Oyen Poni copies the part of the screen behind its window (the island and the space it opens into) while Glass is on, and not while the island is hidden or the PC is locked. The copy stays in your PC's memory, each new copy replaces the last, and it's never saved or sent.</span></li>
+          <li><span>To draw the glass, Oyenza Studio copies the part of the screen behind its window (the island and the space it opens into) while Glass is on, and not while the island is hidden or the PC is locked. The copy stays in your PC's memory, each new copy replaces the last, and it's never saved or sent.</span></li>
           <li><span>While Glass is on, Windows leaves the island out of screenshots, recordings and screen sharing.</span></li>
           <li><span>Since 0.1.16 Glass also works on PCs whose colour settings make Windows draw the desktop in 16-bit colour, and on HDR displays. Where it can't copy the screen (Remote Desktop, Windows 10 before version 2004, some laptops), Glass draws smoked glass instead: the same shape and light over a see-through tint, and it stays in screenshots.</span></li>
           <li><span>Classic stays the default look.</span></li>
@@ -681,13 +735,65 @@ footer a { color: var(--muted); }
     </div>
   </section>
 
+  <section class="pill-theme" id="pill">
+    <div class="wrap">
+      <div class="head">
+        <p class="eyebrow">Optional theme · New in 0.1.21</p>
+        <h2>Pill: the island floats</h2>
+        <p>Pill changes the island's shape, not just its colour. It floats a little below the top of the screen as a black capsule, with layouts of its own: the time and battery while it rests, the song while music plays, and a rounded card when it opens.</p>
+      </div>
+      <div class="pill-rest">
+        <figure class="strip">
+          <div class="sky"><div class="island"><img src="assets/shots/pill/idle-clock.webp" alt="The Pill island at rest: a black capsule floating below the top edge, the time on the left, 76% and a green battery on the right" width="152" height="40" loading="lazy"></div></div>
+          <figcaption><strong>Resting</strong><span>The time on the left and, on a laptop, the battery on the right, with a bolt while it's plugged in. A desktop shows the time alone.</span></figcaption>
+        </figure>
+        <figure class="strip">
+          <div class="sky"><div class="island"><img src="assets/shots/pill/idle-status.webp" alt="The Status bar look: the volume, the date and time in a pill of their own, and the battery" width="238" height="40" loading="lazy"></div></div>
+          <figcaption><strong>Status bar</strong><span>The volume, the date and time in an inner pill, and the battery.</span></figcaption>
+        </figure>
+        <figure class="strip">
+          <div class="sky"><div class="island"><img src="assets/shots/pill/media-activity.webp" alt="The Pill island while music plays: the album art, the line being sung, and bars in the album's colour, which glows along the bottom edge" width="336" height="40" loading="lazy"></div></div>
+          <figcaption><strong>Music playing</strong><span>The line being sung, or the title and artist between lines, with bars in the album's colour and a glow of it along the bottom.</span></figcaption>
+        </figure>
+        <figure class="strip">
+          <div class="sky"><div class="island"><img src="assets/shots/pill/timer-activity.webp" alt="A focus countdown in the Pill theme: a progress ring and the minutes left in a capsule" width="96" height="40" loading="lazy"></div></div>
+          <figcaption><strong>Focus timer</strong><span>The ring and the minutes left.</span></figcaption>
+        </figure>
+        <figure class="strip">
+          <div class="sky"><div class="island"><img src="assets/shots/pill/volume-hud.webp" alt="The volume pop-up in the Pill theme: a speaker, the level and 64% in one capsule" width="272" height="40" loading="lazy"></div></div>
+          <figcaption><strong>Volume and charging</strong><span>Pop-ups take the same capsule shape.</span></figcaption>
+        </figure>
+        <figure class="strip">
+          <div class="sky"><div class="island"><img src="assets/shots/pill/health-notice.webp" alt="A notice in the Pill theme: 8,412 steps today, daily step goal reached, in a taller capsule" width="200" height="56" loading="lazy"></div></div>
+          <figcaption><strong>Notices</strong><span>A taller capsule, with room for two lines.</span></figcaption>
+        </figure>
+      </div>
+      <figure class="strip tall pill-page">
+        <div class="sky"><div class="island"><img src="assets/shots/pill/page-media.webp" alt="The open island in the Pill theme: a black card with four rounded corners floating below the top edge, on the Music page: the album art, Spotify over Paper Boats, the time on one line, the controls, and the synced lyrics beside them" width="620" height="224" loading="lazy"></div></div>
+        <figcaption><strong>Open</strong><span>A card with every corner rounded and Classic's tabs. On the Music page: the art, the player's name over the song, the time on one line and big controls, with the lyrics beside them.</span></figcaption>
+      </figure>
+      <div class="theme-notes">
+        <ul>
+          <li><span>A soft shadow and a fine rim keep it apart from the wallpaper, light or dark.</span></li>
+          <li><span>Colour only where it means something: the album's colour for music, green for a charging battery, red for a low one.</span></li>
+          <li><span>Status bar is Pill's own idle look: right-click › <b>Idle look</b> › <b>Status bar</b>. The other themes keep the clock.</span></li>
+          <li><span>On a MacBook with a notch, the resting island stays beside the camera, and pop-ups, notices and the open card float just below it: <a href="#mac">see On a Mac</a>.</span></li>
+          <li><span>The pages and features are the same as in Classic. Classic stays the default look.</span></li>
+        </ul>
+        <div class="pill-side">
+          <p class="how">Right-click the island, then <kbd>Theme</kbd> › <kbd>Pill</kbd>. Or open the island, press the gear and pick <kbd>Pill</kbd> under Theme. On a Mac, it's in the menu bar's Theme menu. Switch back to <kbd>Classic</kbd> any time.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <section id="oyenza">
     <div class="wrap">
       <div class="oyenza">
         <div>
           <p class="eyebrow">Oyenza account · Live view new in 0.1.17</p>
           <h2>Your Oyenza, at the top of your screen</h2>
-          <p>Sign in with your <a href="https://oyenza.app" style="color:#fff">oyenza.app</a> account the way you sign in on a TV: press the gear, choose Sign in with Oyenza, and approve the code the island shows at oyenza.app/connect. No password is ever typed into Oyen Poni. An Oyenza page then joins the island.</p>
+          <p>Sign in with your <a href="https://oyenza.app" style="color:#fff">oyenza.app</a> account the way you sign in on a TV: press the gear, choose Sign in with Oyenza, and approve the code the island shows at oyenza.app/connect. No password is ever typed into Oyenza Studio. An Oyenza page then joins the island.</p>
           <ul>
             <li><span><b>Your Oyenza, live, by day.</b> Every transaction of the last 7 days, money in and out, newest first. Pick a day on the strip, and what's logged while you look glows.</span></li>
             <li><span><b>Money in and out as it happens.</b> A notice when Oyenza logs money coming in or going out, with the amount hidden until you click Show.</span></li>
@@ -741,22 +847,22 @@ footer a { color: var(--muted); }
         </div>
         <h3 class="os">On Windows <span>10 and 11</span></h3>
         <ol class="steps">
-          <li><div><b>Download the installer</b><p>Oyen-Poni-Setup.exe, from the latest release on GitHub. A portable zip is on the <a href="https://github.com/lucacadalora/poni/releases">Releases</a> page too.</p></div></li>
+          <li><div><b>Download the installer</b><p>Oyenza-Studio-Setup.exe, from the latest release on GitHub. A portable zip is on the <a href="https://github.com/lucacadalora/oyenza-studio/releases">Releases</a> page too.</p></div></li>
           <li><div><b>Run it</b><p>It installs just for you and needs no admin rights.</p></div></li>
           <li><div><b>If Windows warns you</b><p>Builds aren't code-signed yet, so SmartScreen may say "Windows protected your PC". Choose More info, then Run anyway. If Smart App Control is on, Windows won't run unsigned apps at all; a Microsoft Store version is on the way.</p></div></li>
         </ol>
         <h3 class="os">On a Mac <span>macOS 14 or later, Apple silicon or Intel</span></h3>
         <ol class="steps">
-          <li><div><b>Download the app</b><p>Oyen-Poni-Mac.dmg, from the same release.</p></div></li>
-          <li><div><b>Drag it into Applications</b><p>Open the DMG and drag Oyen Poni into the Applications folder.</p></div></li>
+          <li><div><b>Download the app</b><p>Oyenza-Studio-Mac.dmg, from the same release.</p></div></li>
+          <li><div><b>Drag it into Applications</b><p>Open the DMG and drag Oyenza Studio into the Applications folder.</p></div></li>
           <li><div><b>Allow it the first time</b><p>It isn't signed with an Apple Developer ID yet, so macOS warns you the first time you open it. Click Done, then open System Settings › Privacy &amp; Security and click Open Anyway.</p></div></li>
         </ol>
         <div class="ctas" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:24px">
-          <a class="btn btn-dark" href="https://github.com/lucacadalora/poni/releases/latest/download/Oyen-Poni-Setup.exe">
+          <a class="btn btn-dark" href="https://github.com/lucacadalora/oyenza-studio/releases/latest/download/Oyenza-Studio-Setup.exe">
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2 2h9.2v9.2H2zm10.8 0H22v9.2h-9.2zM2 12.8h9.2V22H2zm10.8 0H22V22h-9.2z"/></svg>
             Download for Windows
           </a>
-          <a class="btn btn-dark" data-release="mac-link" href="https://github.com/lucacadalora/poni/releases/latest/download/Oyen-Poni-Mac.dmg">
+          <a class="btn btn-dark" data-release="mac-link" href="https://github.com/lucacadalora/oyenza-studio/releases/latest/download/Oyenza-Studio-Mac.dmg">
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"/></svg>
             Download for Mac
           </a>
@@ -779,7 +885,7 @@ footer a { color: var(--muted); }
 <footer>
   <div class="wrap">
     <span class="grow">© 2026 oyenza.com · Website designed by Jatevo Labs Limited</span>
-    <a href="https://github.com/lucacadalora/poni">Open source (MIT)</a>
+    <a href="https://github.com/lucacadalora/oyenza-studio">Open source (MIT)</a>
     <a href="https://lrclib.net">Lyrics by LRCLIB</a>
   </div>
 </footer>
@@ -812,7 +918,7 @@ footer a { color: var(--muted); }
   var platform = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '';
   if (/^Mac/i.test(platform) && !(navigator.maxTouchPoints > 1)) {
     document.querySelectorAll('[data-download="bar"]').forEach(function (a) {
-      a.href = 'https://github.com/lucacadalora/poni/releases/latest/download/Oyen-Poni-Mac.dmg';
+      a.href = 'https://github.com/lucacadalora/oyenza-studio/releases/latest/download/Oyenza-Studio-Mac.dmg';
       a.setAttribute('data-release', 'mac-link');
     });
   }
@@ -820,13 +926,13 @@ footer a { color: var(--muted); }
   // The download line follows the latest release on GitHub, so the page stays
   // current between edits. Its own text is the fallback when the API is out of reach.
   if (window.fetch) {
-    fetch('https://api.github.com/repos/lucacadalora/poni/releases/latest')
+    fetch('https://api.github.com/repos/lucacadalora/oyenza-studio/releases/latest')
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (rel) {
         if (!rel || !/^v\d/.test(rel.tag_name || '')) return;
         function fill(key, f) { document.querySelectorAll('[data-release="' + key + '"]').forEach(f); }
-        var setup = (rel.assets || []).filter(function (a) { return a.name === 'Oyen-Poni-Setup.exe'; })[0];
-        var dmg = (rel.assets || []).filter(function (a) { return a.name === 'Oyen-Poni-Mac.dmg'; })[0];
+        var setup = (rel.assets || []).filter(function (a) { return a.name === 'Oyenza-Studio-Setup.exe'; })[0];
+        var dmg = (rel.assets || []).filter(function (a) { return a.name === 'Oyenza-Studio-Mac.dmg'; })[0];
         fill('version', function (el) { el.textContent = rel.tag_name.slice(1); });
         if (setup) fill('size', function (el) { el.textContent = (setup.size / 1e6).toFixed(1) + ' MB'; });
         if (dmg) fill('mac-size', function (el) { el.textContent = (dmg.size / 1e6).toFixed(1) + ' MB'; });

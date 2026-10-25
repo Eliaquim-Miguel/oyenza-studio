@@ -1,7 +1,7 @@
 //! Where the PC is, for the Prayer times add-on: Windows' own location
 //! service (`Windows.Devices.Geolocation`), asked on a short-lived worker
 //! thread. Windows decides how (Wi-Fi, GPS where there is one) and whether
-//! Oyen Poni may ask (Settings › Privacy & security › Location).
+//! Oyenza Studio may ask (Settings › Privacy & security › Location).
 //!
 //! The point only picks the nearest place in the add-on's list (the app
 //! does that as soon as it arrives); it is never stored or sent anywhere.
@@ -21,7 +21,7 @@ const TIMEOUT: Duration = Duration::from_secs(30);
 pub enum Located {
     /// Latitude and longitude, degrees.
     At(f64, f64),
-    /// Location is off for this PC, or for desktop apps / Oyen Poni.
+    /// Location is off for this PC, or for desktop apps / Oyenza Studio.
     Denied,
     /// Windows couldn't say where the PC is (no Wi-Fi around, no service).
     Unknown,

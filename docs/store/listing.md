@@ -1,13 +1,13 @@
-# Microsoft Store listing: Oyen Poni
+# Microsoft Store listing: Oyenza Studio
 
-Text to paste into Partner Center. The package itself comes from the `store` workflow (artifact `oyen-poni-msix`).
+Text to paste into Partner Center. The package itself comes from the `store` workflow (artifact `oyenza-studio-msix`).
 
 ## Before the first upload
 
 1. Create the free developer account at [storedeveloper.microsoft.com](https://storedeveloper.microsoft.com).
-2. In Partner Center, reserve the name **Oyen Poni**.
+2. In Partner Center, reserve the name **Oyenza Studio**.
 3. Open **Product identity** and copy three values into `tools/make_msix.ps1`: `Package/Identity/Name` (IdentityName), `Package/Identity/Publisher` (Publisher, starts with `CN=`) and `Package/Properties/PublisherDisplayName`. The Store refuses a package whose identity differs.
-4. Push. The `store` workflow builds `Oyen-Poni-<version>.msix` with those values.
+4. Push. The `store` workflow builds `Oyenza-Studio-<version>.msix` with those values.
 
 ## Product setup
 
@@ -16,9 +16,9 @@ Text to paste into Partner Center. The package itself comes from the `store` wor
 | Pricing | Free |
 | Markets | All |
 | Category | Productivity |
-| Website | https://github.com/lucacadalora/poni |
-| Support contact | https://github.com/lucacadalora/poni/issues |
-| Privacy policy URL | https://github.com/lucacadalora/poni/blob/main/PRIVACY.md |
+| Website | https://github.com/lucacadalora/oyenza-studio |
+| Support contact | https://github.com/lucacadalora/oyenza-studio/issues |
+| Privacy policy URL | https://github.com/lucacadalora/oyenza-studio/blob/main/PRIVACY.md |
 | Copyright | © 2026 Jatevo Labs |
 
 ## Store listing (English)
@@ -29,7 +29,7 @@ A living notch for Windows. A small black island at the top of your screen shows
 
 **Description**
 
-Oyen Poni puts a small black island at the top of your screen. It shows what's happening (music, a focus timer, volume, headphones connecting), and when you point at it, it opens into a set of quick pages.
+Oyenza Studio puts a small black island at the top of your screen. It shows what's happening (music, a focus timer, volume, headphones connecting), and when you point at it, it opens into a set of quick pages.
 
 While collapsed, the island shows album art and an equalizer while music plays, a focus-timer countdown, and pop-ups for volume, charging and Bluetooth headsets with their battery level.
 
@@ -79,8 +79,8 @@ Category: utility/productivity. No violence, sexual content, gambling or purchas
 
 ## Notes for certification
 
-> Oyen Poni is a desktop app that draws a small "island" at the top centre of the primary screen. No sign-in is needed. Point at the top centre of the screen (or click the island) to open it. Play music in any app that uses Windows media controls (Spotify, Edge) to see the music page and synced lyrics. Lyrics need an internet connection; everything else works offline. Phone drop (Shelf › Phone) serves a page on the local network only while its panel is open, for a phone on the same Wi-Fi. Pair a phone (same panel) lets a paired phone reach the PC from other networks through drop.oyenza.com; with no paired phone the app makes no such connection. "Start with Windows" is the package's startup task (TaskId PoniStartup); users can turn it off from the tray icon's menu or in Settings > Apps > Startup. The optional Glass theme (Settings in the island, or the tray menu: Theme > Glass) copies the part of the screen behind the island's window with DXGI Desktop Duplication so it can draw it as glass (not while the island is hidden or the PC is locked); the copy stays in memory, each new copy replaces the last, and it is never saved or sent, and while the theme is on the island's window is excluded from screen capture (SetWindowDisplayAffinity with WDA_EXCLUDEFROMCAPTURE). Add-ons (the + tab) are off until the user switches one on; then the app downloads that add-on's data files (for Prayer times: a place list in JSON and an AAC audio file, no code) from the project's GitHub releases and checks each against a SHA-256 built into the app. Prayer times uses the location capability, only while it is on, to pick the nearest city in its list through Windows.Devices.Geolocation; the position is used once on the device and never stored or sent.
+> Oyenza Studio is a desktop app that draws a small "island" at the top centre of the primary screen. No sign-in is needed. Point at the top centre of the screen (or click the island) to open it. Play music in any app that uses Windows media controls (Spotify, Edge) to see the music page and synced lyrics. Lyrics need an internet connection; everything else works offline. Phone drop (Shelf › Phone) serves a page on the local network only while its panel is open, for a phone on the same Wi-Fi. Pair a phone (same panel) lets a paired phone reach the PC from other networks through drop.oyenza.com; with no paired phone the app makes no such connection. "Start with Windows" is the package's startup task (TaskId PoniStartup); users can turn it off from the tray icon's menu or in Settings > Apps > Startup. The optional Glass theme (Settings in the island, or the tray menu: Theme > Glass) copies the part of the screen behind the island's window with DXGI Desktop Duplication so it can draw it as glass (not while the island is hidden or the PC is locked); the copy stays in memory, each new copy replaces the last, and it is never saved or sent, and while the theme is on the island's window is excluded from screen capture (SetWindowDisplayAffinity with WDA_EXCLUDEFROMCAPTURE). Add-ons (the + tab) are off until the user switches one on; then the app downloads that add-on's data files (for Prayer times: a place list in JSON and an AAC audio file, no code) from the project's GitHub releases and checks each against a SHA-256 built into the app. Prayer times uses the location capability, only while it is on, to pick the nearest city in its list through Windows.Devices.Geolocation; the position is used once on the device and never stored or sent.
 
 **runFullTrust justification**
 
-> Oyen Poni is a Win32 desktop app (Rust, Direct2D). It needs full trust for its always-on-top layered window at the top of the screen, the system volume and media session controls, the clipboard listener for clipboard history, and drag and drop of files to and from the island.
+> Oyenza Studio is a Win32 desktop app (Rust, Direct2D). It needs full trust for its always-on-top layered window at the top of the screen, the system volume and media session controls, the clipboard listener for clipboard history, and drag and drop of files to and from the island.

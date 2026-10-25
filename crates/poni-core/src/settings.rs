@@ -15,6 +15,9 @@ pub enum IdleStyle {
     Eyes,
     /// Nothing visible until the cursor reaches the top edge.
     Hidden,
+    /// A wider pill like a status bar: the date and time, the volume and
+    /// the battery (the Pill theme; the other themes show the clock).
+    Status,
 }
 
 /// How the island looks. Pages and live activities work the same in every theme.
@@ -29,6 +32,10 @@ pub enum Theme {
     Oyen,
     /// Liquid glass: the island bends, frosts and tints what's under it.
     Glass,
+    /// Pill: the island floats a little below the top edge as a black
+    /// capsule, with its own layouts: the time and battery at rest, the song
+    /// while music plays, a rounded card when it opens.
+    Pill,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -271,6 +278,8 @@ mod tests {
         assert_eq!(s.theme, Theme::Oyen);
         let s: Settings = serde_json::from_str(r#"{"theme":"glass"}"#).unwrap();
         assert_eq!(s.theme, Theme::Glass);
+        let s: Settings = serde_json::from_str(r#"{"theme":"pill"}"#).unwrap();
+        assert_eq!(s.theme, Theme::Pill);
     }
 
     #[test]

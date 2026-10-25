@@ -1,6 +1,6 @@
-# Oyen Poni brand files
+# Oyenza Studio brand files
 
-Oyen Poni belongs to the Oyen family. Oyen is the orange cat of the Oyenza logo.
+Oyenza Studio belongs to the Oyen family. Oyen is the orange cat of the Oyenza logo.
 
 | File | What |
 |---|---|

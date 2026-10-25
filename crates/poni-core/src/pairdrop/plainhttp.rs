@@ -1,6 +1,6 @@
 //! A plain-HTTP [`Post`](super::Post) for a meeting server on this machine
 //! (`http://127.0.0.1:port`): the tests and the `pairdrop_pc` example use it.
-//! Oyen Poni itself talks HTTPS through Windows (`services::pairdrop`).
+//! Oyenza Studio itself talks HTTPS through Windows (`services::pairdrop`).
 
 use super::meet::Post;
 use serde_json::Value;

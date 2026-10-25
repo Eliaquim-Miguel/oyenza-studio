@@ -47,25 +47,29 @@ fn item(label: &str, cmd: MenuCmd, checked: bool) -> MenuItem {
 }
 
 pub fn menu_items(s: &Settings, pinned: bool, login: Login) -> Vec<MenuItem> {
-    let style = |label: &str, st: IdleStyle| item(label, MenuCmd::SetIdleStyle(st), s.idle_style == st);
     let theme = |label: &str, t: Theme| item(label, MenuCmd::SetTheme(t), s.theme == t);
-    // In the Oyen theme the eyes are Oyen's own.
-    let eyes = if s.theme == Theme::Oyen { "Oyen" } else { "Eyes" };
+    // The theme's own idle looks (the status bar is Pill's), the one it
+    // draws ticked: outside Pill a picked status bar shows as the clock.
+    let shown = crate::pill::status::shown(s.theme, s.idle_style);
+    let style = |st: IdleStyle| {
+        let label = match st {
+            IdleStyle::Clock => "Clock",
+            // In the Oyen theme the eyes are Oyen's own.
+            IdleStyle::Eyes if s.theme == Theme::Oyen => "Oyen",
+            IdleStyle::Eyes => "Eyes",
+            IdleStyle::Minimal => "Minimal",
+            IdleStyle::Hidden => "Hidden until hover",
+            IdleStyle::Status => "Status bar",
+        };
+        item(label, MenuCmd::SetIdleStyle(st), shown == st)
+    };
     vec![
         item("Keep island open", MenuCmd::TogglePinned, pinned),
         MenuItem::Sub {
             label: "Theme".into(),
-            items: vec![theme("Classic", Theme::Classic), theme("Oyen", Theme::Oyen), theme("Glass", Theme::Glass)],
+            items: vec![theme("Classic", Theme::Classic), theme("Oyen", Theme::Oyen), theme("Glass", Theme::Glass), theme("Pill", Theme::Pill)],
         },
-        MenuItem::Sub {
-            label: "Idle look".into(),
-            items: vec![
-                style("Clock", IdleStyle::Clock),
-                style(eyes, IdleStyle::Eyes),
-                style("Minimal", IdleStyle::Minimal),
-                style("Hidden until hover", IdleStyle::Hidden),
-            ],
-        },
+        MenuItem::Sub { label: "Idle look".into(), items: crate::pill::status::looks(s.theme).iter().map(|l| style(*l)).collect() },
         item("Synced lyrics", MenuCmd::ToggleLyrics, s.lyrics),
         item("Lyrics pronunciation (romaji, pinyin, Korean)", MenuCmd::TogglePronunciation, s.lyrics_pronunciation),
         apple_music_menu(),
@@ -80,9 +84,9 @@ pub fn menu_items(s: &Settings, pinned: bool, login: Login) -> Vec<MenuItem> {
         item("Open settings file", MenuCmd::OpenSettings, false),
         item("Reload settings", MenuCmd::ReloadSettings, false),
         item("Open data folder", MenuCmd::OpenDataFolder, false),
-        item(&format!("About Oyen Poni {}", env!("CARGO_PKG_VERSION")), MenuCmd::About, false),
+        item(&format!("About Oyenza Studio {}", env!("CARGO_PKG_VERSION")), MenuCmd::About, false),
         MenuItem::Separator,
-        MenuItem::Item { label: "Quit Oyen Poni".into(), cmd: MenuCmd::Quit, checked: false, key: "q" },
+        MenuItem::Item { label: "Quit Oyenza Studio".into(), cmd: MenuCmd::Quit, checked: false, key: "q" },
     ]
 }
 
@@ -148,7 +152,7 @@ impl MenuBar {
                 Some(img) => button.setImage(Some(&img)),
                 None => button.setTitle(&NSString::from_str("Poni")),
             }
-            button.setToolTip(Some(&NSString::from_str("Oyen Poni")));
+            button.setToolTip(Some(&NSString::from_str("Oyenza Studio")));
         }
         let target: Retained<MenuTarget> = unsafe { objc2::msg_send![MenuTarget::alloc(mtm), init] };
         let menu = build(mtm, &target, &menu_items(s, pinned, login));

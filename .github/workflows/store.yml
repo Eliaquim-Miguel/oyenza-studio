@@ -40,7 +40,7 @@ jobs:
 
       - name: Install it and self-test it inside the package
         shell: powershell
-        run: ./tools/ci-msix-test.ps1 -Msix "dist\Oyen-Poni-$env:PONI_VERSION.msix" -Out msix-out
+        run: ./tools/ci-msix-test.ps1 -Msix "dist\Oyenza-Studio-$env:PONI_VERSION.msix" -Out msix-out
 
       - name: Upload screenshots and logs
         if: always()
@@ -53,6 +53,6 @@ jobs:
       - name: Upload the Store package
         uses: actions/upload-artifact@v4
         with:
-          name: oyen-poni-msix
-          path: dist/Oyen-Poni-${{ env.PONI_VERSION }}.msix
+          name: oyenza-studio-msix
+          path: dist/Oyenza-Studio-${{ env.PONI_VERSION }}.msix
           if-no-files-found: error

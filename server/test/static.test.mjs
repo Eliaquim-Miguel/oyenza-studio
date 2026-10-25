@@ -66,8 +66,8 @@ test('the manifest says what the phone page needs', async (t) => {
   const s = await start();
   t.after(s.close);
   const m = await (await fetch(`${s.base}/manifest.webmanifest`)).json();
-  assert.equal(m.name, 'Oyen Poni');
-  assert.equal(m.short_name, 'Oyen Poni');
+  assert.equal(m.name, 'Oyenza Studio');
+  assert.equal(m.short_name, 'Oyenza Studio');
   assert.equal(m.start_url, '/');
   assert.equal(m.scope, '/');
   assert.equal(m.display, 'standalone');

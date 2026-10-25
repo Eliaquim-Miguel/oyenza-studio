@@ -1,4 +1,4 @@
-# Weight check (CI, Windows): what Oyen Poni costs while it runs, measured
+# Weight check (CI, Windows): what Oyenza Studio costs while it runs, measured
 # from outside the process and compared with tools/weight-budget.json
 # (AGENTS.md, Keep it light). tools/ci-smoke.ps1 runs it after its own checks.
 #

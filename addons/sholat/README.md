@@ -6,7 +6,7 @@ them. The code that works out the times (`crates/poni-core/src/prayer/`) is
 part of poni.exe and stays asleep until the add-on is on.
 
 The files are published, byte for byte, on the pre-release
-[`addon-sholat-1`](https://github.com/lucacadalora/poni/releases/tag/addon-sholat-1).
+[`addon-sholat-1`](https://github.com/lucacadalora/oyenza-studio/releases/tag/addon-sholat-1).
 Each one's size and SHA-256 are built into the app (`poni_core::addons`),
 and `cargo test -p poni-core addons` checks that they match the files here.
 Changing a file means a new tag (`addon-sholat-2`), new numbers in

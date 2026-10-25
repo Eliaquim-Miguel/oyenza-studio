@@ -179,9 +179,13 @@ fn clock_badge(st: &AppState) -> Option<ClockBadge> {
 }
 
 pub fn geom(m: &Mode, st: &AppState) -> Geom {
+    if let Some(g) = crate::pill::geom(m, st) {
+        return g;
+    }
     match m {
         Mode::Idle => match st.settings.idle_style {
-            IdleStyle::Clock => {
+            // The status bar is the Pill theme's; the other themes show the clock.
+            IdleStyle::Clock | IdleStyle::Status => {
                 let base = if st.settings.use_24h { 84.0 } else { 104.0 };
                 let badge = match clock_badge(st) {
                     Some(ClockBadge::Charging) => 22.0,
@@ -223,6 +227,9 @@ pub fn geom(m: &Mode, st: &AppState) -> Geom {
 /// Needs continuous ambient frames (near 60 fps): animated equalizer while music plays.
 /// A paused (lingering) pill is static, once Oyen's notes are gone.
 pub fn is_live(m: &Mode, st: &AppState) -> bool {
+    if let Some(live) = crate::pill::is_live(m, st) {
+        return live;
+    }
     let Some(media) = st.media.as_ref() else { return false };
     match m {
         Mode::Activity(Activity::Media) if oyen::on(st.settings.theme) => {
@@ -260,6 +267,9 @@ pub fn next_wake(m: &Mode, st: &AppState) -> Option<f64> {
     if *m == Mode::Activity(Activity::Media) {
         consider(st.ui.peek_until);
     }
+    if let Some(t) = crate::pill::next_wake(m, st) {
+        consider(t);
+    }
     next
 }
 
@@ -268,7 +278,7 @@ const BLINK_LEN: f64 = 0.14;
 
 /// Oyen shows in the idle pill (the clock and "Oyen" looks of his theme).
 fn oyen_idle(st: &AppState) -> bool {
-    oyen::on(st.settings.theme) && matches!(st.settings.idle_style, IdleStyle::Clock | IdleStyle::Eyes)
+    oyen::on(st.settings.theme) && matches!(st.settings.idle_style, IdleStyle::Clock | IdleStyle::Status | IdleStyle::Eyes)
 }
 
 /// Oyen sleeps from midnight to five.
@@ -287,6 +297,9 @@ fn draw_oyen_rest(ui: &mut Ui, st: &AppState, body: Rect, cx: f32, w: f32, bar_y
 }
 
 pub fn draw(ui: &mut Ui, st: &mut AppState, m: &Mode, body: Rect) {
+    if crate::pill::draw(ui, st, m, body) {
+        return;
+    }
     match m {
         Mode::Idle => draw_idle(ui, st, body),
         Mode::Activity(a) => draw_activity(ui, st, *a, body),
@@ -306,7 +319,7 @@ fn snap(ui: &Ui, v: f32) -> f32 {
 fn draw_idle(ui: &mut Ui, st: &mut AppState, body: Rect) {
     let cy = body.center().y;
     match st.settings.idle_style {
-        IdleStyle::Clock => {
+        IdleStyle::Clock | IdleStyle::Status => {
             // Oyen theme: he peeks on the left and the clock centres in the rest.
             let body = if oyen::on(st.settings.theme) {
                 draw_oyen_rest(ui, st, body, body.x + 11.0 + OYEN_CLOCK_W / 2.0, OYEN_CLOCK_W, body.bottom() - 5.0);

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Phone page against the real PC code: the meeting server, the phone page in a
-headless browser, and Oyen Poni's own Rust side through the pairdrop_pc example
+headless browser, and Oyenza Studio's own Rust side through the pairdrop_pc example
 (crates/poni-core/examples/pairdrop_pc.rs). Pairs, sends two files, saves a
 Shelf file, then checks the PC going offline.
 

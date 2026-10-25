@@ -266,7 +266,7 @@ pub struct PageUiState {
     pub notes: crate::oyen::Notes,
 }
 
-/// Whether Windows lets Oyen Poni read a game's frames. Its event tracing
+/// Whether Windows lets Oyenza Studio read a game's frames. Its event tracing
 /// is open to admins and to the Performance Log Users group; the one-time
 /// OK adds the account to that group, which counts from the next sign-in.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -370,7 +370,7 @@ pub enum Locate {
     Found { km: f64 },
     /// The nearest listed place is too far away to use (km).
     Far { km: f64 },
-    /// Windows' location is off, or not allowed for Oyen Poni.
+    /// Windows' location is off, or not allowed for Oyenza Studio.
     Denied,
     /// Windows couldn't tell where the PC is.
     Unknown,

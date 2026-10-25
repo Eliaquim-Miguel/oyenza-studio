@@ -3,12 +3,12 @@ resolver = "2"
 members = ["crates/poni-core", "crates/poni"]
 
 [workspace.package]
-version = "0.1.20"
+version = "0.2.0"
 edition = "2021"
 publish = false
 license = "MIT"
-repository = "https://github.com/lucacadalora/poni"
-homepage = "https://github.com/lucacadalora/poni"
+repository = "https://github.com/lucacadalora/oyenza-studio"
+homepage = "https://github.com/lucacadalora/oyenza-studio"
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }

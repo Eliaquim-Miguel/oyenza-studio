@@ -240,10 +240,32 @@ const TABS_END: f32 = 0.6;
 /// one fades in; the old page is drawn without input (it can't be clicked).
 /// `body` is the island at its final size, so nothing reflows while it opens.
 pub fn draw_expanded(ui: &mut Ui, st: &mut AppState, body: Rect, page: PageKind, transition: Option<PageTransition>) {
+    if crate::pill::expanded::draw(ui, st, body, page, transition) {
+        return;
+    }
     let tr = transition.filter(|tr| tr.t < 1.0 && tr.from != page);
     let header = header_rect(body);
     let tip = draw_header(ui, st, header, page, tr);
-    let area = Rect::new(body.x + PAD, body.y + HEADER_H, body.w - 2.0 * PAD, (body.h - HEADER_H - PAD).max(0.0));
+    draw_pages(ui, st, body, header, page, tr);
+    // Hover labels sit on top of the page, outside the content clip.
+    if let Some(tip) = tip {
+        draw_tip(ui, header, &tip);
+    }
+}
+
+/// The page content's rect inside the expanded island `body`: below the
+/// header band, `PAD` in from the sides and the bottom.
+pub(crate) fn content_area(body: Rect) -> Rect {
+    Rect::new(body.x + PAD, body.y + HEADER_H, body.w - 2.0 * PAD, (body.h - HEADER_H - PAD).max(0.0))
+}
+
+/// The active page in [`content_area`], clipped to the island below the
+/// `header` row. During the page switch `tr` (one in progress, as
+/// [`draw_expanded`] filters it) the old page fades out sliding away while
+/// the new one fades in. Every theme's frame draws its pages with this, so
+/// a switch moves the same in all of them.
+pub(crate) fn draw_pages(ui: &mut Ui, st: &mut AppState, body: Rect, header: Rect, page: PageKind, tr: Option<PageTransition>) {
+    let area = content_area(body);
     // Content may reach a little above `area` (text boxes whose cap height,
     // not their line box, sits on the content top) but never into the tabs.
     let clip_top = header.bottom() + 2.0;
@@ -281,13 +303,9 @@ pub fn draw_expanded(ui: &mut Ui, st: &mut AppState, body: Rect, page: PageKind,
         None => draw_page(ui, st, area, page),
     }
     ui.c.unclip();
-    // Hover labels sit on top of the page, outside the content clip.
-    if let Some(tip) = tip {
-        draw_tip(ui, header, &tip);
-    }
 }
 
-fn draw_page(ui: &mut Ui, st: &mut AppState, area: Rect, page: PageKind) {
+pub(crate) fn draw_page(ui: &mut Ui, st: &mut AppState, area: Rect, page: PageKind) {
     match page {
         PageKind::Media => media::draw(ui, st, area),
         PageKind::Focus => focus::draw(ui, st, area),
@@ -315,7 +333,7 @@ fn smoothstep(x: f32) -> f32 {
 }
 
 /// Round to the device-pixel grid.
-fn snap(v: f32, scale: f32) -> f32 {
+pub(crate) fn snap(v: f32, scale: f32) -> f32 {
     (v * scale).round() / scale
 }
 
@@ -343,11 +361,11 @@ const OYEN_GAP: f32 = 6.0;
 /// Hover labels: dwell, fade-in, capsule metrics.
 const TIP_DELAY: f64 = 0.4;
 const TIP_FADE: f64 = 0.12;
-const TIP_H: f32 = 22.0;
-const TIP_PAD: f32 = 8.0;
+pub(crate) const TIP_H: f32 = 22.0;
+pub(crate) const TIP_PAD: f32 = 8.0;
 const TIP_RADIUS: f32 = 8.0;
 /// White 0.16 over the black island, made opaque so page text can't show through.
-const TIP_FILL: Color = Color::rgba(0.16, 0.16, 0.16, 1.0);
+pub(crate) const TIP_FILL: Color = Color::rgba(0.16, 0.16, 0.16, 1.0);
 /// `tab_hover` slots of the pin and Settings buttons (tabs use their place in the row).
 const PIN_SLOT: usize = PageKind::ALL.len();
 const GEAR_SLOT: usize = PIN_SLOT + 1;
@@ -355,10 +373,10 @@ const GEAR_SLOT: usize = PIN_SLOT + 1;
 pub const GEAR_ID: &str = "header.gear";
 
 /// A hover label waiting to be painted above the page.
-struct Tip {
-    anchor: Rect,
-    text: &'static str,
-    alpha: f32,
+pub(crate) struct Tip {
+    pub(crate) anchor: Rect,
+    pub(crate) text: &'static str,
+    pub(crate) alpha: f32,
 }
 
 /// Tab slots (x, width) of `tabs`, with `active` showing its label.
@@ -377,7 +395,7 @@ fn tab_layout(ui: &mut Ui, x0: f32, tabs: &[PageKind], active: PageKind, label_s
 /// Tabs on the left; pin, date and clock on the right. During a page switch
 /// the tabs re-flow, the selection pill slides and the labels cross-fade.
 /// Returns the hover label to paint once the page is drawn.
-fn draw_header(ui: &mut Ui, st: &mut AppState, r: Rect, page: PageKind, tr: Option<PageTransition>) -> Option<Tip> {
+pub(crate) fn draw_header(ui: &mut Ui, st: &mut AppState, r: Rect, page: PageKind, tr: Option<PageTransition>) -> Option<Tip> {
     let scale = ui.c.scale().max(0.5);
     let cy = r.center().y;
     let label_st = TextStyle::body().weight(Weight::Semibold);

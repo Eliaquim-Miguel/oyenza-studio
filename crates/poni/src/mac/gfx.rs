@@ -302,7 +302,7 @@ fn cgrect(r: Rect) -> CGRect {
 // ---------------------------------------------------------------- fonts and text layout
 
 /// Fonts shipped inside the app: Outfit (SIL Open Font License 1.1, see
-/// `res/fonts/OFL.txt`), the Oyen Poni website's typeface, in the island's
+/// `res/fonts/OFL.txt`), the Oyenza Studio website's typeface, in the island's
 /// four weights. Letters Outfit lacks (Japanese, Korean, emoji, ...) come
 /// from the system's fonts through Core Text's fallback.
 const EMBEDDED_FONTS: [&[u8]; 4] = [
@@ -891,6 +891,46 @@ impl<'a> Canvas<'a> {
         CGContext::restore_g_state(self.cg());
     }
 
+    /// A soft shadow round the rounded rectangle `r` (corner `radius`): `c`
+    /// at the opacity `ramp` gives by distance from the edge (DIPs, negative
+    /// inside, in order), from its first stop inside the edge to its last
+    /// outside it, where it should reach 0. Deeper inside than the first
+    /// stop it may draw or not: cover that, as the floating island's body
+    /// covers its shadow. The same gradient pieces as on Windows (see
+    /// `pill::shape::shadow_plan`), each clipped to its rectangle.
+    pub fn rrect_shadow(&mut self, r: Rect, radius: f32, c: Color, ramp: &[(f32, f32)]) {
+        let Some(plan) = crate::pill::shape::shadow_plan(r, radius, ramp, self.scale()) else { return };
+        let paint = self.g.look.paint(c);
+        let n = plan.stops.len().min(16);
+        let mut comps: [CGFloat; 64] = [0.0; 64];
+        let mut at: [CGFloat; 16] = [0.0; 16];
+        for (i, &(p, a)) in plan.stops.iter().take(n).enumerate() {
+            comps[i * 4..i * 4 + 4].copy_from_slice(&self.components(paint.mul_alpha(a)));
+            at[i] = p as CGFloat;
+        }
+        let Some(grad) = (unsafe { CGGradient::with_color_components(Some(&self.g.srgb), comps.as_ptr(), at.as_ptr(), n) }) else { return };
+        let extend = CGGradientDrawingOptions::DrawsBeforeStartLocation | CGGradientDrawingOptions::DrawsAfterEndLocation;
+        let cgpt = |p: Point| CGPoint { x: p.x as CGFloat, y: p.y as CGFloat };
+        let reach = plan.reach as CGFloat;
+        for (square, o) in plan.corners.into_iter().flatten() {
+            CGContext::save_g_state(self.cg());
+            CGContext::clip_to_rect(self.cg(), cgrect(square));
+            CGContext::draw_radial_gradient(self.cg(), Some(&grad), cgpt(o), 0.0, cgpt(o), reach, extend);
+            CGContext::restore_g_state(self.cg());
+        }
+        for (strip, a, b) in plan.sides.into_iter().flatten() {
+            CGContext::save_g_state(self.cg());
+            CGContext::clip_to_rect(self.cg(), cgrect(strip));
+            CGContext::draw_linear_gradient(self.cg(), Some(&grad), cgpt(a), cgpt(b), extend);
+            CGContext::restore_g_state(self.cg());
+        }
+        if let Some((m, a)) = plan.middle {
+            let k = self.components(paint.mul_alpha(a));
+            unsafe { CGContext::set_fill_color(self.cg(), k.as_ptr()) };
+            CGContext::fill_rect(self.cg(), cgrect(m));
+        }
+    }
+
     /// The island silhouette: flat top flush with the screen edge, concave
     /// "shoulders" flaring into the top edge and rounded bottom corners.
     /// `body` is the main rectangle; shoulders extend `shoulder` DIPs outside it.
@@ -934,9 +974,15 @@ impl<'a> Canvas<'a> {
     /// Mask subsequent drawing to the island silhouette (anti-aliased) until
     /// [`Canvas::pop_shape_mask`].
     pub fn push_shape_mask(&mut self, body: Rect, radius: f32, shoulder: f32) {
+        self.push_outline_mask(&notch_segments(body, radius, shoulder));
+    }
+
+    /// Mask subsequent drawing to the closed outline `segs` until
+    /// [`Canvas::pop_shape_mask`] (the floating island's outline).
+    pub fn push_outline_mask(&mut self, segs: &[Seg]) {
         CGContext::save_g_state(self.cg());
         self.stack += 1;
-        let p = cg_path(&notch_segments(body, radius, shoulder));
+        let p = cg_path(segs);
         CGContext::begin_path(self.cg());
         CGContext::add_path(self.cg(), Some(&p));
         CGContext::clip(self.cg());

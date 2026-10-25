@@ -33,7 +33,7 @@ impl Tray {
                 hIcon: icon,
                 ..Default::default()
             };
-            let tip: Vec<u16> = "Oyen Poni".encode_utf16().collect();
+            let tip: Vec<u16> = "Oyenza Studio".encode_utf16().collect();
             nid.szTip[..tip.len()].copy_from_slice(&tip);
             if !Shell_NotifyIconW(NIM_ADD, &nid).as_bool() {
                 return Err(windows::core::Error::from_win32());
@@ -92,24 +92,30 @@ fn item(label: &str, cmd: MenuCmd, checked: bool) -> MenuItem {
     MenuItem::Item { label: label.to_string(), cmd, checked }
 }
 
+/// An idle look as the menu names it. In the Oyen theme the eyes are Oyen's own.
+fn idle_label(s: IdleStyle, theme: Theme) -> &'static str {
+    match s {
+        IdleStyle::Clock => "Clock",
+        IdleStyle::Eyes if theme == Theme::Oyen => "Oyen",
+        IdleStyle::Eyes => "Eyes",
+        IdleStyle::Minimal => "Minimal",
+        IdleStyle::Hidden => "Hidden until hover",
+        IdleStyle::Status => "Status bar",
+    }
+}
+
 pub fn menu_items(s: &Settings, pinned: bool, oyenza: &OyenzaLink) -> Vec<MenuItem> {
-    let style = |label: &str, st: IdleStyle| item(label, MenuCmd::ToggleIdleStyle(st), s.idle_style == st);
+    // The look the theme draws is the one checked: outside Pill, Status shows the clock.
+    let shown = crate::pill::status::shown(s.theme, s.idle_style);
+    let style = |st: IdleStyle| item(idle_label(st, s.theme), MenuCmd::ToggleIdleStyle(st), shown == st);
     let theme = |label: &str, t: Theme| item(label, MenuCmd::SetTheme(t), s.theme == t);
     let fullscreen = |label: &str, hide: bool| item(label, MenuCmd::SetHideFullscreen(hide), s.hide_in_fullscreen == hide);
-    // In the Oyen theme the eyes are Oyen's own.
-    let eyes = if s.theme == Theme::Oyen { "Oyen" } else { "Eyes" };
     vec![
         item("Keep island open", MenuCmd::TogglePinned, pinned),
-        MenuItem::Sub { label: "Theme".into(), items: vec![theme("Classic", Theme::Classic), theme("Oyen", Theme::Oyen), theme("Glass", Theme::Glass)] },
-        MenuItem::Sub {
-            label: "Idle look".into(),
-            items: vec![
-                style("Clock", IdleStyle::Clock),
-                style(eyes, IdleStyle::Eyes),
-                style("Minimal", IdleStyle::Minimal),
-                style("Hidden until hover", IdleStyle::Hidden),
-            ],
-        },
+        MenuItem::Sub { label: "Theme".into(), items: vec![theme("Classic", Theme::Classic), theme("Oyen", Theme::Oyen), theme("Glass", Theme::Glass), theme("Pill", Theme::Pill)] },
+        // The status bar is listed only in Pill, as on the Settings page: the
+        // other themes would draw the clock for it.
+        MenuItem::Sub { label: "Idle look".into(), items: crate::pill::status::looks(s.theme).iter().map(|l| style(*l)).collect() },
         MenuItem::Separator,
         item("Synced lyrics", MenuCmd::ToggleLyrics, s.lyrics),
         item("Lyrics pronunciation (romaji, pinyin, Korean)", MenuCmd::TogglePronunciation, s.lyrics_pronunciation),
@@ -134,7 +140,7 @@ pub fn menu_items(s: &Settings, pinned: bool, oyenza: &OyenzaLink) -> Vec<MenuIt
         item("Open data folder", MenuCmd::OpenDataFolder, false),
         item("Lyrics by LRCLIB", MenuCmd::About, false),
         MenuItem::Separator,
-        item("Quit Oyen Poni", MenuCmd::Quit, false),
+        item("Quit Oyenza Studio", MenuCmd::Quit, false),
     ]
 }
 
@@ -238,6 +244,37 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    fn idle_choices(s: &Settings) -> Vec<(String, bool)> {
+        let items = menu_items(s, false, &OyenzaLink::Off);
+        let Some(MenuItem::Sub { items, .. }) = items.into_iter().find(|i| matches!(i, MenuItem::Sub { label, .. } if label == "Idle look")) else {
+            panic!("no idle look submenu");
+        };
+        items
+            .into_iter()
+            .filter_map(|i| match i {
+                MenuItem::Item { label, checked, .. } => Some((label, checked)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn status_bar_is_listed_only_in_the_pill_theme() {
+        let pill = Settings { theme: Theme::Pill, idle_style: IdleStyle::Status, ..Settings::default() };
+        let labels: Vec<String> = idle_choices(&pill).into_iter().map(|c| c.0).collect();
+        assert_eq!(labels, ["Clock", "Eyes", "Minimal", "Hidden until hover", "Status bar"]);
+        assert_eq!(idle_choices(&pill).last(), Some(&("Status bar".to_string(), true)));
+        // Another theme draws the clock for the status bar: Clock is checked,
+        // and Status comes back with Pill.
+        for theme in [Theme::Classic, Theme::Oyen, Theme::Glass] {
+            let s = Settings { theme, ..pill.clone() };
+            let choices = idle_choices(&s);
+            assert_eq!(choices.len(), 4, "{theme:?}");
+            assert_eq!(choices[0], ("Clock".to_string(), true), "{theme:?}");
+            assert!(choices.iter().skip(1).all(|c| !c.1), "{theme:?}");
+        }
     }
 
     #[test]

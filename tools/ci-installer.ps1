@@ -74,7 +74,7 @@ $uninstKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Poni"
 function PoniEntries {
     $roots = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall", "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall"
     @($roots | ForEach-Object { Get-ChildItem $_ -ErrorAction SilentlyContinue } |
-        ForEach-Object { Get-ItemProperty $_.PSPath } | Where-Object { $_.DisplayName -like "*Poni*" })
+        ForEach-Object { Get-ItemProperty $_.PSPath } | Where-Object { $_.DisplayName -like "*Poni*" -or $_.DisplayName -like "*Oyenza Studio*" })
 }
 
 # 1. The previous release, the way people have it today.
@@ -82,6 +82,10 @@ if ($Previous) {
     Start-Process -FilePath $Previous -ArgumentList "/S" -Wait
     Check "previous release installed" (Test-Path $exe) $Previous
     Check "previous Start menu shortcut" (Test-Path (Join-Path $programs "Poni.lnk"))
+    # The 0.1.x versions from 0.1.2 on named the shortcut "Oyen Poni": put one there too, the upgrade must remove it.
+    $old = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $programs "Oyen Poni.lnk"))
+    $old.TargetPath = $exe
+    $old.Save()
     New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
     Set-Content -Path $marker -Value "settings and data must survive the upgrade"
 }
@@ -105,7 +109,7 @@ if ($shown) {
     WindowShot "2-components" $h
     ClickNext $h; Start-Sleep -Seconds 8  # installs, then moves on to the finish page by itself
     WindowShot "3-finish" $h
-    ClickNext $h  # Finish, with "Launch Oyen Poni now" ticked
+    ClickNext $h  # Finish, with "Launch Oyenza Studio now" ticked
     $walked = WaitFor { $p.HasExited } 30
 }
 if (-not $walked) {
@@ -117,14 +121,15 @@ Check "walked through the installer pages" $walked "otherwise installed with /S"
 
 # 3. What the upgrade left behind.
 $entry = Get-ItemProperty $uninstKey -ErrorAction SilentlyContinue
-Check "Installed apps name" ($entry.DisplayName -eq "Oyen Poni") "$($entry.DisplayName)"
+Check "Installed apps name" ($entry.DisplayName -eq "Oyenza Studio") "$($entry.DisplayName)"
 Check "Installed apps version" ($entry.DisplayVersion -eq $Version) "$($entry.DisplayVersion)"
 $entries = PoniEntries
 Check "one Installed apps entry" ($entries.Count -eq 1) (($entries | ForEach-Object { $_.DisplayName }) -join ", ")
-Check "new Start menu shortcut" (Test-Path (Join-Path $programs "Oyen Poni.lnk"))
+Check "new Start menu shortcut" (Test-Path (Join-Path $programs "Oyenza Studio.lnk"))
 Check "old Start menu shortcut removed" (-not (Test-Path (Join-Path $programs "Poni.lnk")))
+if ($Previous) { Check "Oyen Poni shortcut removed" (-not (Test-Path (Join-Path $programs "Oyen Poni.lnk"))) }
 $vi = (Get-Item $exe -ErrorAction SilentlyContinue).VersionInfo
-Check "poni.exe product name" ($vi.ProductName -eq "Oyen Poni") "$($vi.ProductName)"
+Check "poni.exe product name" ($vi.ProductName -eq "Oyenza Studio") "$($vi.ProductName)"
 Check "poni.exe version" ($vi.ProductVersion -eq $Version) "$($vi.ProductVersion)"
 $notices = Join-Path $installDir "THIRD-PARTY-NOTICES.txt"
 Check "license notices installed" (Test-Path $notices) $notices
@@ -149,7 +154,7 @@ $gone = WaitFor { -not (Test-Path $exe) } 30
 Check "uninstall removes the app" $gone
 Check "uninstall removes the license notices" (WaitFor { -not (Test-Path $notices) } 15)
 Check "uninstall removes the Installed apps entry" (-not (Test-Path $uninstKey))
-Check "uninstall removes the shortcut" (-not (Test-Path (Join-Path $programs "Oyen Poni.lnk")))
+Check "uninstall removes the shortcut" (-not (Test-Path (Join-Path $programs "Oyenza Studio.lnk")))
 if ($Previous) { Check "uninstall keeps settings and data" (Test-Path $marker) }
 
 $results | ConvertTo-Json | Set-Content (Join-Path $Out "results.json")
