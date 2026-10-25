@@ -372,6 +372,8 @@ pub struct App {
     script_excluded: bool,
     /// A reading held the island open at the last tick.
     script_held: bool,
+    /// The Script page was on screen at the last tick.
+    script_shown: bool,
     /// App icons the System page asked for and hasn't got yet (the Shelf's
     /// thumbnail worker answers both pages with the same event).
     icon_wait: HashSet<String>,
@@ -549,6 +551,7 @@ impl App {
             script_hotkey: false,
             script_excluded: false,
             script_held: false,
+            script_shown: false,
             icon_wait: HashSet::new(),
             tray: None,
             taskbar_created_msg,
@@ -2157,9 +2160,14 @@ impl App {
 
     /// The Script page: a reading pauses while its page isn't on screen, the
     /// island may close once nothing holds it, and the shortcut is Poni's
-    /// only while there's a script to read on the page.
+    /// only while there's a script to read on the page. Whether Record shows
+    /// is asked as the page comes on screen.
     fn script_tick(&mut self) {
         let shown = self.expanded && self.st.page == PageKind::Script && !self.locked && !self.display_off && !self.fullscreen_hidden;
+        if shown && !self.script_shown && self.selftest.is_none() {
+            self.st.recorder = services::recorder::installed();
+        }
+        self.script_shown = shown;
         if !shown && self.st.script.playing() {
             self.st.script.pause(self.st.now);
         }
@@ -3258,6 +3266,7 @@ impl App {
                 }
                 Command::FocusText => self.focus_text(),
                 Command::BlurText => self.blur_text(),
+                Command::RecordScreen => services::recorder::record_screen(self.hwnd),
                 Command::ScriptPaste => {
                     // Read here, not through the text field path: that one drops line breaks.
                     let text = services::clipboard::read_text(self.hwnd).map(|t| poni_core::script::clean(&t)).filter(|t| !t.is_empty());

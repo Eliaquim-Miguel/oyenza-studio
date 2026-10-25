@@ -460,6 +460,9 @@ pub struct AppState {
     /// Whether Windows leaves the island out of screen capture while the
     /// Script page shows (None = not asked yet, or not on Windows).
     pub script_hidden: Option<bool>,
+    /// Oyenza Studio Recorder is installed, so the Script page shows Record.
+    /// Asked each time the page comes on screen, never at rest.
+    pub recorder: bool,
     /// Side effects requested during the frame.
     pub cmds: Vec<Command>,
 }
@@ -524,6 +527,7 @@ impl AppState {
             script: poni_core::script::Reader::default(),
             script_note: None,
             script_hidden: None,
+            recorder: false,
             cmds: Vec::new(),
         };
         // On ones start by checking their files (the worker reports back).
