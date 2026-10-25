@@ -50,9 +50,11 @@ pub enum MonitorChoice {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GameReadout {
-    /// The island shows the readout for a few seconds, then hides.
+    /// On the island: it stays, or peeks for a few seconds (`game_peek`).
+    /// "peek" is how the corner test build wrote this default.
     #[default]
-    Peek,
+    #[serde(alias = "peek")]
+    Island,
     /// A test: the readout always on, as its own small window in the top-left
     /// corner, drawn so Windows may give it a hardware overlay plane of its
     /// own (`poni::corner`). The other two are the same window with an opaque
@@ -64,7 +66,7 @@ pub enum GameReadout {
 
 impl GameReadout {
     pub fn corner(self) -> bool {
-        self != GameReadout::Peek
+        self != GameReadout::Island
     }
 }
 
@@ -124,7 +126,15 @@ pub struct Settings {
     /// shows its frame rate, the GPU's load and temperature and the CPU's
     /// load. Turning it on also keeps the island on top of full-screen apps.
     pub game_stats: bool,
-    /// How the readout shows over a game.
+    /// Show over games, readout only for a few seconds (when the game comes
+    /// to the front, when the frame rate drops sharply, on Alt+Shift+F),
+    /// then the island hides and Windows sends the game's frames straight to
+    /// the screen. Off (the default), the readout stays while the game is in
+    /// front. Its own name: the corner test build wrote `game_readout`
+    /// ("peek" as its default) into the files of the people who tried it.
+    pub game_peek: bool,
+    /// Where the readout shows over a game: on the island (staying or
+    /// peeking, `game_peek`), or a test of its own window in the corner.
     pub game_readout: GameReadout,
 }
 
@@ -191,7 +201,8 @@ impl Default for Settings {
             addons: BTreeMap::new(),
             prayer: PrayerSettings::default(),
             game_stats: false,
-            game_readout: GameReadout::Peek,
+            game_peek: false,
+            game_readout: GameReadout::Island,
         }
     }
 }
@@ -395,12 +406,27 @@ mod tests {
     }
 
     #[test]
-    fn game_readout_defaults_to_peek() {
-        let s: Settings = serde_json::from_str(r#"{"game_stats":true}"#).unwrap();
-        assert_eq!(s.game_readout, GameReadout::Peek);
+    fn game_readout_defaults_to_the_island() {
+        // The corner test build's default was written as "peek": it reads as the island.
+        for old in [r#"{"game_stats":true}"#, r#"{"game_readout":"peek"}"#, r#"{"game_readout":"island"}"#] {
+            let s: Settings = serde_json::from_str(old).unwrap();
+            assert_eq!(s.game_readout, GameReadout::Island, "{old}");
+        }
         let s: Settings = serde_json::from_str(r#"{"game_readout":"corner_opaque"}"#).unwrap();
         assert_eq!(s.game_readout, GameReadout::CornerOpaque);
-        assert!(s.game_readout.corner() && !GameReadout::Peek.corner());
+        assert!(s.game_readout.corner() && !GameReadout::Island.corner());
+    }
+
+    #[test]
+    fn the_readout_stays_unless_peeks_are_picked() {
+        // Files from 0.2.0 and before, and from the corner test build (its
+        // "peek" was its default, not a choice), get the readout that stays.
+        for old in [r#"{"game_stats":true}"#, r#"{"game_stats":true,"game_readout":"peek"}"#, r#"{"game_readout":"corner"}"#] {
+            let s: Settings = serde_json::from_str(old).unwrap();
+            assert!(!s.game_peek, "{old}");
+        }
+        let s: Settings = serde_json::from_str(r#"{"game_stats":true,"game_peek":true}"#).unwrap();
+        assert!(s.game_peek);
     }
 
     #[test]

@@ -368,6 +368,8 @@ pub struct App {
     drag_hover: bool,
     /// A Script page reading held the island open at the last tick.
     script_held: bool,
+    /// The Script page was on screen at the last tick.
+    script_shown: bool,
     /// Shelf items waiting to be dragged out (started by the next drag event).
     pending_drag: Option<Vec<String>>,
     /// Phone drop's web server while the Shelf's phone panel is open, and the
@@ -464,6 +466,7 @@ impl App {
             clipboard: None,
             drag_hover: false,
             script_held: false,
+            script_shown: false,
             pending_drag: None,
             phone: None,
             phone_offer: Vec::new(),
@@ -736,8 +739,8 @@ impl App {
             let on = self.st.settings.addon_on(a.id);
             if before.addon_on(a.id) != on {
                 pinfo!("add-ons: {} switched {}", a.id, if on { "on" } else { "off" });
-                self.st.addons.insert(a.id, if on { AddonStatus::Checking } else { AddonStatus::Off });
-                addons_changed = true;
+                self.st.addons.insert(a.id, if !on { AddonStatus::Off } else if a.downloads() { AddonStatus::Checking } else { AddonStatus::Ready });
+                addons_changed |= a.downloads();
             }
         }
         if addons_changed {
@@ -750,7 +753,7 @@ impl App {
     /// deletes those of one switched off, and sleeps in between; with none
     /// on, it isn't started (see `AppEvent::Addon` for its end).
     fn sync_addons(&mut self) {
-        let on: Vec<&'static str> = pages::addons::OFFERED.iter().filter(|a| self.st.settings.addon_on(a.id)).map(|a| a.id).collect();
+        let on: Vec<&'static str> = pages::addons::OFFERED.iter().filter(|a| a.downloads() && self.st.settings.addon_on(a.id)).map(|a| a.id).collect();
         match &self.addons {
             Some(svc) => {
                 for a in pages::addons::OFFERED {
@@ -1179,7 +1182,7 @@ impl App {
         // Switched off and its files deleted: with no add-on on, the
         // downloader's thread ends (it starts again with the next switch-on).
         let ours = pages::addons::OFFERED.iter().any(|a| a.id == id);
-        if ours && status == AddonStatus::Off && !pages::addons::OFFERED.iter().any(|a| self.st.settings.addon_on(a.id)) {
+        if ours && status == AddonStatus::Off && !pages::addons::OFFERED.iter().any(|a| a.downloads() && self.st.settings.addon_on(a.id)) {
             self.addons = None;
         }
     }
@@ -1730,6 +1733,7 @@ impl App {
                 }
                 Command::FocusText => self.focus_text(),
                 Command::BlurText => self.blur_text(),
+                Command::RecordScreen => services::recorder::record_screen(self.mtm),
                 Command::ScriptPaste => {
                     let text = services::clipboard::read_text().map(|t| poni_core::script::clean(&t)).filter(|t| !t.is_empty());
                     match text {
@@ -1960,8 +1964,13 @@ impl App {
             pages::focus::on_phase_ended(&mut self.st, ended);
         }
         // The Script page: a reading pauses while its page isn't on screen,
-        // and the island may close once nothing holds it.
+        // and the island may close once nothing holds it. Whether Record
+        // shows is asked as the page comes on screen.
         let shown = self.expanded && self.st.page == PageKind::Script && !self.away.0 && !self.away.1;
+        if shown && !self.script_shown {
+            self.st.recorder = services::recorder::installed();
+        }
+        self.script_shown = shown;
         if !shown && self.st.script.playing() {
             self.st.script.pause(now);
         }

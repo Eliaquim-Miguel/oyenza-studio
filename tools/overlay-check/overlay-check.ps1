@@ -176,8 +176,8 @@ if (-not $Game) { Pause-End "I couldn't find a game drawing frames. Start the ga
 Write-Host "Game: $Game" -ForegroundColor Green
 
 $runs = @(
-    @{ Name = "1-poni-hidden";      Hide = $true;  Game = $false; Readout = "peek" },
-    @{ Name = "2-island-on-top";    Hide = $false; Game = $false; Readout = "peek" },
+    @{ Name = "1-poni-hidden";      Hide = $true;  Game = $false; Readout = "island" },
+    @{ Name = "2-island-on-top";    Hide = $false; Game = $false; Readout = "island" },
     @{ Name = "3-corner";           Hide = $false; Game = $true;  Readout = "corner" },
     @{ Name = "4-corner-opaque";    Hide = $false; Game = $true;  Readout = "corner_opaque" },
     @{ Name = "5-corner-clickthru"; Hide = $false; Game = $true;  Readout = "corner_layered" }

@@ -359,11 +359,15 @@ pub struct App {
     frames: Option<services::frames::Frames>,
     /// The process whose frames count (the full-screen app).
     game_pid: Option<u32>,
-    /// Show over games: the readout shows over the game until this mono time
-    /// (a peek), else the island hides so the game goes straight to the screen.
+    /// Show over games, peeks only: the readout shows over the game until this
+    /// mono time (a peek), else the island hides so the game goes straight to
+    /// the screen.
     game_peek_until: f64,
     /// When a frame-rate drop last made it peek.
     game_drop_at: f64,
+    /// Show over games, the readout that stays: Alt+Shift+F hid it until the
+    /// next game (or until pressed again).
+    game_hidden: bool,
     /// Alt+Shift+F is registered (only while a game is in front).
     peek_hotkey: bool,
     /// Show over games, corner style (a test): the readout's own window.
@@ -376,6 +380,8 @@ pub struct App {
     script_excluded: bool,
     /// A reading held the island open at the last tick.
     script_held: bool,
+    /// The Script page was on screen at the last tick.
+    script_shown: bool,
     /// App icons the System page asked for and hasn't got yet (the Shelf's
     /// thumbnail worker answers both pages with the same event).
     icon_wait: HashSet<String>,
@@ -549,12 +555,14 @@ impl App {
             game_pid: None,
             game_peek_until: 0.0,
             game_drop_at: f64::NEG_INFINITY,
+            game_hidden: false,
             peek_hotkey: false,
             corner: None,
             corner_off: false,
             script_hotkey: false,
             script_excluded: false,
             script_held: false,
+            script_shown: false,
             icon_wait: HashSet::new(),
             tray: None,
             taskbar_created_msg,
@@ -1118,7 +1126,7 @@ impl App {
                 Some(LRESULT(0))
             }
             WM_HOTKEY if wp.0 == HOTKEY_PEEK as usize => {
-                self.toggle_peek();
+                self.toggle_readout();
                 self.request_frame();
                 Some(LRESULT(0))
             }
@@ -1538,7 +1546,7 @@ impl App {
             let on = self.st.settings.addon_on(a.id);
             if before.addon_on(a.id) != on {
                 pinfo!("add-ons: {} switched {}", a.id, if on { "on" } else { "off" });
-                self.st.addons.insert(a.id, if on { AddonStatus::Checking } else { AddonStatus::Off });
+                self.st.addons.insert(a.id, if !on { AddonStatus::Off } else if a.downloads() { AddonStatus::Checking } else { AddonStatus::Ready });
                 if let Some(s) = self.services.as_ref() {
                     s.set_addon(a.id, on);
                 }
@@ -1553,6 +1561,15 @@ impl App {
                 self.check_fps();
             }
             self.sync_game();
+        }
+        if before.game_peek != self.st.settings.game_peek && self.st.game.active {
+            // Over a game: peeks start with one (it hides after its few
+            // seconds), and the readout that stays shows at once.
+            self.game_peek_until = 0.0;
+            unsafe {
+                let _ = KillTimer(self.hwnd, TIMER_PEEK);
+            }
+            self.peek_game(if self.st.settings.game_peek { "peeks picked" } else { "picked to stay" });
         }
         let history = self.st.settings.system_history;
         if before.system_history != history && self.selftest.is_none() {
@@ -1581,10 +1598,11 @@ impl App {
             TogglePronunciation => s.lyrics_pronunciation = !s.lyrics_pronunciation,
             SetHideFullscreen(hide) => s.hide_in_fullscreen = hide,
             ToggleGameStats => s.game_stats = !s.game_stats,
+            ToggleGamePeek => s.game_peek = !s.game_peek,
             ToggleCornerReadout => {
                 // The corner style is part of Show over games: turning it on turns that on.
                 if s.game_readout.corner() {
-                    s.game_readout = poni_core::settings::GameReadout::Peek;
+                    s.game_readout = poni_core::settings::GameReadout::Island;
                 } else {
                     s.game_readout = poni_core::settings::GameReadout::Corner;
                     s.game_stats = true;
@@ -1823,9 +1841,9 @@ impl App {
                     let fps = self.st.game.rate.map(|r| r.fps);
                     let before: Vec<f32> = self.st.game.history.values().collect();
                     self.st.game.history.push(fps);
-                    // A sharp drop shows the readout (at most every half minute).
+                    // Peeks only: a sharp drop shows the readout (at most every half minute).
                     let now = clock::mono();
-                    if let Some(fps) = fps {
+                    if let Some(fps) = fps.filter(|_| self.st.settings.game_peek) {
                         if now >= self.game_peek_until && now - self.game_drop_at >= DROP_PEEK_EVERY_S && poni_core::frames::sharp_drop(&before, fps) {
                             self.game_drop_at = now;
                             self.peek_game("the frame rate dropped");
@@ -2076,11 +2094,25 @@ impl App {
     }
 
     /// Over a full-screen app the island hides when the setting says Hide, and
-    /// under Show over games between the readout's peeks: then nothing covers
-    /// the game, and Windows sends its frames straight to the screen.
+    /// under Show over games while the readout is away: between its peeks
+    /// (peeks only), or once Alt+Shift+F hid it. Then nothing covers the game,
+    /// and Windows sends its frames straight to the screen.
     fn fullscreen_hides(&self, now: f64) -> bool {
-        let corner = self.st.settings.game_readout.corner();
-        self.fullscreen_on && (self.st.settings.hide_in_fullscreen || (self.st.game.active && (corner || now >= self.game_peek_until)))
+        self.fullscreen_on && (self.st.settings.hide_in_fullscreen || (self.st.game.active && self.readout_away(now)))
+    }
+
+    /// Show over games: the readout is off the screen. It stays unless the
+    /// person picked peeks (`Settings::game_peek`) or hid it.
+    fn readout_away(&self, now: f64) -> bool {
+        // The corner style shows it in its own window instead (`sync_corner`).
+        if self.st.settings.game_readout.corner() {
+            return true;
+        }
+        if self.st.settings.game_peek {
+            now >= self.game_peek_until
+        } else {
+            self.game_hidden
+        }
     }
 
     /// Shows or hides the island for what is in front now.
@@ -2115,13 +2147,19 @@ impl App {
         }
     }
 
-    /// Show over games: the readout shows over the game for a few seconds
-    /// (the corner style shows all the time instead).
+    /// Show over games: the readout shows over the game, and stays (peeks
+    /// only: for a few seconds; the corner style has its own window).
     fn peek_game(&mut self, why: &str) {
         if self.st.settings.game_readout.corner() {
             return;
         }
         let now = clock::mono();
+        if !self.st.settings.game_peek {
+            self.game_hidden = false;
+            pinfo!("show over games: readout shows and stays ({why})");
+            self.apply_fullscreen(now);
+            return;
+        }
         self.game_peek_until = now + PEEK_S;
         unsafe {
             SetTimer(self.hwnd, TIMER_PEEK, (PEEK_S * 1000.0) as u32, None);
@@ -2130,8 +2168,9 @@ impl App {
         self.apply_fullscreen(now);
     }
 
-    /// Alt+Shift+F: show the readout, or hide it again before its time.
-    fn toggle_peek(&mut self) {
+    /// Alt+Shift+F: hide the readout, or show it again (peeks only: show it
+    /// for a few seconds, or hide it again before its time).
+    fn toggle_readout(&mut self) {
         if !self.st.game.active {
             return;
         }
@@ -2141,6 +2180,12 @@ impl App {
             return;
         }
         let now = clock::mono();
+        if !self.st.settings.game_peek {
+            self.game_hidden = !self.game_hidden;
+            pinfo!("show over games: readout {} (Alt+Shift+F)", if self.game_hidden { "hidden until the next game" } else { "shows again" });
+            self.apply_fullscreen(now);
+            return;
+        }
         if now < self.game_peek_until {
             self.game_peek_until = 0.0;
             unsafe {
@@ -2245,9 +2290,14 @@ impl App {
 
     /// The Script page: a reading pauses while its page isn't on screen, the
     /// island may close once nothing holds it, and the shortcut is Poni's
-    /// only while there's a script to read on the page.
+    /// only while there's a script to read on the page. Whether Record shows
+    /// is asked as the page comes on screen.
     fn script_tick(&mut self) {
         let shown = self.expanded && self.st.page == PageKind::Script && !self.locked && !self.display_off && !self.fullscreen_hidden;
+        if shown && !self.script_shown && self.selftest.is_none() {
+            self.st.recorder = services::recorder::installed();
+        }
+        self.script_shown = shown;
         if !shown && self.st.script.playing() {
             self.st.script.pause(self.st.now);
         }
@@ -2291,6 +2341,7 @@ impl App {
             if !want {
                 self.game_peek_until = 0.0;
                 self.corner_off = false;
+                self.game_hidden = false;
                 unsafe {
                     let _ = KillTimer(self.hwnd, TIMER_PEEK);
                 }
@@ -3349,6 +3400,7 @@ impl App {
                 }
                 Command::FocusText => self.focus_text(),
                 Command::BlurText => self.blur_text(),
+                Command::RecordScreen => services::recorder::record_screen(self.hwnd),
                 Command::ScriptPaste => {
                     // Read here, not through the text field path: that one drops line breaks.
                     let text = services::clipboard::read_text(self.hwnd).map(|t| poni_core::script::clean(&t)).filter(|t| !t.is_empty());
