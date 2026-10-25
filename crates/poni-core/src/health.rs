@@ -2,10 +2,10 @@
 //!
 //! Poni has no health data of its own: Oyenza on the person's iPhone or
 //! Android phone reads daily totals from Apple Health or Health Connect and,
-//! once the person turns on Show on Oyen Poni there, sends the last 7 days to
-//! their account, where a signed-in Oyenza Studio reads them (`/island/health`).
-//! Only daily totals travel, never samples, places, sleep, heart rate or
-//! weight, and the PC keeps them in memory only.
+//! once the person turns on Show on Oyenza Studio there, sends the last 7
+//! days to their account, where a signed-in Oyenza Studio reads them
+//! (`/island/health`). Only daily totals travel, never samples, places,
+//! sleep, heart rate or weight, and the PC keeps them in memory only.
 
 use crate::datetime::LocalDateTime;
 use serde::{Deserialize, Serialize};
