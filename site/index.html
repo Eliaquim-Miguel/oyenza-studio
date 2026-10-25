@@ -432,6 +432,9 @@ main { container-type: inline-size; }
 .spec b { font: 600 40px/1.1 var(--font-display); letter-spacing: 0; }
 
 /* ---------- get it */
+/* The old #install address lands where #get does: at the top of the section. */
+#get { position: relative; }
+.anchor { position: absolute; top: 0; left: 0; width: 1px; height: 1px; }
 .os-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
 .os-card { border-radius: var(--r); background: var(--bg); padding: 48px 40px 44px; display: grid; justify-items: center; text-align: center; gap: 10px; }
 .os-card > .ico { width: 48px; height: 48px; margin-bottom: 10px; stroke: none; }
@@ -1339,7 +1342,7 @@ dialog.more-sheet::backdrop { background: rgba(0, 0, 0, 0.42); -webkit-backdrop-
   </section>
 
   <section class="sec band" id="get" aria-labelledby="get-title">
-    <span id="install" aria-hidden="true"></span>
+    <span id="install" class="anchor" aria-hidden="true"></span>
     <div class="content head center rv">
       <h2 class="t-l" id="get-title">Get Oyenza Studio.</h2>
       <p class="t-intro">Free and open source. Coming from Oyen Poni? <b>Updating keeps your settings.</b></p>
