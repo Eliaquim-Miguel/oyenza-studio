@@ -59,6 +59,13 @@ impl Addon {
     pub fn find(id: &str) -> Option<&'static Addon> {
         ALL.iter().copied().find(|a| a.id == id)
     }
+
+    /// Whether it has files to download. One without (Script reader) is
+    /// already in the app: the switch only shows or hides it, and the
+    /// downloader never touches it.
+    pub fn downloads(&self) -> bool {
+        !self.files.is_empty()
+    }
 }
 
 /// Prayer times: the place list and the adzan (`addons/sholat/` in the repo).
@@ -98,8 +105,20 @@ pub const JAPANESE_READINGS: Addon = Addon {
     ],
 };
 
+/// Script reader: the Script page, a teleprompter under the webcam. Its
+/// code is in the app (a few dozen KB), so there is nothing to download; off,
+/// the island has no Script tab, no Alt+Shift+S and nothing running for it.
+pub const SCRIPT_READER: Addon = Addon {
+    id: "script",
+    title: "Script reader",
+    blurb: "A teleprompter under your webcam, left out of screen shares.",
+    mac_blurb: Some("A teleprompter under your webcam."),
+    tag: "",
+    files: &[],
+};
+
 /// Every add-on, in the order the Add-ons page lists them.
-pub const ALL: [&Addon; 2] = [&PRAYER_TIMES, &JAPANESE_READINGS];
+pub const ALL: [&Addon; 3] = [&PRAYER_TIMES, &JAPANESE_READINGS, &SCRIPT_READER];
 
 /// Whether Japanese readings switch themselves on for a song whose kanji went
 /// unread for want of them (`wants`): only while the person reads
@@ -155,6 +174,7 @@ impl Status {
             Status::Checking => format!("Checking its files on {here}"),
             Status::Downloading { done, total } => format!("Downloading · {} of {}", fmt_bytes(done), fmt_bytes(total)),
             Status::Waiting => "No internet. It downloads by itself once you're back online.".to_string(),
+            Status::Ready if !addon.downloads() => "On".to_string(),
             Status::Ready => format!("On · {} on {here}", fmt_bytes(addon.size())),
             Status::Failed => "The download didn't come through right. Switch it off and on to try again.".to_string(),
         }
@@ -190,6 +210,15 @@ mod tests {
         let mut s = Settings::default();
         s.set_addon(PRAYER_TIMES.id, false);
         assert!(ja_switches_on(&s, true));
+    }
+
+    #[test]
+    fn script_reader_is_built_in() {
+        assert!(!SCRIPT_READER.downloads() && SCRIPT_READER.size() == 0);
+        assert!(PRAYER_TIMES.downloads() && JAPANESE_READINGS.downloads());
+        assert_eq!(Status::Ready.line(&SCRIPT_READER, false), "On");
+        assert_eq!(Status::Off.line(&SCRIPT_READER, true), "A teleprompter under your webcam.");
+        assert_eq!(Addon::find("script"), Some(&SCRIPT_READER));
     }
 
     #[test]

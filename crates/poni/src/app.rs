@@ -1539,7 +1539,7 @@ impl App {
             let on = self.st.settings.addon_on(a.id);
             if before.addon_on(a.id) != on {
                 pinfo!("add-ons: {} switched {}", a.id, if on { "on" } else { "off" });
-                self.st.addons.insert(a.id, if on { AddonStatus::Checking } else { AddonStatus::Off });
+                self.st.addons.insert(a.id, if !on { AddonStatus::Off } else if a.downloads() { AddonStatus::Checking } else { AddonStatus::Ready });
                 if let Some(s) = self.services.as_ref() {
                     s.set_addon(a.id, on);
                 }
