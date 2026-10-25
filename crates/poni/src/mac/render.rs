@@ -465,7 +465,12 @@ fn render_scene(gfx: &mut Gfx, scene: Scene, theme: Theme, notch: Option<Notch>,
             Mode::Idle
         }
         Scene::MediaNoLine => {
+            // A long title: around a notch, words in the middle would show
+            // beside the camera.
             media(&mut st);
+            if let Some(m) = st.media.as_mut() {
+                m.title = "Paper Boats (Harbor Lights Session)".into();
+            }
             st.settings.lyrics = false;
             st.lyrics = LyricsState::default();
             Mode::Activity(activities::Activity::Media)

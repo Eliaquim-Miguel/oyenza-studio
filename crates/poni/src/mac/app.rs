@@ -2154,19 +2154,29 @@ impl App {
                 let ready = self.smoke_ready(name, now - t0);
                 // A lyrics lookup waits on LRCLIB (at least a second between requests).
                 let limit = if name == "music-check" { 25.0 } else { 6.0 };
-                if (settled && ready) || now - t0 > limit {
+                // The ear step: once the card floats, the pointer moves and comes
+                // up on the ear, and the card must still be open a moment later
+                // (a collapse would have run by then).
+                let replaying = name == "notch-pill-ear"
+                    && settled
+                    && ready
+                    && match sm.replayed {
+                        None => {
+                            if let Some(p) = self.smoke_point {
+                                self.on_pointer(p);
+                                let _ = self.on_view_input(ViewInput::Up { x: p.x, y: p.y });
+                            }
+                            sm.replayed = Some(now);
+                            true
+                        }
+                        Some(at) => now - at < 0.4,
+                    };
+                if ((settled && ready) || now - t0 > limit) && !replaying {
                     if !settled {
                         sm.note(name, false, format!("the island did not settle within {limit:.0} s"));
                     } else {
                         let g = self.island.current();
                         sm.note(name, true, format!("{:?}, {:.0}x{:.0} DIP, {} frames drawn", self.mode, g.w, g.h, self.frames_drawn));
-                    }
-                    if name == "notch-pill-ear" {
-                        // Floating now: the pointer moves on the ear and comes up there.
-                        if let Some(p) = self.smoke_point {
-                            self.on_pointer(p);
-                            let _ = self.on_view_input(ViewInput::Up { x: p.x, y: p.y });
-                        }
                     }
                     if let Some((check, ok, detail)) = self.smoke_check(name) {
                         sm.note(check, ok, detail);
@@ -2731,12 +2741,14 @@ struct Smoke {
     phase: SmokePhase,
     checks: Vec<(String, bool, String)>,
     failed: bool,
+    /// When the ear step moved the pointer on the floating card's ear.
+    replayed: Option<f64>,
 }
 
 impl Smoke {
     fn new(dir: PathBuf) -> Smoke {
         let _ = std::fs::create_dir_all(&dir);
-        Smoke { dir, step: 0, phase: SmokePhase::Apply, checks: Vec::new(), failed: false }
+        Smoke { dir, step: 0, phase: SmokePhase::Apply, checks: Vec::new(), failed: false, replayed: None }
     }
 
     fn file(&self, kind: &str, name: &str, ext: &str) -> PathBuf {
