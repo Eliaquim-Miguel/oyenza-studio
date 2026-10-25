@@ -22,6 +22,8 @@ pub mod media;
 pub mod romanize;
 #[path = "services/secret.rs"]
 pub mod secret;
+#[path = "services/smc.rs"]
+pub mod smc;
 // Lyrics (LRCLIB, and Apple Music's own with the person's token) are the
 // Windows app's code, shared as is: only its HTTP client, token store and
 // romaji readings above are the Mac's.

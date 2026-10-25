@@ -34,6 +34,7 @@ use poni_core::geom::{palette, Color, Point, Rect};
 use poni_core::health::{HealthDay, HealthSnapshot, HealthSource};
 use poni_core::lrc::parse_lrc;
 use poni_core::pomodoro::{Phase, RunState};
+use poni_core::power::PowerReading;
 use poni_core::prayer::{PlaceList, Prayer};
 use poni_core::settings::{IdleStyle, Settings, Theme};
 use poni_core::store::Store;
@@ -188,6 +189,9 @@ const ADDON_SCENES: [Scene; 3] = [
 /// Prayer times, after the Add-ons tab.
 const PRAYER_SCENES: [Scene; 4] = [Scene::Prayer, Scene::PrayerPicker, Scene::PrayerCountdown, Scene::PrayerNotice];
 
+/// The System page's Power module on a Mac without a battery, after Prayer times.
+const POWER_SCENES: [Scene; 1] = [Scene::System(Module::Power)];
+
 impl Scene {
     fn name(self) -> String {
         match self {
@@ -282,9 +286,9 @@ pub fn run(dir: &str, args: &[String]) -> i32 {
             }
         }
     }
-    // The Japanese song, the Add-ons tab and Prayer times in every theme, after Pill's.
+    // The Japanese song, the Add-ons tab, Prayer times and Power in every theme, after Pill's.
     let first = SCENES.len() + SYSTEM_SCENES.len() + 2 + PILL_SCENES.len();
-    for (k, scene) in JA_SCENES.into_iter().chain(ADDON_SCENES).chain(PRAYER_SCENES).enumerate() {
+    for (k, scene) in JA_SCENES.into_iter().chain(ADDON_SCENES).chain(PRAYER_SCENES).chain(POWER_SCENES).enumerate() {
         let path = out.join(format!("{:02}-{}{suffix}.png", first + k, scene.name()));
         match render_scene(&mut gfx, scene, theme, notch, ja.as_ref(), &path) {
             Ok(()) => println!("render: {}", path.display()),
@@ -652,7 +656,8 @@ fn render_scene(gfx: &mut Gfx, scene: Scene, theme: Theme, notch: Option<Notch>,
             Mode::Activity(activities::Activity::Media)
         }
         Scene::System(m) => {
-            st.system = sample_system();
+            // Power is a desktop Mac's: no battery, the SMC's whole-Mac watts.
+            st.system = sample_system(m == Module::Power);
             st.ui.system_module = m;
             if let Some(r) = st.system.latest.clone() {
                 for a in r.top_cpu.iter().chain(&r.top_memory).chain(&r.top_io) {
@@ -852,7 +857,7 @@ fn sample_app(i: usize) -> AppUse {
 /// The System page's sample minute (all made up): a MacBook Air with an M2,
 /// its four efficiency cores numbered before its four performance cores, as
 /// Apple numbers them.
-fn sample_system() -> Monitor {
+fn sample_system(desktop: bool) -> Monitor {
     const MIB: f64 = 1024.0 * 1024.0;
     let mut m = Monitor::default();
     for i in 0..HISTORY_LEN {
@@ -866,7 +871,14 @@ fn sample_system() -> Monitor {
         let write = if last { 0.33 * MIB } else { 0.05 * MIB + burst(20, 9, 1.9 * MIB) };
         let down = if last { 1.2 * MIB } else { 0.08 * MIB + burst(5, 14, 3.4 * MIB) + burst(46, 10, 1.6 * MIB) };
         let up = if last { 0.082 * MIB } else { 0.02 * MIB + burst(25, 8, 0.6 * MIB) };
-        m.push(sample_reading(cpu, gpu, (read, write), (down, up), t));
+        let mut r = sample_reading(cpu, gpu, (read, write), (down, up), t);
+        if desktop {
+            // What the office Mac Studio's SMC read at rest (7.8-8.2 W), rising with the graphics.
+            let w = if last { 8.1 } else { 7.4 + 24.0 * (gpu - 0.2).max(0.0) + 3.0 * cpu };
+            r.battery = None;
+            r.power = Some(PowerReading { total_w: w, cpu_w: None, gpu_w: None, rest_w: w, psu: None });
+        }
+        m.push(r);
     }
     m
 }

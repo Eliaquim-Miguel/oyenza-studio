@@ -138,6 +138,9 @@ pub fn main_entry() -> i32 {
     if let Some(dir) = arg_after("--render") {
         return crate::render::run(&dir, &args);
     }
+    if args.iter().any(|a| a == "--smc") {
+        return services::smc::report();
+    }
     let smoke_dir = arg_after("--smoke").map(PathBuf::from);
     if let Some(dir) = &smoke_dir {
         // Absolute: Finder icons and file URLs need full paths.
@@ -2586,6 +2589,10 @@ impl App {
             "system-memory" => self.st.ui.system_module = Module::Memory,
             "system-drives" => self.st.ui.system_module = Module::Drives,
             "system-network" => self.st.ui.system_module = Module::Network,
+            // Power shows on a Mac without a battery whose SMC reports the
+            // whole Mac's draw (a virtual Mac's may not); the page stays on
+            // Network otherwise.
+            "system-power" => self.st.ui.system_module = Module::Power,
             "timer" => {
                 self.leave();
                 self.collapse();
@@ -2782,6 +2789,7 @@ impl App {
             // the apps' icons follow from Finder.
             "open-system" => (self.st.system.latest.as_ref().is_some_and(|r| !r.top_cpu.is_empty()) && waited > 1.6) || waited > 5.0,
             "system-gpu" | "system-memory" | "system-drives" | "system-network" => waited > 0.6,
+            "system-power" => waited > 1.3,
             "clipboard-page" => self.st.clip.iter().any(|c| c.text.contains(SMOKE_CLIP)) || waited > 3.0,
             "shelf-drop" => self.st.shelf_thumbs.values().filter(|t| t.is_some()).count() >= 3 || waited > 5.0,
             "music-check" => {
@@ -2890,6 +2898,17 @@ impl App {
                 let ms = |d: std::time::Duration| d.as_secs_f64() * 1e3;
                 let d = format!("light reading {:.2} ms of CPU (average of {ln}), full reading {:.2} ms of CPU (average of {fnum})", ms(light), ms(full));
                 Some(("system-cost", ln > 0 && fnum > 0, d))
+            }
+            // What this Mac's SMC says, and whether the page has it. Only a
+            // reading that isn't a number of watts fails: a Mac without the
+            // key (virtual, Intel) has no Power module.
+            "system-power" => {
+                let smc = services::smc::Smc::open();
+                let w = smc.as_ref().and_then(|s| s.float(services::smc::SYSTEM_TOTAL));
+                let page = self.st.system.latest.as_ref().and_then(|r| r.power.as_ref()).map(|p| p.total_w);
+                let ok = w.is_none_or(|w| w.is_finite() && w >= 0.0);
+                let d = format!("SMC {}; the whole Mac's draw: {w:?} W; on the page: {page:?} W", if smc.is_some() { "open" } else { "not available" });
+                Some(("system-power", ok, d))
             }
             "volume-hud" => {
                 let ok = matches!(self.st.hud.as_ref().map(|h| &h.kind), Some(HudKind::Volume { .. }));
@@ -3249,7 +3268,7 @@ pub fn draw_content(
 
 // ---------------------------------------------------------------- smoke test bookkeeping
 
-const SMOKE_STEPS: [&str; 43] = [
+const SMOKE_STEPS: [&str; 44] = [
     "idle",
     "hover",
     "open-focus",
@@ -3259,6 +3278,7 @@ const SMOKE_STEPS: [&str; 43] = [
     "system-memory",
     "system-drives",
     "system-network",
+    "system-power",
     "timer",
     "notice",
     "volume-hud",
