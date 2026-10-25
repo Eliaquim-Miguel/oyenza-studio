@@ -42,7 +42,7 @@ use crate::state::{
     OyenzaState, PhoneAsk, PairedPhone, PhoneDrop, PhoneTransfer, PhoneView, PowerState, PrayerState, SysStats, VolumeState,
 };
 use crate::ui::wid;
-use poni_core::addons::{Status as AddonStatus, JAPANESE_READINGS, PRAYER_TIMES};
+use poni_core::addons::{Status as AddonStatus, JAPANESE_READINGS, PRAYER_TIMES, SCRIPT_READER};
 use poni_core::geom::{palette, Color, Point, Rect};
 use poni_core::health::{HealthDay, HealthSnapshot, HealthSource};
 use poni_core::lrc::{parse_lrc, Lyrics};
@@ -1854,6 +1854,9 @@ impl SelfTest {
             _ => AddonStatus::Off,
         };
         st.addons.insert(JAPANESE_READINGS.id, ja);
+        // Script reader: on for the Script page's scenes, off (no tab) elsewhere.
+        let script = scene.page() == Some(PageKind::Script);
+        st.addons.insert(SCRIPT_READER.id, if script { AddonStatus::Ready } else { AddonStatus::Off });
         if scene.media_playing() {
             st.lyrics.wants_ja_readings = self.lyrics.wants_ja_readings || matches!(scene, Scene::JaOffer | Scene::JaGetting);
         }

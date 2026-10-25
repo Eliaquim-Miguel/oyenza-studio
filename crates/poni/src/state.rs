@@ -530,10 +530,16 @@ impl AppState {
             recorder: false,
             cmds: Vec::new(),
         };
-        // On ones start by checking their files (the worker reports back).
+        // On ones start by checking their files (the worker reports back);
+        // one without files is ready at once.
         for a in poni_core::addons::ALL {
             let on = st.settings.addon_on(a.id);
-            st.addons.insert(a.id, if on { AddonStatus::Checking } else { AddonStatus::Off });
+            st.addons.insert(a.id, if !on { AddonStatus::Off } else if a.downloads() { AddonStatus::Checking } else { AddonStatus::Ready });
+        }
+        // Last open on the Script page, since switched off: open where a new
+        // island does.
+        if st.page == PageKind::Script && !st.script_on() {
+            st.page = PageKind::ALL[0];
         }
         st
     }
@@ -541,6 +547,11 @@ impl AppState {
     /// Where the add-on `id` stands (`Off` for one this version doesn't know).
     pub fn addon(&self, id: &str) -> AddonStatus {
         self.addons.get(id).copied().unwrap_or(AddonStatus::Off)
+    }
+
+    /// The Script reader add-on is on: the Script tab shows.
+    pub fn script_on(&self) -> bool {
+        self.addon(poni_core::addons::SCRIPT_READER.id) == AddonStatus::Ready
     }
 
     /// Prayer times is on and its places are read: the tab and reminders run.

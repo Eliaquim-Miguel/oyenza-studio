@@ -739,8 +739,8 @@ impl App {
             let on = self.st.settings.addon_on(a.id);
             if before.addon_on(a.id) != on {
                 pinfo!("add-ons: {} switched {}", a.id, if on { "on" } else { "off" });
-                self.st.addons.insert(a.id, if on { AddonStatus::Checking } else { AddonStatus::Off });
-                addons_changed = true;
+                self.st.addons.insert(a.id, if !on { AddonStatus::Off } else if a.downloads() { AddonStatus::Checking } else { AddonStatus::Ready });
+                addons_changed |= a.downloads();
             }
         }
         if addons_changed {
@@ -753,7 +753,7 @@ impl App {
     /// deletes those of one switched off, and sleeps in between; with none
     /// on, it isn't started (see `AppEvent::Addon` for its end).
     fn sync_addons(&mut self) {
-        let on: Vec<&'static str> = pages::addons::OFFERED.iter().filter(|a| self.st.settings.addon_on(a.id)).map(|a| a.id).collect();
+        let on: Vec<&'static str> = pages::addons::OFFERED.iter().filter(|a| a.downloads() && self.st.settings.addon_on(a.id)).map(|a| a.id).collect();
         match &self.addons {
             Some(svc) => {
                 for a in pages::addons::OFFERED {
@@ -1182,7 +1182,7 @@ impl App {
         // Switched off and its files deleted: with no add-on on, the
         // downloader's thread ends (it starts again with the next switch-on).
         let ours = pages::addons::OFFERED.iter().any(|a| a.id == id);
-        if ours && status == AddonStatus::Off && !pages::addons::OFFERED.iter().any(|a| self.st.settings.addon_on(a.id)) {
+        if ours && status == AddonStatus::Off && !pages::addons::OFFERED.iter().any(|a| a.downloads() && self.st.settings.addon_on(a.id)) {
             self.addons = None;
         }
     }
