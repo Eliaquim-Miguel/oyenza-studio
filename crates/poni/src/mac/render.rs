@@ -86,6 +86,11 @@ enum Scene {
     ShelfPhone,
     /// The System page on one module.
     System(Module),
+    /// Pill's status bar look at rest.
+    IdleStatus,
+    /// Music with no line to sing (lyrics off): the song in Pill's pill,
+    /// art and bars beside the camera around a notch.
+    MediaNoLine,
 }
 
 const SCENES: [Scene; 19] = [
@@ -121,6 +126,10 @@ const SYSTEM_SCENES: [Scene; 6] = [
     Scene::System(Module::Battery),
 ];
 
+/// Pill's own looks, after its frames strip (number 26), so every other
+/// picture keeps its number.
+const PILL_SCENES: [Scene; 2] = [Scene::IdleStatus, Scene::MediaNoLine];
+
 impl Scene {
     fn name(self) -> String {
         match self {
@@ -139,6 +148,8 @@ impl Scene {
             Scene::HealthSignedOut => "page-health-signed-out".into(),
             Scene::System(Module::Cpu) => "page-system".into(),
             Scene::System(m) => format!("page-system-{}", m.title().to_lowercase()),
+            Scene::IdleStatus => "idle-status".into(),
+            Scene::MediaNoLine => "media-no-line".into(),
         }
     }
 }
@@ -175,7 +186,7 @@ pub fn run(dir: &str, args: &[String]) -> i32 {
             }
         }
     }
-    // Pill: how the floating outline moves (stills can't show it).
+    // Pill: how the floating outline moves (stills can't show it), then its own looks.
     if crate::pill::on(theme) {
         let n = SCENES.len() + SYSTEM_SCENES.len() + 1;
         let path = out.join(format!("{n:02}-open-close-frames{suffix}.png"));
@@ -184,6 +195,16 @@ pub fn run(dir: &str, args: &[String]) -> i32 {
             Err(e) => {
                 eprintln!("render: {}: {e}", path.display());
                 failed += 1;
+            }
+        }
+        for (k, scene) in PILL_SCENES.into_iter().enumerate() {
+            let path = out.join(format!("{:02}-{}{suffix}.png", n + 1 + k, scene.name()));
+            match render_scene(&mut gfx, scene, theme, notch, &path) {
+                Ok(()) => println!("render: {}", path.display()),
+                Err(e) => {
+                    eprintln!("render: {}: {e}", path.display());
+                    failed += 1;
+                }
             }
         }
     }
@@ -439,6 +460,16 @@ fn render_scene(gfx: &mut Gfx, scene: Scene, theme: Theme, notch: Option<Notch>,
             st.page = PageKind::Health;
             Mode::Expanded(PageKind::Health)
         }
+        Scene::IdleStatus => {
+            st.settings.idle_style = IdleStyle::Status;
+            Mode::Idle
+        }
+        Scene::MediaNoLine => {
+            media(&mut st);
+            st.settings.lyrics = false;
+            st.lyrics = LyricsState::default();
+            Mode::Activity(activities::Activity::Media)
+        }
         Scene::System(m) => {
             st.system = sample_system();
             st.ui.system_module = m;
@@ -456,15 +487,31 @@ fn render_scene(gfx: &mut Gfx, scene: Scene, theme: Theme, notch: Option<Notch>,
     };
 
     // The island at rest at its size for this state (as the app sizes it).
-    let mut g = activities::geom(&mode, &st);
-    if let Some(n) = notch {
-        g = notch::geom(&mode, &st, n, g);
-    }
     // The Pill theme floats it below the top edge, where the app puts it.
-    let gap = if crate::pill::on(theme) { notch.map_or(Some(crate::pill::TOP_GAP), |n| notch::pill_gap(&mode, &st, n)) } else { None };
-    if hovering {
-        g = if gap.is_some() { crate::pill::motion::hover_lift(g) } else { crate::island::Geom::new(g.w + 12.0, g.h + 4.0, g.r + 2.0) };
+    let size = |st: &AppState| {
+        let mut g = activities::geom(&mode, st);
+        if let Some(n) = notch {
+            g = notch::geom(&mode, st, n, g);
+        }
+        let gap = if crate::pill::on(theme) { notch.map_or(Some(crate::pill::TOP_GAP), |n| notch::pill_gap(&mode, st, n)) } else { None };
+        if hovering {
+            g = if gap.is_some() { crate::pill::motion::hover_lift(g) } else { crate::island::Geom::new(g.w + 12.0, g.h + 4.0, g.r + 2.0) };
+        }
+        (g, gap)
+    };
+    // Pill's surfaces size themselves from what they last drew (a measured
+    // text width) and ease in over their first frames (the song handing the
+    // middle to its line): draw the scene twice, a moment before the
+    // picture's, so it shows them as the app does a few frames in.
+    if crate::pill::on(theme) {
+        for t in [NOW_MONO - 0.4, NOW_MONO - 0.2] {
+            st.now = t;
+            let (g, gap) = size(&st);
+            warm_up(gfx, &mut st, mode, notch, g, gap, hovering)?;
+        }
+        st.now = NOW_MONO;
     }
+    let (g, gap) = size(&st);
     let mut island = Island::new(g);
     island.set_floating(gap);
     island.snap(g);
@@ -526,6 +573,30 @@ fn render_scene(gfx: &mut Gfx, scene: Scene, theme: Theme, notch: Option<Notch>,
     let px = bmp.pixels();
     crate::png::save_pbgra(path, w_px as u32, h_px as u32, &px)?;
     let _ = pages::HEADER_H;
+    Ok(())
+}
+
+/// One frame of `mode` at `st.now`, drawn offscreen and thrown away, for the
+/// state the drawing leaves behind (see `render_scene`).
+#[allow(clippy::too_many_arguments)]
+fn warm_up(gfx: &mut Gfx, st: &mut AppState, mode: Mode, notch: Option<Notch>, g: crate::island::Geom, gap: Option<f32>, hovering: bool) -> Result<(), String> {
+    let mut island = Island::new(g);
+    island.set_floating(gap);
+    island.snap(g);
+    let w = (st.settings.expanded_width + 2.0 * MARGIN_X).max(g.w + 2.0 * (SHOULDER + MARGIN_X));
+    let h = island.top() + g.h + MARGIN_BOTTOM;
+    let bmp = Bitmap::new((w * SCALE).ceil() as usize, (h * SCALE).ceil() as usize, SCALE).ok_or("no bitmap context")?;
+    let body = island.body_rect_at(w / 2.0);
+    let theme = st.settings.theme;
+    gfx.set_look(if notch.is_some() { poni_core::look::around_notch(theme) } else { poni_core::look::of(theme) });
+    let mut c = gfx.canvas(bmp.ctx());
+    let mut input = Input::default();
+    if hovering {
+        input.mouse = Some(Point::new(body.center().x + 20.0, body.center().y));
+    }
+    let mut hits: Vec<Hit> = Vec::new();
+    let now = st.now;
+    crate::app::draw_content(&mut c, &mut input, &mut hits, st, mode, body, body, None, now, notch);
     Ok(())
 }
 
