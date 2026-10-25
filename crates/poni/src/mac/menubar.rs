@@ -23,6 +23,8 @@ pub enum MenuCmd {
     SetIdleStyle(IdleStyle),
     ToggleSounds,
     ToggleClipboard,
+    /// true: hide in full-screen apps; false: stay on top of them.
+    SetHideFullscreen(bool),
     ToggleLogin,
     ToggleLyrics,
     TogglePronunciation,
@@ -49,6 +51,7 @@ fn item(label: &str, cmd: MenuCmd, checked: bool) -> MenuItem {
 
 pub fn menu_items(s: &Settings, pinned: bool, login: Login, recorder: bool) -> Vec<MenuItem> {
     let theme = |label: &str, t: Theme| item(label, MenuCmd::SetTheme(t), s.theme == t);
+    let fullscreen = |label: &str, hide: bool| item(label, MenuCmd::SetHideFullscreen(hide), s.hide_in_fullscreen == hide);
     // The theme's own idle looks (the status bar is Pill's), the one it
     // draws ticked: outside Pill a picked status bar shows as the clock.
     let shown = crate::pill::status::shown(s.theme, s.idle_style);
@@ -76,6 +79,7 @@ pub fn menu_items(s: &Settings, pinned: bool, login: Login, recorder: bool) -> V
         apple_music_menu(),
         item("Clipboard history", MenuCmd::ToggleClipboard, s.clipboard_history),
         item("Sounds", MenuCmd::ToggleSounds, s.sounds),
+        MenuItem::Sub { label: "In full-screen apps".into(), items: vec![fullscreen("Hide", true), fullscreen("Stay on top", false)] },
         match login {
             Login::NeedsApproval => item("Start at login (allow in System Settings)", MenuCmd::ToggleLogin, false),
             Login::On => item("Start at login", MenuCmd::ToggleLogin, true),

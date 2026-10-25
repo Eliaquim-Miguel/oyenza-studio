@@ -14,7 +14,7 @@ use objc2::{define_class, msg_send, sel, AllocAnyThread, ClassType, MainThreadMa
 use objc2_app_kit::{
     NSAutoresizingMaskOptions, NSBackingStoreType, NSColor, NSDragOperation, NSDraggingContext, NSDraggingInfo, NSDraggingItem, NSDraggingSession,
     NSDraggingSource, NSEvent, NSGraphicsContext, NSPanel, NSPasteboardTypeFileURL, NSPasteboardURLReadingFileURLsOnlyKey, NSResponder, NSScreen, NSView,
-    NSWindow, NSWindowCollectionBehavior, NSWindowStyleMask, NSWorkspace,
+    NSWindow, NSWindowCollectionBehavior, NSWindowOcclusionState, NSWindowStyleMask, NSWorkspace,
 };
 use objc2_foundation::{NSArray, NSDictionary, NSNumber, NSObject, NSObjectProtocol, NSPoint, NSRect, NSRunLoop, NSRunLoopCommonModes, NSSize, NSString, NSURL};
 use objc2_quartz_core::{CADisplayLink, CAFrameRateRange};
@@ -333,12 +333,8 @@ pub fn create(mtm: MainThreadMarker) {
         msg_send![IslandPanel::alloc(mtm), initWithContentRect: rect, styleMask: style, backing: NSBackingStoreType::Buffered, defer: false]
     };
     panel.setLevel(ISLAND_LEVEL);
-    panel.setCollectionBehavior(
-        NSWindowCollectionBehavior::CanJoinAllSpaces
-            | NSWindowCollectionBehavior::Stationary
-            | NSWindowCollectionBehavior::FullScreenAuxiliary
-            | NSWindowCollectionBehavior::IgnoresCycle,
-    );
+    // Until the app reads the settings (`over_fullscreen`).
+    panel.setCollectionBehavior(behavior(true));
     panel.setOpaque(false);
     panel.setBackgroundColor(Some(&NSColor::clearColor()));
     panel.setHasShadow(false);
@@ -388,6 +384,45 @@ pub fn place(screen: &ScreenInfo, w: f64, h: f64) {
 
 pub fn show() {
     with_window(|win| win.panel.orderFrontRegardless());
+}
+
+/// The Spaces the panel joins: every desktop's, and full-screen apps' too
+/// when it stays on top of them. Without that, macOS leaves the island on the
+/// desktop's Space while an app is full screen (`services::fullscreen`).
+fn behavior(over_fullscreen: bool) -> NSWindowCollectionBehavior {
+    let all = NSWindowCollectionBehavior::CanJoinAllSpaces | NSWindowCollectionBehavior::Stationary | NSWindowCollectionBehavior::IgnoresCycle;
+    if over_fullscreen {
+        all | NSWindowCollectionBehavior::FullScreenAuxiliary
+    } else {
+        all
+    }
+}
+
+/// Stay on top of full-screen apps (true) or leave them alone (false).
+/// Ordering the panel out and in again has macOS place it by the new rule at
+/// once, also while a full-screen app is in front.
+pub fn over_fullscreen(stay: bool) {
+    with_window(|win| {
+        let b = behavior(stay);
+        if win.panel.collectionBehavior() != b {
+            win.panel.setCollectionBehavior(b);
+            if win.panel.isVisible() {
+                win.panel.orderOut(None);
+                win.panel.orderFrontRegardless();
+            }
+        }
+    });
+}
+
+/// The panel is shown but out of view: its Space isn't the one in front on
+/// its screen (a full-screen app's is), or the screen sleeps or is locked.
+pub fn off_its_space() -> bool {
+    with_window(|win| win.panel.isVisible() && !win.panel.occlusionState().contains(NSWindowOcclusionState::Visible)).unwrap_or(false)
+}
+
+/// The panel, for notifications about it.
+pub fn panel() -> Option<Retained<IslandPanel>> {
+    with_window(|win| win.panel.clone())
 }
 
 /// Let clicks through to the apps below (true) or take them (false).

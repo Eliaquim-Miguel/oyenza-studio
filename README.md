@@ -189,7 +189,7 @@ Yes, on Windows 10 and 11. Glass needs Windows 10 version 2004 or later to bend 
 <summary><b>What's different on a Mac?</b></summary>
 <br>
 
-The island wraps the notch, and the Mac has music with lyrics, Focus, the Shelf with Phone drop, Tasks, Clipboard, Today, the System page, Prayer times, the Classic, Oyen, Glass and Pill themes and start at login. Not on the Mac yet: paired phones, Oyenza sign-in, Show over games, headphone pop-ups and hiding in full-screen apps. [On a Mac](#on-a-mac) has the details.
+The island wraps the notch, and the Mac has music with lyrics, Focus, the Shelf with Phone drop, Tasks, Clipboard, Today, the System page, Prayer times, the Classic, Oyen, Glass and Pill themes, hiding in full-screen apps and start at login. Not on the Mac yet: paired phones, Oyenza sign-in, Show over games and headphone pop-ups. [On a Mac](#on-a-mac) has the details.
 
 </details>
 
@@ -197,7 +197,7 @@ The island wraps the notch, and the Mac has music with lyrics, Focus, the Shelf 
 <summary><b>Can it hide during games and videos?</b></summary>
 <br>
 
-Yes: right-click the island › **In full-screen apps** › **Hide**. Pick **Stay on top** instead to keep it over borderless games and videos, or turn on [Show over games](#show-over-games) for a frame rate readout.
+Yes: right-click the island › **In full-screen apps** › **Hide**. Pick **Stay on top** instead to keep it over borderless games and videos, or turn on [Show over games](#show-over-games) for a frame rate readout. On a Mac the same choice is in the menu bar under Oyen's mark (and in Settings): with **Hide**, macOS keeps the island off a full-screen app's Space until you leave it.
 
 </details>
 
@@ -272,7 +272,7 @@ Windows lets only admins and the **Performance Log Users** group read that log. 
 
 On a MacBook with a camera notch, the island lives around it: what's playing sits either side of the camera (the album art on the left and the beat on the right, a timer's ring and its minutes the same way), and the island opens downward from the notch when you point at it. On a Mac without a notch, or on another display, it hangs from the top of the screen as it does on Windows. Around the notch, the Oyen theme goes black like the notch itself, with Oyen's cream type, his orange and his face on it.
 
-The Mac app has the island, Music and Spotify with synced lyrics (and Apple Music's own with [your token](#apple-music-lyrics)), the focus timer, the Shelf with [Phone drop](#phone-drop) over the same Wi-Fi, tasks, clipboard history, Today with your Mac's CPU, memory, disk and battery, the System page with your Mac's CPU, graphics, memory, drives, network, battery and busiest apps, pop-ups for volume and charging, [Prayer times](#add-ons) (Location Services finds your kab/kota, or you type it), the Classic, Oyen, Glass and Pill themes ([Pill](#the-pill-theme) floats just below the notch for pop-ups and the open card), and start at login. Every option is in the menu bar, under Oyen's mark. Not on the Mac yet: paired phones, Oyenza sign-in, Show over games, headphone pop-ups and hiding in full-screen apps.
+The Mac app has the island, Music and Spotify with synced lyrics (and Apple Music's own with [your token](#apple-music-lyrics)), the focus timer, the Shelf with [Phone drop](#phone-drop) over the same Wi-Fi, tasks, clipboard history, Today with your Mac's CPU, memory, disk and battery, the System page with your Mac's CPU, graphics, memory, drives, network, battery and busiest apps, pop-ups for volume and charging, [Prayer times](#add-ons) (Location Services finds your kab/kota, or you type it), the Classic, Oyen, Glass and Pill themes ([Pill](#the-pill-theme) floats just below the notch for pop-ups and the open card), hiding in full-screen apps (or staying on top of them) and start at login. Every option is in the menu bar, under Oyen's mark. Not on the Mac yet: paired phones, Oyenza sign-in, Show over games and headphone pop-ups.
 
 The Mac pictures come from the Mac app itself (`poni --render <dir> --notch`, run by the `mac` workflow on a macOS runner with a MacBook's notch drawn in).
 

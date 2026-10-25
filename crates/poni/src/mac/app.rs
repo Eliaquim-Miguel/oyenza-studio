@@ -138,6 +138,9 @@ pub fn main_entry() -> i32 {
     if let Some(dir) = arg_after("--render") {
         return crate::render::run(&dir, &args);
     }
+    if let Some(secs) = arg_after("--full-screen-window") {
+        return services::fullscreen::test_window(secs.parse().unwrap_or(30.0));
+    }
     let smoke_dir = arg_after("--smoke").map(PathBuf::from);
     if let Some(dir) = &smoke_dir {
         // Absolute: Finder icons and file URLs need full paths.
@@ -364,6 +367,11 @@ pub struct App {
     sysmon_on: bool,
     /// Nobody can see the screen: (the displays sleep, the Mac is locked).
     away: (bool, bool),
+    /// The panel is out of view on its screen (`services::fullscreen`).
+    space_hidden: bool,
+    /// A full-screen app is in front and Hide is picked: the island is closed
+    /// and draws nothing until it's back (`apply_fullscreen`).
+    fullscreen_hidden: bool,
     /// Text we put on the clipboard ourselves (not recorded again).
     own_clip: Option<String>,
     clipboard: Option<services::clipboard::Watcher>,
@@ -396,6 +404,8 @@ pub struct App {
     cost: DrawCost,
     smoke_timer: Option<poni_core::pomodoro::Pomodoro>,
     smoke_point: Option<Point>,
+    /// The smoke run's full-screen window (a second copy of the app).
+    smoke_full_screen: Option<std::process::Child>,
     /// The island floated on the last frame (Pill letting go of the notch).
     was_floating: bool,
 }
@@ -467,6 +477,8 @@ impl App {
             sysmon: None,
             sysmon_on: false,
             away: (false, false),
+            space_hidden: false,
+            fullscreen_hidden: false,
             own_clip: None,
             clipboard: None,
             drag_hover: false,
@@ -487,6 +499,7 @@ impl App {
             cost: DrawCost::default(),
             smoke_timer: None,
             smoke_point: None,
+            smoke_full_screen: None,
             was_floating: false,
         }
     }
@@ -517,6 +530,8 @@ impl App {
         }
         self.schedule_minute_timer();
         services::sysmon::watch_away(self.mtm, self.sink.clone());
+        window::over_fullscreen(!self.st.settings.hide_in_fullscreen);
+        services::fullscreen::watch(self.mtm, self.sink.clone());
         if self.st.settings.system_history {
             self.start_sysmon();
         }
@@ -545,7 +560,25 @@ impl App {
     }
 
     pub fn request_frame(&mut self) {
+        // Hidden for a full-screen app: nothing to draw, but what a frame
+        // ticks (a timer's end, a notice's time, commands) still runs, from
+        // the wake timer (`hidden_tick`).
+        if self.fullscreen_hidden {
+            self.set_timer(Timer::Wake, 1);
+            return;
+        }
         window::set_frames(true);
+    }
+
+    /// What a frame does besides drawing, while a full-screen app hides the island.
+    fn hidden_tick(&mut self) {
+        self.refresh_time();
+        self.tick();
+        self.run_commands();
+        if !self.st.cmds.is_empty() {
+            self.set_timer(Timer::Wake, 1);
+        }
+        self.schedule_wake();
     }
 
     // ------------------------------------------------------------ timers
@@ -590,7 +623,11 @@ impl App {
             }
         }
         self.sync_timer();
-        self.request_frame();
+        if self.fullscreen_hidden {
+            self.hidden_tick();
+        } else {
+            self.request_frame();
+        }
     }
 
     fn on_timer(&mut self, t: Timer) {
@@ -639,6 +676,7 @@ impl App {
     /// Wake up for the next visible change (HUD expiry, countdown second, …).
     fn schedule_wake(&mut self) {
         let now = self.st.now;
+        let hidden = self.fullscreen_hidden;
         let mut next: Option<f64> = None;
         let mut consider = |t: f64| {
             if t > now {
@@ -651,7 +689,8 @@ impl App {
         if let Some(n) = &self.st.notice {
             consider(n.until);
         }
-        if let Some(b) = self.st.pomodoro.next_second_boundary(now) {
+        // While a full-screen app hides the island only the phase end matters.
+        if let Some(b) = self.st.pomodoro.next_second_boundary(now).filter(|_| !hidden) {
             consider(now + b + 0.005);
         }
         if let poni_core::pomodoro::RunState::Running { ends_at } = self.st.pomodoro.run {
@@ -716,6 +755,12 @@ impl App {
             self.st.ui.clip_scroll = 0.0;
         }
         self.sync_clipboard();
+        // Hide or Stay on top of full-screen apps (Settings or the menu bar).
+        if before.hide_in_fullscreen != self.st.settings.hide_in_fullscreen {
+            window::over_fullscreen(!self.st.settings.hide_in_fullscreen);
+            self.apply_fullscreen();
+            self.refresh_menu();
+        }
         if !before.lyrics && self.st.settings.lyrics {
             if let Some(m) = self.st.media.clone() {
                 let stale = self.st.lyrics.track_key != m.track_key || self.st.lyrics.status == LyricsStatus::Idle;
@@ -802,6 +847,7 @@ impl App {
             MenuCmd::SetIdleStyle(style) => s.idle_style = style,
             MenuCmd::ToggleSounds => s.sounds = !s.sounds,
             MenuCmd::ToggleClipboard => s.clipboard_history = !s.clipboard_history,
+            MenuCmd::SetHideFullscreen(hide) => s.hide_in_fullscreen = hide,
             MenuCmd::ToggleLyrics => s.lyrics = !s.lyrics,
             MenuCmd::TogglePronunciation => s.lyrics_pronunciation = !s.lyrics_pronunciation,
             MenuCmd::AppleMusicToken => self.use_apple_music_token(),
@@ -1021,6 +1067,34 @@ impl App {
         if now {
             self.st.system.clear();
         }
+        self.apply_fullscreen();
+    }
+
+    /// Hide is picked and the island is out of view while someone uses the
+    /// screen: a full-screen app is in front on its screen (macOS keeps the
+    /// island off full-screen Spaces). As on Windows, the island closes, the
+    /// prayer sound stays quiet and nothing is drawn until it's back.
+    fn apply_fullscreen(&mut self) {
+        let away = self.away.0 || self.away.1;
+        let hide = self.space_hidden && !away && self.st.settings.hide_in_fullscreen;
+        if hide == self.fullscreen_hidden {
+            return;
+        }
+        pinfo!("fullscreen app {}: island {}", if hide { "in front" } else { "gone" }, if hide { "hidden" } else { "shown" });
+        if hide {
+            self.collapse();
+            self.leave();
+            // At rest at once, so the island isn't still closing when it's back.
+            self.mode = self.target_mode();
+            self.outgoing = None;
+            self.page_anim = None;
+            self.island.set_floating(self.gap_target(&self.mode));
+            let g = self.geom_for(&self.mode);
+            self.island.snap(g);
+            window::set_frames(false);
+        }
+        self.fullscreen_hidden = hide;
+        self.request_frame();
     }
 
     pub fn on_event(&mut self, ev: AppEvent) {
@@ -1176,7 +1250,11 @@ impl App {
             AppEvent::Located(found) => self.on_located(found),
             AppEvent::AdzanEnded => self.adzan_ended(),
             AppEvent::Log(s) => pinfo!("{s}"),
-            // Bluetooth and full-screen events come with later slices.
+            AppEvent::Fullscreen(off) => {
+                self.space_hidden = off;
+                self.apply_fullscreen();
+            }
+            // Bluetooth events come with a later slice.
             _ => {}
         }
         if let Some(before) = media_before {
@@ -1340,10 +1418,11 @@ impl App {
     }
 
     /// A prayer's time came: the island says so and plays the chosen sound.
-    /// Quiet when it's late (after a sleep).
+    /// Quiet when it's late (after a sleep) or a full-screen app hides the island.
     fn prayer_moment(&mut self, m: PrayerMoment, ring: bool) {
         let Some(site) = self.st.prayer.site() else { return };
         let place = self.st.prayer.place.as_ref().map_or(String::new(), |p| p.label.clone());
+        let ring = ring && !self.fullscreen_hidden;
         let sound = if ring { self.st.settings.prayer.sound } else { PrayerSound::Silent };
         let mut adzan = false;
         // The tone plays at once, not as a command: commands run with the
@@ -2516,6 +2595,9 @@ impl App {
                     // macOS answers where the Mac is (or asks the person).
                     "prayer-get" => 75.0,
                     "prayer-adzan" | "prayer-locate" => 10.0,
+                    // A window sliding into its own Space and out again.
+                    "fullscreen-hide" => 15.0,
+                    "fullscreen-stay" | "fullscreen-back" => 10.0,
                     _ => 6.0,
                 };
                 // The ear step: once the card floats, the pointer moves and comes
@@ -2696,6 +2778,31 @@ impl App {
                 self.st.settings.set_addon(PRAYER_TIMES.id, false);
                 self.st.cmds.push(Command::SaveSettings);
             }
+            // A plain window goes full screen in a Space of its own (a second
+            // copy of the app): with Hide, macOS leaves the island on the
+            // desktop's Space, and the island knows.
+            "fullscreen-hide" => {
+                self.st.settings.hide_in_fullscreen = true;
+                self.st.cmds.push(Command::SaveSettings);
+                match std::env::current_exe().and_then(|exe| std::process::Command::new(exe).args(["--full-screen-window", "90"]).spawn()) {
+                    Ok(child) => self.smoke_full_screen = Some(child),
+                    Err(e) => pwarn!("smoke: no full-screen window ({e})"),
+                }
+            }
+            // Stay on top: the island joins the full-screen app's Space.
+            "fullscreen-stay" => {
+                self.st.settings.hide_in_fullscreen = false;
+                self.st.cmds.push(Command::SaveSettings);
+            }
+            // Hide again, and the full-screen app quits: the island is back.
+            "fullscreen-back" => {
+                self.st.settings.hide_in_fullscreen = true;
+                self.st.cmds.push(Command::SaveSettings);
+                if let Some(mut c) = self.smoke_full_screen.take() {
+                    let _ = c.kill();
+                    let _ = c.wait();
+                }
+            }
             // The themes on the real window: Glass, then Oyen and Glass
             // around a notch (one the screen pretends to have; CI's Macs
             // have none), open and resting in the menu bar's line.
@@ -2810,6 +2917,8 @@ impl App {
             "prayer-adzan" => self.st.prayer.adzan || waited > 6.0,
             "prayer-locate" => self.st.prayer.locate != Locate::Asking || waited > 6.0,
             "prayer-off" => (self.st.addon(PRAYER_TIMES.id) == AddonStatus::Off && !prayer_folder().exists() && self.addons.is_none()) || waited > 10.0,
+            "fullscreen-hide" => self.fullscreen_hidden || waited > 12.0,
+            "fullscreen-stay" | "fullscreen-back" => (!self.fullscreen_hidden && !window::off_its_space() && waited > 1.5) || waited > 8.0,
             "menu" => waited > 1.0,
             // About two seconds of frames at rest.
             "music-cost" | "pill-music-cost" => waited > 2.5,
@@ -3035,6 +3144,15 @@ impl App {
                 let ok = status == AddonStatus::Off && gone && self.st.prayer.places.is_none() && !tab && self.addons.is_none();
                 Some(("prayer-off", ok, format!("{status:?}; files {}; Prayer tab: {tab}", if gone { "deleted" } else { "still there" })))
             }
+            "fullscreen-hide" => {
+                let d = format!("island {} over a full-screen window; panel out of view: {}", if self.fullscreen_hidden { "hidden" } else { "still shown" }, window::off_its_space());
+                Some(("fullscreen-hide", self.fullscreen_hidden, d))
+            }
+            "fullscreen-stay" | "fullscreen-back" => {
+                let ok = !self.fullscreen_hidden && !window::off_its_space();
+                let d = format!("island {}; panel out of view: {}", if self.fullscreen_hidden { "hidden" } else { "shown" }, window::off_its_space());
+                Some((if name == "fullscreen-stay" { "fullscreen-stay" } else { "fullscreen-back" }, ok, d))
+            }
             "ja-off" => {
                 let status = self.st.addon(JAPANESE_READINGS.id);
                 let gone = !ja_folder().exists();
@@ -3249,7 +3367,7 @@ pub fn draw_content(
 
 // ---------------------------------------------------------------- smoke test bookkeeping
 
-const SMOKE_STEPS: [&str; 43] = [
+const SMOKE_STEPS: [&str; 46] = [
     "idle",
     "hover",
     "open-focus",
@@ -3292,6 +3410,9 @@ const SMOKE_STEPS: [&str; 43] = [
     "prayer-stop",
     "prayer-locate",
     "prayer-off",
+    "fullscreen-hide",
+    "fullscreen-stay",
+    "fullscreen-back",
     "menu",
 ];
 /// The track CI announces as Spotify's own notification would.
