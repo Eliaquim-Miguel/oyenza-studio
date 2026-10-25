@@ -827,7 +827,7 @@ fn draw_power_mac(ui: &mut Ui, st: &mut AppState, p: &PowerReading, r: &Reading,
     ui.c.text(&fmt_w(top), Rect::new(chart.x + 7.0, chart.y + 3.0, 60.0, 14.0), &TextStyle::caption().tabular().color(palette::TEXT_FAINT));
     let low = h.power.values().filter(|v| v.is_finite()).fold(f32::INFINITY, f32::min);
     let line = if low.is_finite() { format!("Highest {} \u{b7} lowest {}", fmt_w(h.power.max()), fmt_w(low)) } else { PLACEHOLDER.into() };
-    ui.c.text(&line, sub, &TextStyle::caption().tabular().color(palette::TEXT_DIM));
+    ui.c.text(&line, sub.inset(0.0, 3.0), &TextStyle::caption().tabular().color(palette::TEXT_DIM).top());
 
     // Where the number comes from.
     let (head, rest) = cols.top.split_top(SEP_H);
