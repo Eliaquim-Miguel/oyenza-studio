@@ -487,7 +487,7 @@ jobs:
       - name: Fetch the release to upgrade from
         shell: pwsh
         # 0.1.1 is the installer people have today; the check upgrades from it.
-        run: Invoke-WebRequest -Uri "https://github.com/lucacadalora/poni/releases/download/v0.1.1/Poni-Setup-0.1.1.exe" -OutFile previous-setup.exe
+        run: Invoke-WebRequest -Uri "https://github.com/lucacadalora/oyenza-studio/releases/download/v0.1.1/Poni-Setup-0.1.1.exe" -OutFile previous-setup.exe
       - name: Install, check, uninstall
         shell: pwsh
         run: ./tools/ci-installer.ps1 -Setup "dist\Oyenza-Studio-Setup-$env:PONI_VERSION.exe" -Version $env:PONI_VERSION -Previous previous-setup.exe -Out installer-out
