@@ -18,9 +18,9 @@
 //! reported. WinEvent callbacks are free functions running on the thread that
 //! installed them (the UI thread), so the shared state lives in a thread-local.
 //!
-//! The same signals keep, for Step aside, the app windows that reach into a
-//! band at the top of the island's monitor (a maximized browser, a snapped
-//! window): looked at from scratch when another window comes to the front,
+//! The same signals keep, for Step aside, the app windows at the top edge of
+//! the island's monitor (a maximized browser, a snapped window): looked at
+//! from scratch when another window comes to the front,
 //! and one window at a time as the watched ones move. The app hears of a
 //! change ([`AppEvent::TopWindows`]) and decides whether one sits under the
 //! island. With Stay picked, nothing is looked at.
@@ -105,11 +105,11 @@ struct Watch {
     thread_hooks: RefCell<Vec<ThreadHooks>>,
     busy: Cell<bool>,
     dirty: Cell<bool>,
-    /// Step aside: the band at the top of the island's monitor that the app
-    /// asked about (screen pixels); None while Stay is picked.
+    /// Step aside: the thin band along the top edge of the island's monitor
+    /// that the app asked about (screen pixels); None while Stay is picked.
     top_band: Cell<Option<RECT>>,
-    /// The app windows reaching into that band and where (clipped to it),
-    /// as last reported to the app.
+    /// The app windows reaching into that band (at the top edge) and where,
+    /// clipped to it, as last reported to the app.
     top: RefCell<Vec<(HWND, [i32; 4])>>,
 }
 
@@ -226,8 +226,8 @@ impl FullscreenWatcher {
         }
     }
 
-    /// Step aside on, with the band at the top of the island's monitor in
-    /// screen pixels, or off (`None`: Stay). Either way every window is
+    /// Step aside on, with the band along the top edge of the island's
+    /// monitor in screen pixels, or off (`None`: Stay). Either way every window is
     /// looked at again: the island's monitor or its scale may have changed.
     pub fn watch_top(&self, band: Option<RECT>) {
         if let Some(w) = current() {
@@ -659,8 +659,9 @@ pub fn window_above(island: HWND) -> Option<String> {
 
 // ------------------------------------------------------------------ step aside
 
-/// Step aside: every app window reaching into the band at the top of the
-/// island's monitor, looked at from scratch, reported when it changed.
+/// Step aside: every app window at the top edge of the island's monitor
+/// (reaching into the band along it), looked at from scratch, reported
+/// when it changed.
 /// With Stay picked, the list empties and nothing is looked at.
 fn rescan_top(w: &Watch) {
     let found = w.top_band.get().map(|band| scan_top(w, &band)).unwrap_or_default();
@@ -834,15 +835,18 @@ mod tests {
 
     #[test]
     fn a_window_is_at_the_top_only_where_it_reaches_into_the_band() {
-        let band = r(0, 0, 1920, 48);
+        // The app's band: 8 DIPs along the top edge (here at 100 %).
+        let band = r(0, 0, 1920, 8);
         // Maximized: it overhangs the monitor, cut to the band.
-        assert_eq!(clip(&r(-8, -8, 1928, 1048), &band), Some([0, 0, 1920, 48]));
+        assert_eq!(clip(&r(-8, -8, 1928, 1048), &band), Some([0, 0, 1920, 8]));
         // Snapped to the left half (its resize border reaches past the middle).
-        assert_eq!(clip(&r(-7, 0, 967, 1047), &band), Some([0, 0, 967, 48]));
-        // Its title bar a little below the edge, still in the band.
-        assert_eq!(clip(&r(400, 30, 1500, 900), &band), Some([400, 30, 1500, 48]));
-        // Below the band, or on the monitor to the right: not at the top.
-        assert_eq!(clip(&r(200, 48, 900, 700), &band), None);
+        assert_eq!(clip(&r(-7, 0, 967, 1047), &band), Some([0, 0, 967, 8]));
+        // Dragged up to the edge by hand, its top a few pixels down.
+        assert_eq!(clip(&r(400, 5, 1500, 900), &band), Some([400, 5, 1500, 8]));
+        // Placed lower (a terminal 25 px down), or on the monitor to the
+        // right: not at the top, whatever the island covers of its frame.
+        assert_eq!(clip(&r(200, 25, 900, 700), &band), None);
+        assert_eq!(clip(&r(200, 8, 900, 700), &band), None);
         assert_eq!(clip(&r(1920, 0, 3840, 1040), &band), None);
         // A monitor left of the primary one, its band its own.
         let left = r(-2560, -200, 0, -128);

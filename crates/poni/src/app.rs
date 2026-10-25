@@ -340,8 +340,8 @@ pub struct App {
     fullscreen_hidden: bool,
     /// The last full-screen state reported, hidden or not.
     fullscreen_on: bool,
-    /// Step aside: the app windows reaching into the band at the top of the
-    /// island's monitor (screen pixels, cut to the band), as last reported.
+    /// Step aside: the app windows at the top edge of the island's monitor
+    /// (screen pixels, cut to the band along it), as last reported.
     top_windows: Vec<[i32; 4]>,
     /// Follow-up raises still due (TIMER_RAISE).
     raises_left: u8,
@@ -461,10 +461,11 @@ const REOPEN_S: f64 = 0.3;
 const HOLD_GRACE_MS: u32 = 380;
 /// Collapsed pill growth (w, h, radius) while the pointer is on it.
 const HOVER_LIFT: (f32, f32, f32) = (12.0, 4.0, 2.0);
-/// Step aside: the band at the top of the island's monitor where an app
-/// window can be under the resting island (DIPs). The tallest place it
-/// rests in (the Pill theme's gap, its pill and the hover lift) fits.
-const TOP_BAND: f32 = 48.0;
+/// Step aside: an app window is at the top when its top edge is within this
+/// many DIPs of the edge the island hangs from (a maximized window overhangs
+/// it, a snapped one starts on it). One placed lower keeps its title and
+/// tabs below the island, which covers a sliver of its frame at most.
+const TOP_BAND: f32 = 8.0;
 /// How long the inline notice pill shows its check mark (seconds).
 const INLINE_DONE_S: f64 = 0.6;
 /// Incoming content starts at this scale and this many DIPs up, and
@@ -686,9 +687,9 @@ impl App {
     }
 
     /// Step aside on: have the full-screen watcher report the app windows
-    /// in the band at the top of the island's monitor, from where the island
-    /// hangs (below a taskbar at the top). Stay: it looks at nothing, and
-    /// nothing is under the island.
+    /// at the top edge of the island's monitor, where the island hangs from
+    /// (below a taskbar at the top). Stay: it looks at nothing, and nothing
+    /// is under the island.
     fn sync_top_watch(&mut self) {
         let m = &self.monitor;
         let px = (TOP_BAND * self.gfx.scale()).ceil() as i32;

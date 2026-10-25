@@ -103,8 +103,8 @@ impl Services {
         }
     }
 
-    /// Step aside on (the band at the top of the island's monitor, screen
-    /// pixels) or off: the full-screen watcher reports what reaches into it.
+    /// Step aside on (the band along the top edge of the island's monitor,
+    /// screen pixels) or off: the full-screen watcher reports what reaches it.
     pub fn watch_top(&self, band: Option<RECT>) {
         if let Some(f) = &self.fullscreen {
             f.watch_top(band);
