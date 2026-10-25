@@ -235,12 +235,20 @@ pub fn pill_outline(body: Rect, radius: f32, shoulder: f32, detach: f32) -> Vec<
 
 /// The Pill theme's island body while it floats or is on its way there:
 /// the shared floating body (outline, hairline, shadow) once it is all the
-/// way out, the blended outline before that. The hairline waits until the
-/// shoulders are gone (Classic's never runs along the screen edge either).
+/// way out, the blended outline before that. The shadow fades in over the
+/// second half of the way out (it would pop in at the end), and the
+/// hairline waits until the shoulders are gone (Classic's never runs along
+/// the screen edge either).
 pub fn draw_pill_body(c: &mut Canvas, body: Rect, radius: f32, shoulder: f32, detach: f32, fill: Color, border: Option<Color>) {
     if detach >= 1.0 {
         pill::shape::draw_body(c, body, radius, fill, border);
         return;
+    }
+    let fade = (2.0 * detach - 1.0).clamp(0.0, 1.0) * fill.a;
+    if fade > 0.0 && c.on_gpu() {
+        let b = pill::shape::snap(body, c.scale());
+        let r = radius.min(b.h / 2.0).min(b.w / 2.0).max(0.0);
+        c.rrect_shadow(b.offset(0.0, pill::shape::SHADOW_DROP), r, Color::black(fade), &pill::shape::SHADOW_RAMP);
     }
     c.path(&detached_segments(body, radius, shoulder, detach), Some(fill), None);
     if let Some(b) = border.filter(|_| detach >= 0.5) {
