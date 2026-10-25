@@ -1,5 +1,5 @@
 <#
-Oyen Poni over a game: does Windows keep sending the game's frames straight
+Oyenza Studio over a game: does Windows keep sending the game's frames straight
 to the screen while the readout shows?
 
 Double-click "Run overlay check.cmd" (next to this file). It asks Windows for
@@ -42,7 +42,7 @@ function Pause-End([string] $msg) {
     exit
 }
 
-Write-Host "Oyen Poni overlay check" -ForegroundColor Cyan
+Write-Host "Oyenza Studio overlay check" -ForegroundColor Cyan
 $here = Split-Path -Parent $PSCommandPath
 
 # PresentMon 2.6.0 (Intel, MIT), the console build.
@@ -57,7 +57,7 @@ if (-not (Test-Path $pm) -or (Get-FileHash $pm -Algorithm SHA256).Hash -ne $pmSh
 }
 
 $poni = Get-Process -Name poni -ErrorAction SilentlyContinue | Select-Object -First 1
-if (-not $poni) { Pause-End "Start Oyen Poni (the test build) first, then run this again." }
+if (-not $poni) { Pause-End "Start Oyenza Studio (the test build) first, then run this again." }
 $poniExe = $poni.Path
 if ($poniExe -like "*WindowsApps*") { Pause-End "This is the Store build; use the test build." }
 

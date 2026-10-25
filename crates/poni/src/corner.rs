@@ -111,7 +111,7 @@ impl Corner {
             ex |= WS_EX_LAYERED | WS_EX_TRANSPARENT;
         }
         let hwnd = unsafe {
-            CreateWindowExW(ex, CLASS, w!("Oyen Poni readout"), WS_POPUP, 0, 0, w, h, None, None, GetModuleHandleW(None)?, None)?
+            CreateWindowExW(ex, CLASS, w!("Oyenza Studio readout"), WS_POPUP, 0, 0, w, h, None, None, GetModuleHandleW(None)?, None)?
         };
         if style == GameReadout::CornerLayered {
             // A layered window draws nothing of its own until it has attributes.
