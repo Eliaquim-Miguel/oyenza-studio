@@ -1265,17 +1265,36 @@ impl App {
     /// edge still lands on it).
     fn hovering_inside(&self, p: Point) -> bool {
         // Floating below a notch, the menu bar beside the notch keeps its
-        // clicks: in the menu bar's line only the notch takes the mouse, and
-        // the island under it with the gap between them.
+        // clicks: in the menu bar's line the notch takes the mouse (and the
+        // island under it with the gap between them), and for a pointer that
+        // already hovers, the resting island's ears too.
         if let Some(n) = self.screen.notch.filter(|_| self.island.floating()) {
             if p.y < n.h {
-                return (p.x - self.cx).abs() <= n.w / 2.0;
+                return (p.x - self.cx).abs() <= self.menu_line_w(n) / 2.0;
             }
         }
         if !self.expanded {
             return self.island.hover_rect_at(self.cx).contains(p);
         }
         self.island.canvas_rect_at(self.cx).contains(p)
+    }
+
+    /// How much of the menu bar's line takes the mouse while the island
+    /// floats below notch `n`: the notch itself, and while the pointer already
+    /// hovers the island (or presses or drags on it) the ears the resting
+    /// island has there, lifted. A card opened from an ear then stays open
+    /// under the pointer that opened it, and a pointer coming from the menu
+    /// bar still only meets the notch.
+    fn menu_line_w(&self, n: Notch) -> f32 {
+        if !(self.hovering || self.input.down || self.drag_hover) {
+            return n.w;
+        }
+        let rest = activities::collapsed_mode(&self.st);
+        if notch::floats(&rest, &self.st) {
+            return n.w;
+        }
+        let g = notch::geom(&rest, &self.st, n, activities::geom(&rest, &self.st));
+        (g.w + HOVER_LIFT.0).max(n.w)
     }
 
     // ------------------------------------------------------------ input
@@ -1901,7 +1920,18 @@ impl App {
 
         let canvas_r = self.island.canvas_rect_at(self.cx).inset(-2.0, -2.0);
         let full = Rect::new(0.0, 0.0, self.surface.0, self.surface.1);
-        let dirty = union_rect(self.prev_canvas.unwrap_or(full), canvas_r);
+        // Floating at rest, only the content changes (the equalizer, a line,
+        // the clock): redraw inside the body, and the shadow and hairline
+        // around it stay as drawn. Whole DIPs and one more, so no pixel on its
+        // edge is half redrawn. Anything else redraws the canvas.
+        let still = self.island.floating() && self.island.settled() && self.outgoing.is_none() && self.page_anim.is_none() && self.prev_canvas == Some(canvas_r);
+        let dirty = if still {
+            let b = self.island.body_rect_at(self.cx).inset(-1.0, -1.0);
+            let (x0, y0) = (b.x.floor(), b.y.floor());
+            Rect::new(x0, y0, b.right().ceil() - x0, b.bottom().ceil() - y0)
+        } else {
+            union_rect(self.prev_canvas.unwrap_or(full), canvas_r)
+        };
         self.prev_canvas = Some(canvas_r);
         Some(dirty)
     }
