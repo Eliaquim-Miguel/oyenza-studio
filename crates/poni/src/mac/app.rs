@@ -807,6 +807,7 @@ impl App {
             }
             MenuCmd::OpenDataFolder => services::open(&paths::data_dir().to_string_lossy()),
             MenuCmd::About => services::open(ABOUT_URL),
+            MenuCmd::RecordScreen => services::recorder::record_screen(self.mtm),
             MenuCmd::Quit => {
                 self.quit(0);
                 return;

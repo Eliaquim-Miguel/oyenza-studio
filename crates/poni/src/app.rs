@@ -276,7 +276,7 @@ fn run_deferred(d: Deferred) {
             with_app(|app| app.request_frame());
         }
         Deferred::Menu(pt) => {
-            let Some((helper, items)) = with_app(|app| (app.helper, tray::menu_items(&app.st.settings, app.st.pinned, &app.st.oyenza.link))) else { return };
+            let Some((helper, items)) = with_app(|app| (app.helper, tray::menu_items(&app.st.settings, app.st.pinned, &app.st.oyenza.link, crate::services::recorder::installed()))) else { return };
             if let Some(cmd) = tray::show_menu(helper, pt, &items) {
                 with_app(|app| app.on_menu(cmd));
             }
@@ -1572,6 +1572,7 @@ impl App {
             ToggleGameStats => s.game_stats = !s.game_stats,
             ToggleSounds => s.sounds = !s.sounds,
             TogglePinned => self.st.pinned = !self.st.pinned,
+            RecordScreen => crate::services::recorder::record_screen(self.hwnd),
             ToggleAutostart => {
                 let on = crate::autostart::is_enabled();
                 if let Err(e) = crate::autostart::set_enabled(!on) {

@@ -77,6 +77,7 @@ pub enum MenuCmd {
     OyenzaDisconnect,
     OyenzaOpen,
     ToggleOyenzaAmounts,
+    RecordScreen,
     Quit,
 }
 
@@ -104,13 +105,13 @@ fn idle_label(s: IdleStyle, theme: Theme) -> &'static str {
     }
 }
 
-pub fn menu_items(s: &Settings, pinned: bool, oyenza: &OyenzaLink) -> Vec<MenuItem> {
+pub fn menu_items(s: &Settings, pinned: bool, oyenza: &OyenzaLink, recorder: bool) -> Vec<MenuItem> {
     // The look the theme draws is the one checked: outside Pill, Status shows the clock.
     let shown = crate::pill::status::shown(s.theme, s.idle_style);
     let style = |st: IdleStyle| item(idle_label(st, s.theme), MenuCmd::ToggleIdleStyle(st), shown == st);
     let theme = |label: &str, t: Theme| item(label, MenuCmd::SetTheme(t), s.theme == t);
     let fullscreen = |label: &str, hide: bool| item(label, MenuCmd::SetHideFullscreen(hide), s.hide_in_fullscreen == hide);
-    vec![
+    let mut items = vec![
         item("Keep island open", MenuCmd::TogglePinned, pinned),
         MenuItem::Sub { label: "Theme".into(), items: vec![theme("Classic", Theme::Classic), theme("Oyen", Theme::Oyen), theme("Glass", Theme::Glass), theme("Pill", Theme::Pill)] },
         // The status bar is listed only in Pill, as on the Settings page: the
@@ -141,7 +142,13 @@ pub fn menu_items(s: &Settings, pinned: bool, oyenza: &OyenzaLink) -> Vec<MenuIt
         item("Lyrics by LRCLIB", MenuCmd::About, false),
         MenuItem::Separator,
         item("Quit Oyenza Studio", MenuCmd::Quit, false),
-    ]
+    ];
+    // Only once the separate recorder app is installed: until then the
+    // island doesn't mention recording at all.
+    if recorder {
+        items.splice(0..0, [item("Record this screen", MenuCmd::RecordScreen, false), MenuItem::Separator]);
+    }
+    items
 }
 
 /// Opt-in lyrics from Apple Music with the user's own token.
@@ -233,7 +240,7 @@ mod tests {
     use super::*;
 
     fn fullscreen_choices(s: &Settings) -> Vec<(String, MenuCmd, bool)> {
-        let items = menu_items(s, false, &OyenzaLink::Off);
+        let items = menu_items(s, false, &OyenzaLink::Off, false);
         let Some(MenuItem::Sub { items, .. }) = items.into_iter().find(|i| matches!(i, MenuItem::Sub { label, .. } if label == "In full-screen apps")) else {
             panic!("no full-screen submenu");
         };
@@ -246,8 +253,19 @@ mod tests {
             .collect()
     }
 
+    #[test]
+    fn record_this_screen_shows_only_with_the_recorder() {
+        let s = Settings::default();
+        let first = |recorder: bool| match menu_items(&s, false, &OyenzaLink::Off, recorder).into_iter().next() {
+            Some(MenuItem::Item { label, cmd, .. }) => Some((label, cmd)),
+            _ => None,
+        };
+        assert_eq!(first(true), Some(("Record this screen".to_string(), MenuCmd::RecordScreen)));
+        assert_ne!(first(false).map(|(_, cmd)| cmd), Some(MenuCmd::RecordScreen));
+    }
+
     fn idle_choices(s: &Settings) -> Vec<(String, bool)> {
-        let items = menu_items(s, false, &OyenzaLink::Off);
+        let items = menu_items(s, false, &OyenzaLink::Off, false);
         let Some(MenuItem::Sub { items, .. }) = items.into_iter().find(|i| matches!(i, MenuItem::Sub { label, .. } if label == "Idle look")) else {
             panic!("no idle look submenu");
         };

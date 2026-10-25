@@ -33,6 +33,7 @@ pub enum MenuCmd {
     ReloadSettings,
     OpenDataFolder,
     About,
+    RecordScreen,
     Quit,
 }
 
@@ -46,7 +47,7 @@ fn item(label: &str, cmd: MenuCmd, checked: bool) -> MenuItem {
     MenuItem::Item { label: label.to_string(), cmd, checked, key: "" }
 }
 
-pub fn menu_items(s: &Settings, pinned: bool, login: Login) -> Vec<MenuItem> {
+pub fn menu_items(s: &Settings, pinned: bool, login: Login, recorder: bool) -> Vec<MenuItem> {
     let theme = |label: &str, t: Theme| item(label, MenuCmd::SetTheme(t), s.theme == t);
     // The theme's own idle looks (the status bar is Pill's), the one it
     // draws ticked: outside Pill a picked status bar shows as the clock.
@@ -63,7 +64,7 @@ pub fn menu_items(s: &Settings, pinned: bool, login: Login) -> Vec<MenuItem> {
         };
         item(label, MenuCmd::SetIdleStyle(st), shown == st)
     };
-    vec![
+    let mut items = vec![
         item("Keep island open", MenuCmd::TogglePinned, pinned),
         MenuItem::Sub {
             label: "Theme".into(),
@@ -87,7 +88,13 @@ pub fn menu_items(s: &Settings, pinned: bool, login: Login) -> Vec<MenuItem> {
         item(&format!("About Oyenza Studio {}", env!("CARGO_PKG_VERSION")), MenuCmd::About, false),
         MenuItem::Separator,
         MenuItem::Item { label: "Quit Oyenza Studio".into(), cmd: MenuCmd::Quit, checked: false, key: "q" },
-    ]
+    ];
+    // Only once the separate recorder app is installed: until then the
+    // island doesn't mention recording at all.
+    if recorder {
+        items.splice(0..0, [item("Record this screen", MenuCmd::RecordScreen, false), MenuItem::Separator]);
+    }
+    items
 }
 
 /// Opt-in lyrics from Apple Music with the person's own token.
@@ -155,7 +162,7 @@ impl MenuBar {
             button.setToolTip(Some(&NSString::from_str("Oyenza Studio")));
         }
         let target: Retained<MenuTarget> = unsafe { objc2::msg_send![MenuTarget::alloc(mtm), init] };
-        let menu = build(mtm, &target, &menu_items(s, pinned, login));
+        let menu = build(mtm, &target, &menu_items(s, pinned, login, crate::services::recorder::installed()));
         item.setMenu(Some(&menu));
         ITEM.with(|i| *i.borrow_mut() = Some(item.clone()));
         MenuBar { item, target, menu }
@@ -163,7 +170,7 @@ impl MenuBar {
 
     /// Rebuild the menu (ticks follow the settings).
     pub fn refresh(&mut self, mtm: MainThreadMarker, s: &Settings, pinned: bool, login: Login) {
-        self.menu = build(mtm, &self.target, &menu_items(s, pinned, login));
+        self.menu = build(mtm, &self.target, &menu_items(s, pinned, login, crate::services::recorder::installed()));
         self.item.setMenu(Some(&self.menu));
     }
 }
