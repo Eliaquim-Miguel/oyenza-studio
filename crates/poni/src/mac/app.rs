@@ -367,8 +367,8 @@ pub struct App {
     sysmon_on: bool,
     /// Nobody can see the screen: (the displays sleep, the Mac is locked).
     away: (bool, bool),
-    /// The panel is out of view on its screen (`services::fullscreen`).
-    space_hidden: bool,
+    /// The app in front is full screen on the island's screen (`services::fullscreen`).
+    front_full_screen: bool,
     /// A full-screen app is in front and Hide is picked: the island is closed
     /// and draws nothing until it's back (`apply_fullscreen`).
     fullscreen_hidden: bool,
@@ -477,7 +477,7 @@ impl App {
             sysmon: None,
             sysmon_on: false,
             away: (false, false),
-            space_hidden: false,
+            front_full_screen: false,
             fullscreen_hidden: false,
             own_clip: None,
             clipboard: None,
@@ -530,7 +530,6 @@ impl App {
         }
         self.schedule_minute_timer();
         services::sysmon::watch_away(self.mtm, self.sink.clone());
-        window::over_fullscreen(!self.st.settings.hide_in_fullscreen);
         services::fullscreen::watch(self.mtm, self.sink.clone());
         if self.st.settings.system_history {
             self.start_sysmon();
@@ -757,7 +756,6 @@ impl App {
         self.sync_clipboard();
         // Hide or Stay on top of full-screen apps (Settings or the menu bar).
         if before.hide_in_fullscreen != self.st.settings.hide_in_fullscreen {
-            window::over_fullscreen(!self.st.settings.hide_in_fullscreen);
             self.apply_fullscreen();
             self.refresh_menu();
         }
@@ -1070,13 +1068,12 @@ impl App {
         self.apply_fullscreen();
     }
 
-    /// Hide is picked and the island is out of view while someone uses the
-    /// screen: a full-screen app is in front on its screen (macOS keeps the
-    /// island off full-screen Spaces). As on Windows, the island closes, the
+    /// A full-screen app is in front on the island's screen and Hide is
+    /// picked: as on Windows, the island leaves the screen and closes, the
     /// prayer sound stays quiet and nothing is drawn until it's back.
     fn apply_fullscreen(&mut self) {
         let away = self.away.0 || self.away.1;
-        let hide = self.space_hidden && !away && self.st.settings.hide_in_fullscreen;
+        let hide = self.front_full_screen && !away && self.st.settings.hide_in_fullscreen;
         if hide == self.fullscreen_hidden {
             return;
         }
@@ -1093,6 +1090,7 @@ impl App {
             self.island.snap(g);
             window::set_frames(false);
         }
+        window::set_shown(!hide);
         self.fullscreen_hidden = hide;
         self.request_frame();
     }
@@ -1250,8 +1248,8 @@ impl App {
             AppEvent::Located(found) => self.on_located(found),
             AppEvent::AdzanEnded => self.adzan_ended(),
             AppEvent::Log(s) => pinfo!("{s}"),
-            AppEvent::Fullscreen(off) => {
-                self.space_hidden = off;
+            AppEvent::Fullscreen(on) => {
+                self.front_full_screen = on;
                 self.apply_fullscreen();
             }
             // Bluetooth events come with a later slice.
@@ -1512,6 +1510,8 @@ impl App {
             self.screen = s;
             self.gfx.set_scale(s.scale);
             self.layout_surface();
+            // Whether a full-screen app is in front is a question per screen.
+            services::fullscreen::check();
         }
         self.request_frame();
     }
@@ -2921,7 +2921,8 @@ impl App {
             "prayer-locate" => self.st.prayer.locate != Locate::Asking || waited > 6.0,
             "prayer-off" => (self.st.addon(PRAYER_TIMES.id) == AddonStatus::Off && !prayer_folder().exists() && self.addons.is_none()) || waited > 10.0,
             "fullscreen-hide" => self.fullscreen_hidden || waited > 12.0,
-            "fullscreen-stay" | "fullscreen-back" => (!self.fullscreen_hidden && !window::off_its_space() && waited > 1.5) || waited > 8.0,
+            "fullscreen-stay" => (!self.fullscreen_hidden && window::is_shown() && waited > 1.0) || waited > 6.0,
+            "fullscreen-back" => (!self.front_full_screen && !self.fullscreen_hidden && window::is_shown() && waited > 1.0) || waited > 8.0,
             "menu" => waited > 1.0,
             // About two seconds of frames at rest.
             "music-cost" | "pill-music-cost" => waited > 2.5,
@@ -3148,13 +3149,17 @@ impl App {
                 Some(("prayer-off", ok, format!("{status:?}; files {}; Prayer tab: {tab}", if gone { "deleted" } else { "still there" })))
             }
             "fullscreen-hide" => {
-                let d = format!("island {} over a full-screen window; panel out of view: {}", if self.fullscreen_hidden { "hidden" } else { "still shown" }, window::off_its_space());
-                Some(("fullscreen-hide", self.fullscreen_hidden, d))
+                let ok = self.front_full_screen && self.fullscreen_hidden && !window::is_shown();
+                let d = format!("full-screen app in front: {}; island {}", self.front_full_screen, if window::is_shown() { "still on the screen" } else { "off the screen" });
+                Some(("fullscreen-hide", ok, d))
             }
-            "fullscreen-stay" | "fullscreen-back" => {
-                let ok = !self.fullscreen_hidden && !window::off_its_space();
-                let d = format!("island {}; panel out of view: {}", if self.fullscreen_hidden { "hidden" } else { "shown" }, window::off_its_space());
-                Some((if name == "fullscreen-stay" { "fullscreen-stay" } else { "fullscreen-back" }, ok, d))
+            "fullscreen-stay" => {
+                let ok = self.front_full_screen && !self.fullscreen_hidden && window::is_shown();
+                Some(("fullscreen-stay", ok, format!("full-screen app in front: {}; island on the screen: {}", self.front_full_screen, window::is_shown())))
+            }
+            "fullscreen-back" => {
+                let ok = !self.front_full_screen && !self.fullscreen_hidden && window::is_shown();
+                Some(("fullscreen-back", ok, format!("full-screen app in front: {}; island on the screen: {}", self.front_full_screen, window::is_shown())))
             }
             "ja-off" => {
                 let status = self.st.addon(JAPANESE_READINGS.id);

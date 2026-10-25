@@ -1,49 +1,121 @@
 //! Full-screen apps on the Mac: the island steps off them, as on Windows
 //! (Settings › In full-screen apps, or the same submenu in the menu bar).
 //!
-//! macOS does the hiding. With Hide picked, the island's panel no longer
-//! joins full-screen Spaces (`window::over_fullscreen`), so when a video, a
-//! game or a slideshow goes full screen the window server leaves the island
-//! on the desktop's Space. A panel already on every Space is carried onto
-//! the new full-screen Space as it opens, though, so when NSWorkspace says a
-//! Space came to the front the panel is placed again (`window::space_changed`).
-//! The app still needs to know, to close the island, keep the prayer sound
-//! quiet and stop drawing: the panel's occlusion changes when its Space goes
-//! out of view. Both are notifications; nothing polls.
+//! The question is the one Windows asks: is the app in front full screen on
+//! the island's screen? macOS answers through public calls: the presentation
+//! options the app in front has put into effect (full screen in a Space of
+//! its own, or the menu bar hidden the way a borderless game hides it), and
+//! the window list (the app's windows, and whether the menu bar shows on
+//! that screen). Bounds and owners need no permission; window titles would,
+//! and aren't read.
 //!
-//! Stay on top keeps the island on full-screen Spaces too, as before. A game
-//! that covers the screen with an ordinary window rather than a Space of its
-//! own isn't noticed: Windows watches windows move for that, and macOS shows
-//! window moves only to apps with the Accessibility permission.
+//! It's asked when NSWorkspace says the app in front or the Space changed,
+//! and once more a moment after a Space change (a full-screen window is
+//! still sliding into its Space when the change is announced). Nothing polls.
+//! The app then hides or shows the island itself (`window::set_shown`):
+//! macOS carries a panel that is on every Space onto a full-screen app's
+//! Space as it opens.
 
+use super::cf;
 use crate::events::{AppEvent, EventSink};
 use block2::RcBlock;
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2::{define_class, msg_send, sel, MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
-    NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSColor, NSWindow, NSWindowCollectionBehavior,
-    NSWindowDidChangeOcclusionStateNotification, NSWindowStyleMask, NSWorkspace, NSWorkspaceActiveSpaceDidChangeNotification,
+    NSApplication, NSApplicationActivationPolicy, NSApplicationPresentationOptions, NSBackingStoreType, NSColor, NSWindow, NSWindowCollectionBehavior,
+    NSWindowStyleMask, NSWorkspace, NSWorkspaceActiveSpaceDidChangeNotification, NSWorkspaceDidActivateApplicationNotification,
 };
-use objc2_foundation::{NSNotification, NSNotificationCenter, NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSTimer};
+use objc2_core_foundation::CGRect;
+use objc2_foundation::{NSNotification, NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSTimer};
 use std::ptr::NonNull;
 use std::sync::Mutex;
 
+/// `kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements`.
+const ON_SCREEN: u32 = (1 << 0) | (1 << 4);
+/// `kCGMainMenuWindowLevel`: the menu bar.
+const MENU_BAR_LEVEL: i64 = 24;
+/// Of the screen an app's window must cover: with the app's own full-screen
+/// options, or with the menu bar gone from the screen (then nearly all of it).
+const COVER_WITH_OPTIONS: f64 = 0.6;
+const COVER_WITHOUT: f64 = 0.95;
+
+#[link(name = "CoreGraphics", kind = "framework")]
+extern "C" {
+    fn CGWindowListCopyWindowInfo(option: u32, relative_to: u32) -> cf::CFTypeRef;
+    fn CGRectMakeWithDictionaryRepresentation(dict: cf::CFTypeRef, rect: *mut CGRect) -> bool;
+}
+
 static SINK: Mutex<Option<EventSink>> = Mutex::new(None);
 
-/// Tell the app whether the island is out of view on its screen (the app
-/// ignores a repeat of what it knows).
+/// What the window list says about one on-screen window.
+struct Win {
+    pid: i64,
+    layer: i64,
+    bounds: CGRect,
+}
+
+fn on_screen_windows() -> Vec<Win> {
+    let list = unsafe { CGWindowListCopyWindowInfo(ON_SCREEN, 0) };
+    if list.is_null() {
+        return Vec::new();
+    }
+    let k_bounds = cf::key("kCGWindowBounds");
+    let mut out = Vec::new();
+    for i in 0..unsafe { cf::CFArrayGetCount(list) } {
+        let d = unsafe { cf::CFArrayGetValueAtIndex(list, i) };
+        let (Some(pid), Some(layer)) = (cf::dict_i64(d, "kCGWindowOwnerPID"), cf::dict_i64(d, "kCGWindowLayer")) else { continue };
+        let b = unsafe { cf::CFDictionaryGetValue(d, &*k_bounds as *const _ as cf::CFTypeRef) };
+        let mut bounds = CGRect::default();
+        if b.is_null() || !unsafe { CGRectMakeWithDictionaryRepresentation(b, &mut bounds) } {
+            continue;
+        }
+        out.push(Win { pid, layer, bounds });
+    }
+    unsafe { cf::CFRelease(list) };
+    out
+}
+
+/// Of `screen`, the share `r` covers.
+fn share(r: &CGRect, screen: &NSRect) -> f64 {
+    let w = (r.origin.x + r.size.width).min(screen.origin.x + screen.size.width) - r.origin.x.max(screen.origin.x);
+    let h = (r.origin.y + r.size.height).min(screen.origin.y + screen.size.height) - r.origin.y.max(screen.origin.y);
+    let area = screen.size.width * screen.size.height;
+    if w <= 0.0 || h <= 0.0 || area <= 0.0 {
+        0.0
+    } else {
+        w * h / area
+    }
+}
+
+/// Whether the app in front is full screen on the island's screen, and why
+/// (for the log).
+pub fn front_app_full_screen(mtm: MainThreadMarker) -> (bool, String) {
+    let opts = NSApplication::sharedApplication(mtm).currentSystemPresentationOptions();
+    let by_options = opts.intersects(NSApplicationPresentationOptions::FullScreen | NSApplicationPresentationOptions::HideMenuBar);
+    let Some(front) = NSWorkspace::sharedWorkspace().frontmostApplication() else { return (false, "no app in front".into()) };
+    let pid = front.processIdentifier() as i64;
+    let Some(screen) = crate::window::screen_rect_top_left() else { return (by_options, format!("options {:#x}, screen unknown", opts.0)) };
+    let wins = on_screen_windows();
+    let cover = wins.iter().filter(|w| w.pid == pid && w.layer == 0).map(|w| share(&w.bounds, &screen)).fold(0.0, f64::max);
+    let menu_bar = wins.iter().any(|w| w.layer == MENU_BAR_LEVEL && share(&w.bounds, &screen) > 0.0);
+    let full = (by_options && cover >= COVER_WITH_OPTIONS) || (!menu_bar && cover >= COVER_WITHOUT);
+    (full, format!("options {:#x}, the app in front covers {:.0}% of the screen, menu bar shown: {menu_bar}", opts.0, cover * 100.0))
+}
+
 fn report() {
-    let off = crate::window::off_its_space();
+    let Some(mtm) = MainThreadMarker::new() else { return };
+    let (full, why) = front_app_full_screen(mtm);
     if let Ok(g) = SINK.lock() {
         if let Some(s) = g.as_ref() {
-            s.send(AppEvent::Fullscreen(off));
+            s.send(AppEvent::Fullscreen(full));
+            s.send(AppEvent::Log(format!("full screen: {full} ({why})")));
         }
     }
 }
 
 define_class!(
-    /// Hears the island's panel go out of view or back, and Spaces change (main thread).
+    /// Hears the app in front and the Space change (main thread).
     #[unsafe(super(NSObject))]
     #[thread_kind = MainThreadOnly]
     #[name = "PoniFullScreenObserver"]
@@ -52,42 +124,39 @@ define_class!(
     unsafe impl NSObjectProtocol for Observer {}
 
     impl Observer {
-        #[unsafe(method(occlusionChanged:))]
-        fn occlusion_changed(&self, _n: &NSNotification) {
+        #[unsafe(method(appChanged:))]
+        fn app_changed(&self, _n: &NSNotification) {
             report();
         }
 
         #[unsafe(method(spaceChanged:))]
         fn space_changed(&self, _n: &NSNotification) {
-            crate::window::space_changed();
             report();
+            // A full-screen window is still sliding into its Space when the change is announced.
+            let again = RcBlock::new(|_t: NonNull<NSTimer>| report());
+            unsafe { NSTimer::scheduledTimerWithTimeInterval_repeats_block(0.6, false, &again) };
         }
     }
 );
 
-/// Start listening, for the app's life (after the panel exists).
+/// Start listening, for the app's life.
 pub fn watch(mtm: MainThreadMarker, sink: EventSink) {
     if let Ok(mut g) = SINK.lock() {
         *g = Some(sink);
     }
     let observer: Retained<Observer> = unsafe { msg_send![Observer::alloc(mtm), init] };
     let obs: &AnyObject = observer.as_ref();
-    let panel = crate::window::panel();
+    let center = NSWorkspace::sharedWorkspace().notificationCenter();
     unsafe {
-        NSNotificationCenter::defaultCenter().addObserver_selector_name_object(
-            obs,
-            sel!(occlusionChanged:),
-            Some(NSWindowDidChangeOcclusionStateNotification),
-            panel.as_deref().map(|p| p.as_ref()),
-        );
-        NSWorkspace::sharedWorkspace().notificationCenter().addObserver_selector_name_object(
-            obs,
-            sel!(spaceChanged:),
-            Some(NSWorkspaceActiveSpaceDidChangeNotification),
-            None,
-        );
+        center.addObserver_selector_name_object(obs, sel!(appChanged:), Some(NSWorkspaceDidActivateApplicationNotification), None);
+        center.addObserver_selector_name_object(obs, sel!(spaceChanged:), Some(NSWorkspaceActiveSpaceDidChangeNotification), None);
     }
     std::mem::forget(observer);
+    report();
+}
+
+/// Ask again now (the island moved to another screen).
+pub fn check() {
     report();
 }
 
