@@ -62,6 +62,8 @@ pub enum MenuCmd {
     SetHideFullscreen(bool),
     /// Show over games (frame rate, GPU and CPU on the island over a game).
     ToggleGameStats,
+    /// Show over games in its own corner window, always on (a test).
+    ToggleCornerReadout,
     ToggleSounds,
     TogglePinned,
     ToggleAutostart,
@@ -131,6 +133,7 @@ pub fn menu_items(s: &Settings, pinned: bool, oyenza: &OyenzaLink) -> Vec<MenuIt
                 fullscreen("Stay on top", false),
                 MenuItem::Separator,
                 item("Show FPS, GPU and CPU over games", MenuCmd::ToggleGameStats, s.game_stats),
+                item("Readout in the corner, always on (test)", MenuCmd::ToggleCornerReadout, s.game_stats && s.game_readout.corner()),
             ],
         },
         item("Start with Windows", MenuCmd::ToggleAutostart, crate::autostart::is_enabled()),
@@ -289,6 +292,7 @@ mod tests {
                     ("Hide".to_string(), MenuCmd::SetHideFullscreen(true), hide),
                     ("Stay on top".to_string(), MenuCmd::SetHideFullscreen(false), !hide),
                     ("Show FPS, GPU and CPU over games".to_string(), MenuCmd::ToggleGameStats, false),
+                    ("Readout in the corner, always on (test)".to_string(), MenuCmd::ToggleCornerReadout, false),
                 ]
             );
         }

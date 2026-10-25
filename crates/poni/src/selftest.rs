@@ -2177,6 +2177,16 @@ impl SelfTest {
             write_errors.join("; ")
         };
         self.checks.push(check("png-files", writers_done && write_errors.is_empty(), detail));
+        // Show over games' corner readout: each style's window can be made,
+        // drawn and shown (it needs DirectComposition: the GPU renderer's).
+        if self.renderer != "software" {
+            let monitor = RECT { left: 0, top: 0, right: 1920, bottom: 1080 };
+            let (ok, detail) = match crate::corner::probe(monitor, self.scale) {
+                Ok(d) => (true, d),
+                Err(e) => (false, e),
+            };
+            self.checks.push(check("corner-readout", ok, detail));
+        }
         // The GPU renderer presents every frame through DXGI, so the count
         // must have seen them; the software renderer presents none.
         if let Some(f) = self.frames.take() {

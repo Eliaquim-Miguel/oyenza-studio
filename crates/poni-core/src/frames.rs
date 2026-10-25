@@ -134,6 +134,20 @@ pub fn sharp_drop(before: &[f32], now: f32) -> bool {
     now < typical * 0.7 && typical - now >= 15.0
 }
 
+/// The corner readout's line: "144 FPS · GPU 97% 71° · CPU 38%", with a dash
+/// for what isn't known (`gpu` is the load, 0..=1, and the temperature).
+pub fn readout_line(fps: Option<f32>, gpu: Option<(f32, Option<f32>)>, cpu: Option<f32>) -> String {
+    let pct = |v: f32| format!("{}%", (v.clamp(0.0, 1.0) * 100.0).round() as u32);
+    let fps = fps.map_or_else(|| "\u{2013}".to_string(), fmt_fps);
+    let gpu = match gpu {
+        Some((load, Some(t))) => format!("{} {:.0}\u{b0}", pct(load), t),
+        Some((load, None)) => pct(load),
+        None => "\u{2013}".to_string(),
+    };
+    let cpu = cpu.map_or_else(|| "\u{2013}".to_string(), pct);
+    format!("{fps} FPS \u{b7} GPU {gpu} \u{b7} CPU {cpu}")
+}
+
 /// "144": whole frames per second (the readout writes "fps" beside it).
 pub fn fmt_fps(fps: f32) -> String {
     format!("{}", fps.round().clamp(0.0, 9999.0) as u32)
@@ -287,6 +301,13 @@ mod tests {
         let mut older = vec![60.0f32; 30];
         older.extend([144.0f32; 30]);
         assert!(sharp_drop(&older, 90.0));
+    }
+
+    #[test]
+    fn the_corner_line() {
+        assert_eq!(readout_line(Some(143.6), Some((0.97, Some(71.2))), Some(0.384)), "144 FPS \u{b7} GPU 97% 71\u{b0} \u{b7} CPU 38%");
+        assert_eq!(readout_line(None, Some((0.5, None)), None), "\u{2013} FPS \u{b7} GPU 50% \u{b7} CPU \u{2013}");
+        assert_eq!(readout_line(Some(60.0), None, Some(1.4)), "60 FPS \u{b7} GPU \u{2013} \u{b7} CPU 100%");
     }
 
     #[test]

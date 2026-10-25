@@ -413,7 +413,7 @@ const MICROSOFT_VENDOR: u32 = 0x1414;
 const BASIC_RENDER_DEVICE: u32 = 0x8C;
 
 /// A Direct3D 11 device that Direct2D can draw with: the GPU, else WARP.
-unsafe fn create_d3d_device() -> Result<(ID3D11Device, ID3D11DeviceContext, bool)> {
+pub(crate) unsafe fn create_d3d_device() -> Result<(ID3D11Device, ID3D11DeviceContext, bool)> {
     let levels = [
         D3D_FEATURE_LEVEL_11_1,
         D3D_FEATURE_LEVEL_11_0,
@@ -443,7 +443,7 @@ unsafe fn create_d3d_device() -> Result<(ID3D11Device, ID3D11DeviceContext, bool
 
 /// `DCompositionCreateDevice`, looked up at run time from System32 (it is
 /// missing or a stub on some systems, and must never load from the app folder).
-unsafe fn dcomp_create_device(dxgi: &IDXGIDevice) -> Result<IDCompositionDevice> {
+pub(crate) unsafe fn dcomp_create_device(dxgi: &IDXGIDevice) -> Result<IDCompositionDevice> {
     type Create = unsafe extern "system" fn(*mut c_void, *const GUID, *mut *mut c_void) -> HRESULT;
     let lib = LoadLibraryExW(w!("dcomp.dll"), None, LOAD_LIBRARY_SEARCH_SYSTEM32)?;
     let Some(f) = GetProcAddress(lib, windows::core::s!("DCompositionCreateDevice")) else {

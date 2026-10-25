@@ -46,6 +46,28 @@ pub enum MonitorChoice {
     Cursor,
 }
 
+/// How Show over games shows over a game.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GameReadout {
+    /// The island shows the readout for a few seconds, then hides.
+    #[default]
+    Peek,
+    /// A test: the readout always on, as its own small window in the top-left
+    /// corner, drawn so Windows may give it a hardware overlay plane of its
+    /// own (`poni::corner`). The other two are the same window with an opaque
+    /// background, and clicks passing through it to the game.
+    Corner,
+    CornerOpaque,
+    CornerLayered,
+}
+
+impl GameReadout {
+    pub fn corner(self) -> bool {
+        self != GameReadout::Peek
+    }
+}
+
 /// Bumped when defaults change in a way existing files should pick up.
 pub const SETTINGS_VERSION: u32 = 3;
 
@@ -102,6 +124,8 @@ pub struct Settings {
     /// shows its frame rate, the GPU's load and temperature and the CPU's
     /// load. Turning it on also keeps the island on top of full-screen apps.
     pub game_stats: bool,
+    /// How the readout shows over a game.
+    pub game_readout: GameReadout,
 }
 
 /// What plays when a prayer's time comes.
@@ -167,6 +191,7 @@ impl Default for Settings {
             addons: BTreeMap::new(),
             prayer: PrayerSettings::default(),
             game_stats: false,
+            game_readout: GameReadout::Peek,
         }
     }
 }
@@ -346,6 +371,15 @@ mod tests {
         let s: Settings = serde_json::from_str(r#"{"game_stats":true,"hide_in_fullscreen":true}"#).unwrap();
         let s = s.sanitized();
         assert!(s.game_stats && !s.hide_in_fullscreen);
+    }
+
+    #[test]
+    fn game_readout_defaults_to_peek() {
+        let s: Settings = serde_json::from_str(r#"{"game_stats":true}"#).unwrap();
+        assert_eq!(s.game_readout, GameReadout::Peek);
+        let s: Settings = serde_json::from_str(r#"{"game_readout":"corner_opaque"}"#).unwrap();
+        assert_eq!(s.game_readout, GameReadout::CornerOpaque);
+        assert!(s.game_readout.corner() && !GameReadout::Peek.corner());
     }
 
     #[test]

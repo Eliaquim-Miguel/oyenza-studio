@@ -364,6 +364,10 @@ pub struct App {
     game_drop_at: f64,
     /// Alt+Shift+F is registered (only while a game is in front).
     peek_hotkey: bool,
+    /// Show over games, corner style (a test): the readout's own window.
+    corner: Option<crate::corner::Corner>,
+    /// Alt+Shift+F hid the corner readout until the next game.
+    corner_off: bool,
     /// App icons the System page asked for and hasn't got yet (the Shelf's
     /// thumbnail worker answers both pages with the same event).
     icon_wait: HashSet<String>,
@@ -538,6 +542,8 @@ impl App {
             game_peek_until: 0.0,
             game_drop_at: f64::NEG_INFINITY,
             peek_hotkey: false,
+            corner: None,
+            corner_off: false,
             icon_wait: HashSet::new(),
             tray: None,
             taskbar_created_msg,
@@ -607,6 +613,7 @@ impl App {
         self.save_now();
         // Stops the frame count's trace session (it would outlive Poni).
         self.frames = None;
+        self.corner = None;
         self.set_peek_hotkey(false);
         self.glass.stop(self.hwnd, &mut self.gfx);
         if let Some(p) = self.phone.take() {
@@ -1517,6 +1524,10 @@ impl App {
                 }
             }
         }
+        if before.game_readout != self.st.settings.game_readout {
+            self.corner_off = false;
+            self.sync_game();
+        }
         if before.game_stats != self.st.settings.game_stats {
             if self.st.settings.game_stats && self.st.game.access == FpsAccess::Unknown {
                 self.check_fps();
@@ -1550,6 +1561,15 @@ impl App {
             TogglePronunciation => s.lyrics_pronunciation = !s.lyrics_pronunciation,
             SetHideFullscreen(hide) => s.hide_in_fullscreen = hide,
             ToggleGameStats => s.game_stats = !s.game_stats,
+            ToggleCornerReadout => {
+                // The corner style is part of Show over games: turning it on turns that on.
+                if s.game_readout.corner() {
+                    s.game_readout = poni_core::settings::GameReadout::Peek;
+                } else {
+                    s.game_readout = poni_core::settings::GameReadout::Corner;
+                    s.game_stats = true;
+                }
+            }
             ToggleSounds => s.sounds = !s.sounds,
             TogglePinned => self.st.pinned = !self.st.pinned,
             ToggleAutostart => {
@@ -1769,6 +1789,9 @@ impl App {
                             self.game_drop_at = now;
                             self.peek_game("the frame rate dropped");
                         }
+                    }
+                    if self.st.settings.game_readout.corner() {
+                        self.sync_corner();
                     }
                 }
             }
@@ -2015,7 +2038,8 @@ impl App {
     /// under Show over games between the readout's peeks: then nothing covers
     /// the game, and Windows sends its frames straight to the screen.
     fn fullscreen_hides(&self, now: f64) -> bool {
-        self.fullscreen_on && (self.st.settings.hide_in_fullscreen || (self.st.game.active && now >= self.game_peek_until))
+        let corner = self.st.settings.game_readout.corner();
+        self.fullscreen_on && (self.st.settings.hide_in_fullscreen || (self.st.game.active && (corner || now >= self.game_peek_until)))
     }
 
     /// Shows or hides the island for what is in front now.
@@ -2050,8 +2074,12 @@ impl App {
         }
     }
 
-    /// Show over games: the readout shows over the game for a few seconds.
+    /// Show over games: the readout shows over the game for a few seconds
+    /// (the corner style shows all the time instead).
     fn peek_game(&mut self, why: &str) {
+        if self.st.settings.game_readout.corner() {
+            return;
+        }
         let now = clock::mono();
         self.game_peek_until = now + PEEK_S;
         unsafe {
@@ -2066,6 +2094,11 @@ impl App {
         if !self.st.game.active {
             return;
         }
+        if self.st.settings.game_readout.corner() {
+            self.corner_off = !self.corner_off;
+            self.sync_corner();
+            return;
+        }
         let now = clock::mono();
         if now < self.game_peek_until {
             self.game_peek_until = 0.0;
@@ -2076,6 +2109,61 @@ impl App {
         } else {
             self.peek_game("Alt+Shift+F");
         }
+    }
+
+    /// Show over games, corner style: the readout's own window in the
+    /// top-left corner while a game is in front (Alt+Shift+F hides it until
+    /// the next game). Made when first needed, gone when the game leaves.
+    fn sync_corner(&mut self) {
+        let style = self.st.settings.game_readout;
+        if !(self.st.game.active && style.corner()) {
+            self.corner = None;
+            return;
+        }
+        if self.corner_off {
+            if let Some(c) = self.corner.as_mut() {
+                c.hide();
+            }
+            return;
+        }
+        let scale = self.monitor.scale();
+        if self.corner.as_ref().is_some_and(|c| c.style() != style || (c.scale() - scale).abs() > 0.01) {
+            self.corner = None;
+        }
+        if self.corner.is_none() {
+            match crate::corner::Corner::new(style, scale) {
+                Ok(c) => {
+                    pinfo!("show over games: corner readout on ({style:?})");
+                    self.corner = Some(c);
+                }
+                Err(e) => {
+                    pwarn!("show over games: no corner readout ({e})");
+                    return;
+                }
+            }
+        }
+        let text = self.corner_text();
+        let rect = self.monitor.rect;
+        if let Some(c) = self.corner.as_mut() {
+            if let Err(e) = c.update(&text) {
+                pwarn!("show over games: corner readout not drawn ({e})");
+            }
+            if c.shown() {
+                // A window that came forward may have covered it.
+                c.raise();
+            } else {
+                c.show(rect);
+            }
+        }
+    }
+
+    fn corner_text(&self) -> String {
+        let r = self.st.system.latest.as_ref();
+        poni_core::frames::readout_line(
+            self.st.game.rate.map(|r| r.fps),
+            r.and_then(|r| r.gpu.as_ref()).map(|g| (g.util, g.temp_c)),
+            r.and_then(|r| r.cpu.as_ref()).map(|c| c.load),
+        )
     }
 
     /// Alt+Shift+F belongs to Poni only while a game is in front.
@@ -2107,6 +2195,7 @@ impl App {
             self.set_peek_hotkey(want);
             if !want {
                 self.game_peek_until = 0.0;
+                self.corner_off = false;
                 unsafe {
                     let _ = KillTimer(self.hwnd, TIMER_PEEK);
                 }
@@ -2134,6 +2223,7 @@ impl App {
         }
         if !want {
             self.apply_fullscreen(clock::mono());
+            self.sync_corner();
             return;
         }
         let pid = services::fullscreen::fullscreen_pid();
@@ -2151,6 +2241,7 @@ impl App {
         } else {
             self.apply_fullscreen(clock::mono());
         }
+        self.sync_corner();
         let Some(pid) = pid else { return };
         if self.frames.is_none() && matches!(self.st.game.access, FpsAccess::Unknown | FpsAccess::Ready) {
             match services::frames::Frames::start(pid) {
