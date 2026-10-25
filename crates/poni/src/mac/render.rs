@@ -188,6 +188,9 @@ const ADDON_SCENES: [Scene; 3] = [
 /// Prayer times, after the Add-ons tab.
 const PRAYER_SCENES: [Scene; 4] = [Scene::Prayer, Scene::PrayerPicker, Scene::PrayerCountdown, Scene::PrayerNotice];
 
+/// The Settings page (behind the gear), after Prayer times.
+const SETTINGS_SCENES: [Scene; 1] = [Scene::Page(PageKind::Settings)];
+
 impl Scene {
     fn name(self) -> String {
         match self {
@@ -282,9 +285,9 @@ pub fn run(dir: &str, args: &[String]) -> i32 {
             }
         }
     }
-    // The Japanese song, the Add-ons tab and Prayer times in every theme, after Pill's.
+    // The Japanese song, the Add-ons tab, Prayer times and Settings in every theme, after Pill's.
     let first = SCENES.len() + SYSTEM_SCENES.len() + 2 + PILL_SCENES.len();
-    for (k, scene) in JA_SCENES.into_iter().chain(ADDON_SCENES).chain(PRAYER_SCENES).enumerate() {
+    for (k, scene) in JA_SCENES.into_iter().chain(ADDON_SCENES).chain(PRAYER_SCENES).chain(SETTINGS_SCENES).enumerate() {
         let path = out.join(format!("{:02}-{}{suffix}.png", first + k, scene.name()));
         match render_scene(&mut gfx, scene, theme, notch, ja.as_ref(), &path) {
             Ok(()) => println!("render: {}", path.display()),
