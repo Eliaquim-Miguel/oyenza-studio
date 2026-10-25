@@ -829,6 +829,8 @@ enum Scene {
     LowBatteryHud,
     /// The Script page partway through a reading (paused, so the shot holds still).
     ScriptReading,
+    /// The same reading with Oyenza Studio Recorder installed: Record shows.
+    ScriptRecorder,
 }
 
 /// Running under Wine: its ntdll exports `wine_get_version`.
@@ -843,7 +845,7 @@ const SAMPLE_SCRIPT: &str = "Hi everyone, this one takes two minutes. Today I'll
 Drop any file on the island and it waits on the Shelf. Press the phone button, scan the code, and the file is on your phone. \
 No cable, no account, nothing to install on the phone.\n\nThat's it. Thanks for watching.";
 
-const SCENES: [Scene; 68] = [
+const SCENES: [Scene; 69] = [
     Scene::IdleClock,
     Scene::IdleEyes,
     Scene::Media,
@@ -920,6 +922,8 @@ const SCENES: [Scene; 68] = [
     // The Script page: empty, then partway through a reading.
     Scene::Page(PageKind::Script),
     Scene::ScriptReading,
+    // ...and with the recorder installed (Record by Paste).
+    Scene::ScriptRecorder,
 ];
 
 impl Scene {
@@ -983,6 +987,7 @@ impl Scene {
             Scene::MediaLyric => "media-lyric".into(),
             Scene::LowBatteryHud => "low-battery-hud".into(),
             Scene::ScriptReading => "page-script-reading".into(),
+            Scene::ScriptRecorder => "page-script-recorder".into(),
         }
     }
 
@@ -1007,7 +1012,7 @@ impl Scene {
             Scene::AddonsDownloading | Scene::AddonsOn | Scene::AddonsOffline | Scene::AddonsFailed => Some(PageKind::Addons),
             Scene::JaOffer | Scene::JaGetting => Some(PageKind::Media),
             Scene::PrayerPicker => Some(PageKind::Prayer),
-            Scene::ScriptReading => Some(PageKind::Script),
+            Scene::ScriptReading | Scene::ScriptRecorder => Some(PageKind::Script),
             _ => None,
         }
     }
@@ -1855,13 +1860,14 @@ impl SelfTest {
         seed_prayer(st, scene, until);
         // The Script page: empty, or partway through the sample script.
         st.script = poni_core::script::Reader::default();
-        if scene == Scene::ScriptReading {
+        if matches!(scene, Scene::ScriptReading | Scene::ScriptRecorder) {
             st.store.script.text = SAMPLE_SCRIPT.into();
             st.script.word = 22;
             st.script.active = true;
         } else {
             st.store.script.text.clear();
         }
+        st.recorder = scene == Scene::ScriptRecorder;
         st.system = fake_system(scene);
         st.settings.game_stats = scene.game();
         st.game = fake_game(scene, &mut st.system);
