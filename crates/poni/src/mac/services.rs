@@ -3,7 +3,8 @@
 //! location and adzan), power, volume, system stats, the System page's
 //! readings, the clipboard, Shelf tiles, Phone drop and start at login (one
 //! file each), plus a few direct calls (the accent colour, opening and
-//! revealing files, sounds). Oyenza sign-in comes in a later slice.
+//! revealing files, sounds). Oyenza sign-in is the Windows app's worker,
+//! shared as is.
 
 // This file is loaded with #[path], so its modules sit in services/ by path.
 #[path = "services/adzan.rs"]
@@ -32,6 +33,9 @@ pub mod lyrics;
 // So is the add-ons' downloader: the Mac offers every add-on with it.
 #[path = "../services/addons.rs"]
 pub mod addons;
+// And Oyenza sign-in: its key goes through secret.rs above.
+#[path = "../services/oyenza.rs"]
+pub mod oyenza;
 #[path = "services/location.rs"]
 pub mod location;
 #[path = "services/login.rs"]
