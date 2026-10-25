@@ -76,6 +76,15 @@ variables. Changing those would break upgrades and settings, so they stay.
   (`Command::FocusText`) and give focus back afterwards.
 * **Helper window** (hidden): tray icon, AppBar registration (full-screen
   notifications), `WM_POWERBROADCAST`, `WM_CLIPBOARDUPDATE`.
+* **Step aside** (Settings › Over maximized windows, on by default): the
+  full-screen watcher also keeps the app windows that reach into a band at
+  the top of the island's monitor (`AppEvent::TopWindows`), from the
+  foreground and location WinEvents it already listens to (no polling). Each
+  frame the app checks whether one is under where the island rests
+  (`activities::resting_mode`'s geometry) and, if so, rests as `Mode::Aside`:
+  the Hidden look's invisible strip until the pointer reaches it. Pop-ups,
+  notices and a new song's title still drop down; over a full-screen app the
+  full-screen choice decides.
 
 ## Contracts
 
