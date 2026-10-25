@@ -198,6 +198,7 @@ section { padding-block: 88px; }
 .pill-rest .sky, .pill-side .sky { height: 136px; }
 .pill-theme .pill-page { margin-top: 16px; }
 .pill-side { display: grid; gap: 14px; }
+.pill-theme .theme-notes { align-items: start; }
 .pill-side .how { margin-top: 0; }
 /* the Mac: screen pictures with the menu bar and the camera notch, so they keep their own frame */
 .mac-strips { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
@@ -207,6 +208,9 @@ section { padding-block: 88px; }
 .mac-shot strong { font: 600 16px/1.3 var(--display); }
 .mac-shot span { font-size: 14px; color: var(--muted); }
 .mac-get { display: grid; gap: 14px; justify-items: start; }
+/* Pill on a Mac: its own pictures, after the Classic and Oyen ones the switch swaps */
+.mac-pill { margin-top: 40px; }
+.mac-pill > .eyebrow { margin-bottom: 14px; }
 .mac-get .how { margin-top: 0; }
 .how { margin-top: 18px; font-size: 15px; color: var(--muted); }
 .how kbd { font: 600 13px/1 var(--sans); background: var(--bg); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 6px; padding: 3px 7px; color: var(--ink); }
@@ -369,12 +373,40 @@ footer a { color: var(--muted); }
           <figcaption><strong>Today</strong><span>The date and calendar, with your Mac's CPU, memory, disk and battery.</span></figcaption>
         </figure>
       </div>
+      <div class="mac-pill">
+        <p class="eyebrow">Pill on a Mac · New in 0.1.21 (to confirm)</p>
+        <div class="mac-strips">
+          <figure class="mac-shot">
+            <img src="assets/shots/mac/pill/idle-clock.webp" alt="Pill resting on a MacBook: attached beside the camera notch, the time on its left, the battery's percentage and the battery on its right" width="420" height="108" loading="lazy">
+            <figcaption><strong>Resting</strong><span>Beside the camera: the time on one side, the battery on the other.</span></figcaption>
+          </figure>
+          <figure class="mac-shot">
+            <img src="assets/shots/mac/pill/media-activity.webp" alt="Pill on a MacBook while a lyric line is sung: a black capsule floating just below the notch, with the album art, the line and an equalizer in the album's colour" width="420" height="108" loading="lazy">
+            <figcaption><strong>The line being sung</strong><span>It needs the room the camera takes, so it floats just below the notch.</span></figcaption>
+          </figure>
+          <figure class="mac-shot">
+            <img src="assets/shots/mac/pill/volume-hud.webp" alt="The volume pop-up in Pill on a MacBook: a capsule floating just below the notch" width="420" height="108" loading="lazy">
+            <figcaption><strong>Pop-ups and notices</strong><span>Capsules that float just below the notch.</span></figcaption>
+          </figure>
+        </div>
+        <div class="pages-2">
+          <figure class="mac-shot">
+            <img src="assets/shots/mac/pill/page-media.webp" alt="The open island in Pill on a MacBook: a black card with four rounded corners floating below the notch, on the Music page with synced lyrics" width="710" height="296" loading="lazy">
+            <figcaption><strong>Open, below the notch</strong><span>The card floats just below the menu bar, every corner rounded.</span></figcaption>
+          </figure>
+          <figure class="mac-shot">
+            <img src="assets/shots/mac/pill/page-today.webp" alt="The Today page in Pill on a MacBook, in the same floating card" width="710" height="312" loading="lazy">
+            <figcaption><strong>Every page</strong><span>Today, Focus, the Shelf and the rest open in the same card.</span></figcaption>
+          </figure>
+        </div>
+      </div>
       <div class="theme-notes">
         <ul>
           <li><span>Music and Spotify, with synced lyrics from LRCLIB, or Apple Music's own with your token, and the reading under Japanese, Korean and Chinese lines.</span></li>
           <li><span>The focus timer, the Shelf with Phone drop over the same Wi-Fi, tasks, clipboard history, and the System page with your Mac's CPU, graphics, memory, drives, network, battery and busiest apps.</span></li>
-          <li><span>Pop-ups for volume and charging, the Classic, Oyen and Glass themes, and start at login. Every option is in the menu bar, under Oyen's mark.</span></li>
+          <li><span>Pop-ups for volume and charging, the Classic, Oyen, Glass and Pill themes, and start at login. Every option is in the menu bar, under Oyen's mark.</span></li>
           <li><span>New in 0.1.19: Oyen goes black around the notch; Glass is macOS's own glass, Liquid Glass on macOS 26 and a dark blur before it, with a black strip where it meets the notch; and the System page reads your Mac, the way Stats shows it.</span></li>
+          <li><span>New in 0.1.21 (to confirm): Pill. On a MacBook with a notch, the resting island, the timer and music between lines stay beside the camera; the line being sung, pop-ups, notices and the open island float just below the notch. Without a notch it floats below the top of the screen, as on Windows.</span></li>
           <li><span>Not on the Mac yet: paired phones, Oyenza sign-in, add-ons, Show over games, headphone pop-ups and hiding in full-screen apps.</span></li>
         </ul>
         <div class="mac-get">
@@ -711,39 +743,44 @@ footer a { color: var(--muted); }
       </div>
       <div class="pill-rest">
         <figure class="strip">
-          <div class="sky"><div class="island"><img src="assets/shots/pill/idle-clock.webp" alt="The Pill island at rest: a black capsule floating below the top edge, the time on the left and the battery on the right" width="84" height="38" loading="lazy"></div></div>
-          <figcaption><strong>Resting</strong><span>The time on the left and, on a laptop, the battery on the right.</span></figcaption>
+          <div class="sky"><div class="island"><img src="assets/shots/pill/idle-clock.webp" alt="The Pill island at rest: a black capsule floating below the top edge, the time on the left, 76% and a green battery on the right" width="152" height="40" loading="lazy"></div></div>
+          <figcaption><strong>Resting</strong><span>The time on the left and, on a laptop, the battery on the right, with a bolt while it's plugged in. A desktop shows the time alone.</span></figcaption>
         </figure>
         <figure class="strip">
-          <div class="sky"><div class="island"><img src="assets/shots/pill/media-activity.webp" alt="The Pill island while music plays: the album art, the line being sung in the middle and an equalizer in the album's colour" width="120" height="40" loading="lazy"></div></div>
-          <figcaption><strong>Music playing</strong><span>The album art, the line being sung, and a beat in the album's colour, with a glow of it along the bottom edge.</span></figcaption>
+          <div class="sky"><div class="island"><img src="assets/shots/pill/idle-status.webp" alt="The Status bar look: the volume, the date and time in a pill of their own, and the battery" width="238" height="40" loading="lazy"></div></div>
+          <figcaption><strong>Status bar</strong><span>The volume, the date and time in an inner pill, and the battery.</span></figcaption>
         </figure>
         <figure class="strip">
-          <div class="sky"><div class="island"><img src="assets/shots/pill/timer-activity.webp" alt="A focus countdown in the Pill theme: a progress ring and the minutes left" width="96" height="40" loading="lazy"></div></div>
+          <div class="sky"><div class="island"><img src="assets/shots/pill/media-activity.webp" alt="The Pill island while music plays: the album art, the line being sung, and bars in the album's colour, which glows along the bottom edge" width="336" height="40" loading="lazy"></div></div>
+          <figcaption><strong>Music playing</strong><span>The line being sung, or the title and artist between lines, with bars in the album's colour and a glow of it along the bottom.</span></figcaption>
+        </figure>
+        <figure class="strip">
+          <div class="sky"><div class="island"><img src="assets/shots/pill/timer-activity.webp" alt="A focus countdown in the Pill theme: a progress ring and the minutes left in a capsule" width="96" height="40" loading="lazy"></div></div>
           <figcaption><strong>Focus timer</strong><span>The ring and the minutes left.</span></figcaption>
         </figure>
         <figure class="strip">
-          <div class="sky"><div class="island"><img src="assets/shots/pill/volume-hud.webp" alt="The volume pop-up in the Pill theme: a speaker, the level and the percentage in one capsule" width="316" height="48" loading="lazy"></div></div>
-          <figcaption><strong>Volume and charging</strong><span>Pop-ups take the same shape.</span></figcaption>
+          <div class="sky"><div class="island"><img src="assets/shots/pill/volume-hud.webp" alt="The volume pop-up in the Pill theme: a speaker, the level and 64% in one capsule" width="272" height="40" loading="lazy"></div></div>
+          <figcaption><strong>Volume and charging</strong><span>Pop-ups take the same capsule shape.</span></figcaption>
+        </figure>
+        <figure class="strip">
+          <div class="sky"><div class="island"><img src="assets/shots/pill/health-notice.webp" alt="A notice in the Pill theme: 8,412 steps today, daily step goal reached, in a taller capsule" width="200" height="56" loading="lazy"></div></div>
+          <figcaption><strong>Notices</strong><span>A taller capsule, with room for two lines.</span></figcaption>
         </figure>
       </div>
       <figure class="strip tall pill-page">
-        <div class="sky"><div class="island"><img src="assets/shots/pill/page-media.webp" alt="The open island in the Pill theme: a black card with four rounded corners floating below the top edge, on the Music page with synced lyrics" width="620" height="224" loading="lazy"></div></div>
-        <figcaption><strong>Open</strong><span>A card with all four corners rounded. On the Music page: the album art and the song, the time on one line, and the controls under it.</span></figcaption>
+        <div class="sky"><div class="island"><img src="assets/shots/pill/page-media.webp" alt="The open island in the Pill theme: a black card with four rounded corners floating below the top edge, on the Music page: the album art, Spotify over Paper Boats, the time on one line, the controls, and the synced lyrics beside them" width="620" height="224" loading="lazy"></div></div>
+        <figcaption><strong>Open</strong><span>A card with every corner rounded and Classic's tabs. On the Music page: the art, the player's name over the song, the time on one line and big controls, with the lyrics beside them.</span></figcaption>
       </figure>
       <div class="theme-notes">
         <ul>
           <li><span>A soft shadow and a fine rim keep it apart from the wallpaper, light or dark.</span></li>
           <li><span>Colour only where it means something: the album's colour for music, green for a charging battery, red for a low one.</span></li>
-          <li><span>Right-click › <b>Idle look</b> › <b>Status bar</b> and the resting pill widens into a status bar: the date and time, the volume and the battery.</span></li>
+          <li><span>Status bar is Pill's own idle look: right-click › <b>Idle look</b> › <b>Status bar</b>. The other themes keep the clock.</span></li>
+          <li><span>On a MacBook with a notch, the resting island stays beside the camera, and pop-ups, notices and the open card float just below it: <a href="#mac">see On a Mac</a>.</span></li>
           <li><span>The pages and features are the same as in Classic. Classic stays the default look.</span></li>
         </ul>
         <div class="pill-side">
-          <figure class="strip">
-            <div class="sky"><div class="island"><img src="assets/shots/pill/health-notice.webp" alt="A notice in the Pill theme: 8,412 steps today, daily step goal reached, in a taller capsule" width="372" height="60" loading="lazy"></div></div>
-            <figcaption><strong>Notices</strong><span>A taller capsule, with room for two lines.</span></figcaption>
-          </figure>
-          <p class="how">Right-click the island, then <kbd>Theme</kbd> › <kbd>Pill</kbd>. Or open the island, press the gear and pick <kbd>Pill</kbd> under Theme. Switch back to <kbd>Classic</kbd> any time.</p>
+          <p class="how">Right-click the island, then <kbd>Theme</kbd> › <kbd>Pill</kbd>. Or open the island, press the gear and pick <kbd>Pill</kbd> under Theme. On a Mac, it's in the menu bar's Theme menu. Switch back to <kbd>Classic</kbd> any time.</p>
         </div>
       </div>
     </div>

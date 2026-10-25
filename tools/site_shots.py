@@ -55,6 +55,12 @@ menu bar:
     gh run download <mac run> -R lucacadalora/poni -n mac-renders -D mac-renders
     python3 tools/site_shots.py mac-renders mac
 
+Pill's Mac pictures (mac/pill/, MAC_PILL_KEEP) are cut taller: what hangs
+below the notch floats there. A theme as a fourth argument cuts only that
+theme's pictures:
+
+    python3 tools/site_shots.py mac-renders mac pill
+
 The self-test writes NAME.png (the island's canvas on a test gradient, with
 margins) and NAME-alpha.png (the canvas's own alpha). This cuts the canvas out,
 takes its alpha from NAME-alpha.png and removes the gradient from the
@@ -76,8 +82,9 @@ KEEP = {
     "page-settings-stay-on-top", "page-shelf-pairing", "page-addons", "page-prayer", "prayer-countdown",
     "game-stats", "page-system-games",
 }
-# The Pill section: the island at rest, playing music and open on the Music page.
-PILL_KEEP = {"idle-clock", "media-activity", "timer-activity", "volume-hud", "health-notice", "page-media"}
+# The Pill section: the island at rest (clock and status bar looks), playing music (the line being
+# sung), a timer, a pop-up and a notice, and open on the Music page.
+PILL_KEEP = {"idle-clock", "idle-status", "media-activity", "timer-activity", "volume-hud", "health-notice", "page-media"}
 # Glass pictures keep the page under the island: the glass is made of it.
 # By run: the open island in light and dark mode, and the resting island
 # over a bright page and over a dark one with Windows still in light mode.
@@ -87,6 +94,10 @@ GLASS_KEEP = {"light": {"page-media", "media-activity"}, "dark": {"page-media"},
 # the notch and are kept whole.
 MAC_KEEP = {"idle-clock", "media-activity", "timer-activity", "page-media", "page-today"}
 MAC_STRIP = (840, 136)
+# Pill on a Mac: what hangs below the notch (the line being sung, pop-ups) floats there, so its
+# strips are cut taller to keep the pill and its shadow; the resting island stays in the ears.
+MAC_PILL_KEEP = {"idle-clock", "media-activity", "volume-hud", "page-media", "page-today"}
+MAC_PILL_STRIP = (840, 216)
 
 
 def cut(shot: Path, alpha: Path, floating: bool = False) -> Image.Image:
@@ -129,17 +140,19 @@ def glass(src: Path, run: str) -> None:
         print(f"glass/{run}-{name}.webp  {img.width}x{img.height}")
 
 
-def mac(src: Path) -> None:
+def mac(src: Path, only: str | None = None) -> None:
     for shot in sorted(src.glob("[0-9][0-9]-*-notch.png")):
         name = re.sub(r"^\d\d-", "", shot.stem)[: -len("-notch")]
         theme = "classic"
-        if name.endswith("-oyen"):
-            name, theme = name[: -len("-oyen")], "oyen"
-        if name not in MAC_KEEP:
+        for t in ("oyen", "pill"):
+            if name.endswith("-" + t):
+                name, theme = name[: -len(t) - 1], t
+        keep, strip = (MAC_PILL_KEEP, MAC_PILL_STRIP) if theme == "pill" else (MAC_KEEP, MAC_STRIP)
+        if name not in keep or (only and theme != only):
             continue
         img = Image.open(shot).convert("RGB")
         if not name.startswith("page-"):
-            w, h = MAC_STRIP
+            w, h = strip
             x0 = (img.width - w) // 2
             img = img.crop((x0, 0, x0 + w, h))
         dst = ROOT / "site" / "assets" / "shots" / "mac" / theme
@@ -152,8 +165,8 @@ def main() -> None:
     if len(sys.argv) == 4 and sys.argv[2] == "glass" and sys.argv[3] in ("light", "dark", "flip"):
         glass(Path(sys.argv[1]), sys.argv[3])
         return
-    if len(sys.argv) == 3 and sys.argv[2] == "mac":
-        mac(Path(sys.argv[1]))
+    if len(sys.argv) in (3, 4) and sys.argv[2] == "mac":
+        mac(Path(sys.argv[1]), sys.argv[3] if len(sys.argv) == 4 else None)
         return
     if len(sys.argv) not in (3, 4) or sys.argv[2] not in ("classic", "oyen", "pill"):
         sys.exit(__doc__)

@@ -185,7 +185,7 @@ Yes, on Windows 10 and 11. Glass needs Windows 10 version 2004 or later to bend 
 <summary><b>What's different on a Mac?</b></summary>
 <br>
 
-The island wraps the notch, and the Mac has music with lyrics, Focus, the Shelf with Phone drop, Tasks, Clipboard, Today, the Classic, Oyen and Glass themes and start at login. Not on the Mac yet: paired phones, Oyenza sign-in, add-ons, Show over games, headphone pop-ups and hiding in full-screen apps. [On a Mac](#on-a-mac) has the details.
+The island wraps the notch, and the Mac has music with lyrics, Focus, the Shelf with Phone drop, Tasks, Clipboard, Today, the Classic, Oyen, Glass and Pill themes and start at login. Not on the Mac yet: paired phones, Oyenza sign-in, add-ons, Show over games, headphone pop-ups and hiding in full-screen apps. [On a Mac](#on-a-mac) has the details.
 
 </details>
 
@@ -234,13 +234,14 @@ To bend what's under it, Glass copies the part of the screen behind its window (
 
 ### The Pill theme
 
-Pill changes the island's shape and layouts, not only its colours. Pick it with right-click › **Theme › Pill**, or the gear › **Theme › Pill**.
+Pill changes the island's shape and layouts, not only its colours. Pick it with right-click › **Theme › Pill**, or the gear › **Theme › Pill**; on a Mac, in the menu bar's Theme menu.
 
 - **It floats.** The island sits a little below the top edge: a capsule while it rests, and a card with all four corners rounded when it opens. A soft shadow and a fine rim keep it apart from the wallpaper, light or dark.
-- **At rest** it shows the time and, on a laptop, the battery on the right. Pick **Idle look › Status bar** and it widens into a status bar with the date and time, the volume and the battery.
-- **While music plays** it shows the album art, the line being sung (or the song's title when nothing is being sung) and a beat in the album's colour, which glows along the bottom edge.
-- **Open**, the Music page is a card: the album art and the song, the time on one line, and the controls under it. Pop-ups and notices take the capsule shape too.
+- **At rest** it shows the time and, on a laptop, the battery's percentage and the battery on the right, with a bolt while it's plugged in. A desktop shows the time alone. Pick **Idle look › Status bar** and it widens into a status bar: the volume, the date and time in an inner pill, and the battery. Status bar is Pill's own; the other themes keep the clock.
+- **While music plays** it shows the album art, the line being sung (or the title and artist between lines) and bars in the album's colour, with a glow of it along the bottom edge.
+- **Open**, it's a card with Classic's tabs. The Music page lays out like a player card: the art, the player's name over the song, the time on one line and big controls, with the lyrics beside them. Pop-ups, notices and the focus timer take the capsule shape too.
 - **Colour only where it means something:** the album's colour for music, green for a charging battery, red for a low one, and your Windows accent elsewhere.
+- **On a MacBook with a notch**, the resting island, the timer and music between lines stay beside the camera, and the line being sung, pop-ups, notices and the open card float just below the notch. Without a notch it floats below the top of the screen, as on Windows.
 
 The pages and features are the same as in Classic.
 
@@ -256,7 +257,7 @@ Windows lets only admins and the **Performance Log Users** group read that log. 
 
 On a MacBook with a camera notch, the island lives around it: what's playing sits either side of the camera (the album art on the left and the beat on the right, a timer's ring and its minutes the same way), and the island opens downward from the notch when you point at it. On a Mac without a notch, or on another display, it hangs from the top of the screen as it does on Windows.
 
-The Mac app has the island, Music and Spotify with synced lyrics (and Apple Music's own with [your token](#apple-music-lyrics)), the focus timer, the Shelf with [Phone drop](#phone-drop) over the same Wi-Fi, tasks, clipboard history, Today with your Mac's CPU, memory, disk and battery, pop-ups for volume and charging, the Classic, Oyen and Glass themes, and start at login. Every option is in the menu bar, under Oyen's mark. Not on the Mac yet: paired phones, Oyenza sign-in, add-ons, Show over games, headphone pop-ups and hiding in full-screen apps.
+The Mac app has the island, Music and Spotify with synced lyrics (and Apple Music's own with [your token](#apple-music-lyrics)), the focus timer, the Shelf with [Phone drop](#phone-drop) over the same Wi-Fi, tasks, clipboard history, Today with your Mac's CPU, memory, disk and battery, pop-ups for volume and charging, the Classic, Oyen, Glass and Pill themes ([Pill](#the-pill-theme) floats just below the notch for pop-ups and the open card), and start at login. Every option is in the menu bar, under Oyen's mark. Not on the Mac yet: paired phones, Oyenza sign-in, add-ons, Show over games, headphone pop-ups and hiding in full-screen apps.
 
 The Mac pictures come from the Mac app itself (`poni --render <dir> --notch`, run by the `mac` workflow on a macOS runner with a MacBook's notch drawn in).
 
