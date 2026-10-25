@@ -229,7 +229,7 @@ The gear at the top right of the open island opens **Settings**: your Oyenza acc
 - lyrics (and the pronunciation line under Japanese, Korean and Chinese lyrics), clipboard history and sounds
 - in full-screen apps: hide, or stay on top of borderless games and videos (a game in exclusive full-screen mode still covers it), and show FPS, GPU and CPU over games
 - over maximized windows: step aside so a browser's tabs stay visible (point at the top edge to open the island), or stay over them
-- start with Windows, and quit
+- start with Windows, which version you have (**About Oyenza Studio**, with the build's day; it opens that version's release notes), and quit
 
 On a Mac, every option is in the menu bar, under Oyen's mark.
 
