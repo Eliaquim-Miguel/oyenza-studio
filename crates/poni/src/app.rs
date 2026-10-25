@@ -1700,6 +1700,17 @@ impl App {
                             self.st.lyrics.source = source;
                             self.st.lyrics.ruby = ruby;
                             self.st.lyrics.wants_ja_readings = wants_ja_readings;
+                            // The first Japanese song whose kanji went unread
+                            // switches Japanese readings on, as its switch in
+                            // Add-ons would: it downloads once (3.8 MB) and
+                            // the song is read again with romaji. Only people
+                            // who play Japanese songs get it; switched off by
+                            // hand, it stays off (the Music page still offers it).
+                            if poni_core::addons::ja_switches_on(&self.st.settings, wants_ja_readings) {
+                                pinfo!("lyrics: a Japanese song's kanji went unread; switching Japanese readings on");
+                                self.st.settings.set_addon(poni_core::addons::JAPANESE_READINGS.id, true);
+                                self.st.cmd(Command::SaveSettings);
+                            }
                         }
                         crate::events::LyricsResult::Instrumental => self.st.lyrics.status = LyricsStatus::Instrumental,
                         crate::events::LyricsResult::NotFound => self.st.lyrics.status = LyricsStatus::NotFound,
@@ -2943,10 +2954,12 @@ impl App {
         if let poni_core::pomodoro::RunState::Running { ends_at } = self.st.pomodoro.run {
             consider(ends_at + 0.005);
         }
-        // Pill's music pill wakes for every sung line; nobody sees those while
-        // the session is locked or the display is off, so they rest then (the
-        // lock and display events ask for a frame, which picks them up again).
-        let watched = visible && !(pill::on(self.st.settings.theme) && (self.locked || self.display_off));
+        // The music pill wakes for every sung line (in every theme), and Pill's
+        // pills for their own changes; nobody sees those while the session is
+        // locked or the display is off, so they rest then (the lock and
+        // display events ask for a frame, which picks them up again).
+        let singing = self.mode == Mode::Activity(activities::Activity::Media);
+        let watched = visible && !((pill::on(self.st.settings.theme) || singing) && (self.locked || self.display_off));
         if let Some(t) = activities::next_wake(&self.mode, &self.st).filter(|_| watched) {
             consider(t);
         }

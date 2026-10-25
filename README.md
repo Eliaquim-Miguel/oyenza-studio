@@ -41,7 +41,7 @@
 
 ### Music, word by word
 
-Controls for whatever is playing: Spotify, Apple Music, YouTube in your browser, or any app in Windows' media controls. The lyrics scroll in time with the song, and Korean, Japanese and Chinese lines get their reading underneath, the way Apple Music shows pronunciation. Drag the bar to jump anywhere in a song.
+Controls for whatever is playing: Spotify, Apple Music, YouTube in your browser, or any app in Windows' media controls. The lyrics scroll in time with the song, and Korean, Japanese and Chinese lines get their reading underneath, the way Apple Music shows pronunciation. The line being sung also shows on the closed island, in every theme, so you can sing along without opening it. Drag the bar to jump anywhere in a song.
 
 <p align="center"><img src="docs/brand/readme/music.webp" width="880" alt="The open island on the Music page: the song, its controls and a Korean lyric line with its reading underneath"></p>
 
@@ -49,7 +49,7 @@ Lyrics come free from [LRCLIB](https://lrclib.net), or from Apple Music itself w
 
 ### What's happening, at a glance
 
-While it rests, the island is a small black pill that tells you what's going on, then gets out of the way: album art and a beat while music plays, your focus timer, volume and charging, headphones connecting with their battery, money coming in, the next prayer.
+While it rests, the island is a small black pill that tells you what's going on, then gets out of the way: album art, the line being sung and a beat while music plays, your focus timer, volume and charging, headphones connecting with their battery, money coming in, the next prayer.
 
 <p align="center"><img src="docs/brand/readme/glance.webp" width="880" alt="Six resting islands: music playing, a focus timer, volume, headphones connected, money in, and minutes to the next prayer"></p>
 
@@ -339,7 +339,7 @@ The **+** at the end of the tabs lists features that aren't part of the download
 - **Your place:** Windows' location picks the nearest of Kemenag's 517 places and checks again every few hours, so a trip moves the place. The point is used once on your PC and never saved or sent. With location off, the PC's time zone suggests a place; **Change place** lets you type yours.
 - **Accuracy:** replayed against Kemenag's published 2026 schedule for all 517 places, 98.2% of 227,367 times match to the minute and none is more than a minute off (`cargo test -p poni-core prayer`; details in [addons/sholat](addons/sholat/README.md)).
 
-**Japanese readings** (3.8 MB) gives romaji under the kanji in Japanese lyrics on PCs where Windows can't read them (Windows keeps its Japanese reading data in the Japanese typing feature, which most PCs outside Japan don't have). Only people who play Japanese songs need it: when a song's kanji go unread, the Music page offers it under the lyrics, and one click switches it on. Kana, Korean and Chinese read without it. On a Mac it gives romaji under every kanji the same way, from the same offer or the Mac's Add-ons tab, where it's the only add-on. Details in [addons/ja](addons/ja/README.md).
+**Japanese readings** (3.8 MB) gives romaji under the kanji in Japanese lyrics on PCs where Windows can't read them (Windows keeps its Japanese reading data in the Japanese typing feature, which most PCs outside Japan don't have). Only people who play Japanese songs get it: the first time a song's kanji go unread, it switches itself on and downloads once, and the romaji show a moment later. Switch it off in Add-ons and it stays off; the Music page then offers it under the lyrics, one click away. Kana, Korean and Chinese read without it. On a Mac it gives romaji under every kanji the same way, and the Mac's Add-ons tab, where it's the only add-on, switches it too. Details in [addons/ja](addons/ja/README.md).
 
 ## Build
 
