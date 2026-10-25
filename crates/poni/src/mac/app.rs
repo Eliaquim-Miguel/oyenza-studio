@@ -384,6 +384,8 @@ pub struct App {
     cost: DrawCost,
     smoke_timer: Option<poni_core::pomodoro::Pomodoro>,
     smoke_point: Option<Point>,
+    /// The island floated on the last frame (Pill letting go of the notch).
+    was_floating: bool,
 }
 
 impl App {
@@ -469,6 +471,7 @@ impl App {
             cost: DrawCost::default(),
             smoke_timer: None,
             smoke_point: None,
+            was_floating: false,
         }
     }
 
@@ -1910,6 +1913,17 @@ impl App {
         // bar for what hangs under a notch).
         self.island.set_floating(self.gap_target(&self.mode));
         self.island.step(dt, now);
+        // The island let go of the notch or docked again under a pointer that
+        // didn't move: take the mouse there, or let it through, for where the
+        // island is now (the smoke run moves its own pointer).
+        if self.island.floating() != self.was_floating {
+            self.was_floating = self.island.floating();
+            if self.smoke.is_none() {
+                if let Some((x, y)) = window::pointer() {
+                    self.on_pointer(Point::new(x, y));
+                }
+            }
+        }
         self.ensure_room();
         self.note_motion(retarget, mono, period, dt as f64);
         // macOS's glass follows the island's outline, set before the repaint.
