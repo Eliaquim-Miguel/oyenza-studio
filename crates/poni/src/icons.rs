@@ -78,7 +78,7 @@ pub enum Icon {
     Moon,
     /// Stop (the adzan): a rounded square.
     Stop,
-    /// Record (Oyenza Studio Recorder): a dot as wide as Stop's square.
+    /// Record (Oyenza Studio Recorder): a dot that fits inside `Circle`.
     Record,
 }
 
