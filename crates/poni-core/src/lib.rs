@@ -29,6 +29,7 @@ pub mod pomodoro;
 pub mod prayer;
 pub mod recorder;
 pub mod romanize;
+pub mod script;
 pub mod settings;
 pub mod sha256;
 pub mod shelf;

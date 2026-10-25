@@ -79,11 +79,48 @@ pub fn create_island_window() -> Result<HWND> {
     }
 }
 
+/// Who wants the island left out of screen capture. The Glass theme does
+/// while it copies the screen under the island, so the copy never contains
+/// the island itself; the Script page does while it shows, so the script
+/// stays out of screen shares and recordings.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CaptureOwner {
+    Glass = 1,
+    Script = 2,
+}
+
+thread_local! {
+    // (owners that want it, what Windows was last told). UI thread only.
+    static CAPTURE: std::cell::Cell<(u8, bool)> = const { std::cell::Cell::new((0, false)) };
+}
+
 /// Leave the island out of screenshots, screen recordings and screen sharing
-/// (`on`), or put it back. The Glass theme turns this on while it copies the
-/// screen under the island, so the copy never contains the island itself.
-/// True when Windows took the setting.
-pub fn set_capture_excluded(hwnd: HWND, on: bool) -> bool {
+/// for `who` (`on`), or stop wanting it. The island stays out while any
+/// owner wants it, so one owner letting go never shows it under the other.
+/// True when Windows holds what the owners want now.
+pub fn exclude_from_capture(hwnd: HWND, who: CaptureOwner, on: bool) -> bool {
+    CAPTURE.with(|c| {
+        let (mut wants, told) = c.get();
+        if on {
+            wants |= who as u8;
+        } else {
+            wants &= !(who as u8);
+        }
+        let want = wants != 0;
+        let ok = want == told || set_capture_excluded(hwnd, want);
+        c.set((wants, if ok { want } else { told }));
+        ok
+    })
+}
+
+/// Whether Windows leaves the island out of screen capture right now.
+pub fn capture_excluded(hwnd: HWND) -> bool {
+    let mut got = 0u32;
+    unsafe { GetWindowDisplayAffinity(hwnd, &mut got).is_ok() && got == WDA_EXCLUDEFROMCAPTURE.0 }
+}
+
+/// Tell Windows (see [`exclude_from_capture`]). True when it took the setting.
+fn set_capture_excluded(hwnd: HWND, on: bool) -> bool {
     let want = if on { WDA_EXCLUDEFROMCAPTURE } else { WDA_NONE };
     unsafe {
         if SetWindowDisplayAffinity(hwnd, want).is_err() {

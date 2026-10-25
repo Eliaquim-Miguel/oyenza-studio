@@ -433,7 +433,7 @@ use windows::Win32::Foundation::HWND;
 
 /// Windows 10 version 2004: the first build that can leave a window out of
 /// screen capture (older ones black it out, and the copy would show a hole).
-const EXCLUDE_FROM_CAPTURE_BUILD: u32 = 19041;
+pub(crate) const EXCLUDE_FROM_CAPTURE_BUILD: u32 = 19041;
 /// How long the glass takes to turn from dark to light or back (seconds).
 const FLIP_TIME: f32 = 0.2;
 
@@ -510,7 +510,7 @@ impl Glass {
             self.stopped = None;
             self.probe_hits = 0;
             if self.excluded {
-                window::set_capture_excluded(hwnd, false);
+                window::exclude_from_capture(hwnd, window::CaptureOwner::Glass, false);
                 self.excluded = false;
             }
             if !self.injected && self.frame.take().is_some() {
@@ -545,7 +545,7 @@ impl Glass {
             }
         }
         if !self.excluded {
-            if !window::set_capture_excluded(hwnd, true) {
+            if !window::exclude_from_capture(hwnd, window::CaptureOwner::Glass, true) {
                 self.stop_for(hwnd, gfx, "Windows didn't leave the island out of capture".into());
                 return;
             }
@@ -561,7 +561,7 @@ impl Glass {
         self.stopped = Some(why);
         self.copy = None;
         if self.excluded {
-            window::set_capture_excluded(hwnd, false);
+            window::exclude_from_capture(hwnd, window::CaptureOwner::Glass, false);
             self.excluded = false;
         }
         self.frame = None;
@@ -712,7 +712,7 @@ impl Glass {
         self.injected = false;
         self.copy = None;
         if self.excluded {
-            window::set_capture_excluded(hwnd, false);
+            window::exclude_from_capture(hwnd, window::CaptureOwner::Glass, false);
             self.excluded = false;
         }
         self.frame = None;
