@@ -2200,11 +2200,12 @@ impl App {
 
     /// Software renderer, floating island (the Pill theme) collapsed: a
     /// layered window takes the mouse wherever its pixels aren't fully
-    /// transparent, so the pill's soft shadow beside and below it takes it
-    /// too. A pointer there is off the island: no hover, no click, no menu.
-    /// (The GPU renderer's hit mask leaves the shadow out, and clicks there
-    /// reach the app below.) `p` is a pixel's corner: its centre is tested,
-    /// so an edge pixel the outline mostly covers still counts.
+    /// transparent. That renderer draws the pill without its shadow
+    /// (`pill::shape::draw_body`), so what's left beside the outline is its
+    /// anti-aliased edge: a pointer there is off the island (no hover, no
+    /// click, no menu). (The GPU renderer's hit mask decides on its own.)
+    /// `p` is a pixel's corner: its centre is tested, so an edge pixel the
+    /// outline mostly covers still counts.
     fn over_shadow(&self, p: Point) -> bool {
         if self.expanded || !self.island.floating() || self.gfx.needs_hit_mask() {
             return false;

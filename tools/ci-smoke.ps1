@@ -81,7 +81,8 @@ $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
 $cx = [int]($bounds.Width / 2)
 $pill = $Theme -eq "pill"
 # Software renderer: a layered window takes the mouse wherever its pixels
-# aren't fully transparent, so a soft shadow does too (Poni ignores it there).
+# aren't fully transparent. Pill draws no shadow there, so only the outline's
+# anti-aliased edge can take it (Poni ignores a pointer there).
 $soft = $env:PONI_RENDERER -eq "software"
 
 # Park the cursor away from the island.

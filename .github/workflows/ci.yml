@@ -323,6 +323,11 @@ jobs:
             $r = Get-Content selftest-pill\report.json -Raw | ConvertFrom-Json
             "renderer: $($r.renderer); states passed: $($r.states_passed)/$($r.states_total); failed: $($r.failed_checks -join ', ')"
             if ($r.slow_frames) { "::warning title=Slow Pill frames on CI's software GPU (not counted)::$($r.slow_frames -join '; ')" }
+            # A theme the self-test doesn't read runs (and passes) as Classic:
+            # make sure Pill's own checks ran.
+            $pillChecks = @($r.states | ForEach-Object { $_.checks } | Where-Object { $_.name -eq 'pill-gap' }).Count
+            "pill-gap checks run: $pillChecks"
+            if ($pillChecks -eq 0) { "::error title=Pill self-test::no pill-gap check ran, so this was not a Pill run"; exit 1 }
           }
           if ($code -ne 0) {
             Get-Content selftest-pill\home\cache\poni.log -Tail 80 -ErrorAction SilentlyContinue

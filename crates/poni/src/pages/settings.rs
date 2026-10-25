@@ -122,11 +122,11 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
     let look_sel = looks.iter().position(|s| *s == status::shown(st.settings.theme, st.settings.idle_style)).unwrap_or(0);
     // Side by side under their labels when both fit their columns, each
     // closed up only as far as it needs; else a row each. Whether they fit is
-    // asked of the most idle looks any theme offers, so picking a theme never
-    // rearranges the pickers.
-    let most: Vec<&str> = status::looks(Theme::Pill).iter().map(|s| idle_name(*s, eyes)).collect();
+    // asked of this theme's own looks, so Classic, Oyen and Glass sit side by
+    // side exactly where they always did (at a narrow island picking Pill,
+    // with its fifth look, can stack them).
     let theme_pad = pad_to_fit(ui, &theme_names, col_w);
-    let side_by_side = theme_pad >= SEG_PAD_MIN && pad_to_fit(ui, &most, col_w) >= SEG_PAD_MIN;
+    let side_by_side = theme_pad >= SEG_PAD_MIN && pad_to_fit(ui, &look_names, col_w) >= SEG_PAD_MIN;
     let (theme_pick, look_pick) = if side_by_side {
         ui.c.text("THEME", Rect::new(cols[0], area.y + LABELS_Y, col_w, 14.0), &label_st);
         ui.c.text("IDLE LOOK", Rect::new(cols[1], area.y + LABELS_Y, col_w, 14.0), &label_st);

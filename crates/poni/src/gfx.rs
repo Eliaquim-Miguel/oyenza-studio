@@ -614,8 +614,11 @@ fn in_rounded_rect(body: Rect, radius: f32, p: Point) -> bool {
         return false;
     }
     let r = radius.min(body.h / 2.0).min(body.w / 2.0).max(0.0);
-    let cx = p.x.clamp(body.x + r, body.right() - r);
-    let cy = p.y.clamp(body.y + r, body.bottom() - r);
+    // max/min, not clamp: for a capsule (r = h/2) at fractional positions,
+    // as while it moves, `y + r` can round one step past `bottom - r`, and
+    // clamp panics when its bounds cross.
+    let cx = p.x.max(body.x + r).min(body.right() - r);
+    let cy = p.y.max(body.y + r).min(body.bottom() - r);
     (p.x - cx).hypot(p.y - cy) <= r
 }
 
@@ -628,7 +631,8 @@ fn in_notch(body: Rect, radius: f32, shoulder: f32, p: Point) -> bool {
     }
     if p.x >= body.x && p.x < body.right() {
         let r = radius.min(body.h).min(body.w / 2.0).max(0.0);
-        let cx = p.x.clamp(body.x + r, body.right() - r);
+        // max/min, not clamp (see in_rounded_rect).
+        let cx = p.x.max(body.x + r).min(body.right() - r);
         let cy = p.y.min(body.bottom() - r);
         return (p.x - cx).hypot(p.y - cy) <= r;
     }
@@ -2065,6 +2069,21 @@ mod tests {
         // A radius past half the height still makes a capsule, not a lens.
         let big = HitMask { rect: None, notch: None, pill: Some((body, 40.0)) };
         assert!(big.contains(pt(130.0, 9.0)) && !big.contains(pt(101.0, 9.0)));
+    }
+
+    #[test]
+    fn a_moving_capsule_never_panics_the_hit_test() {
+        // Mid-morph values (from the review's float32 spring simulation)
+        // where `y + h/2` rounds past `bottom - h/2`: clamp would panic here.
+        let body = Rect::new(100.0, 5.903_092_9, 152.0, 38.169_205);
+        let m = HitMask { rect: None, notch: None, pill: Some((body, 20.0)) };
+        assert!(m.contains(pt(176.0, 40.0)), "the lower half of a capsule in motion");
+        for i in 0..400 {
+            let (y, h) = (5.0 + i as f32 * 0.0173, 30.0 + i as f32 * 0.0311);
+            let b = Rect::new(100.3, y, 151.7, h);
+            let m = HitMask { rect: None, notch: Some((b, h / 2.0, 9.0)), pill: Some((b, h / 2.0)) };
+            let _ = m.contains(pt(176.0, y + h * 0.75));
+        }
     }
 
     #[test]
