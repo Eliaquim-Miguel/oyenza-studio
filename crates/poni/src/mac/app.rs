@@ -365,6 +365,8 @@ pub struct App {
     clipboard: Option<services::clipboard::Watcher>,
     /// Files are being dragged over the island.
     drag_hover: bool,
+    /// A Script page reading held the island open at the last tick.
+    script_held: bool,
     /// Shelf items waiting to be dragged out (started by the next drag event).
     pending_drag: Option<Vec<String>>,
     /// Phone drop's web server while the Shelf's phone panel is open, and the
@@ -458,6 +460,7 @@ impl App {
             own_clip: None,
             clipboard: None,
             drag_hover: false,
+            script_held: false,
             pending_drag: None,
             phone: None,
             phone_offer: Vec::new(),
@@ -1042,6 +1045,11 @@ impl App {
                     }
                 }
             }
+            AppEvent::ShelfAdd(paths) if self.expanded && self.st.page == PageKind::Script && pages::script::take_drop(&mut self.st, &paths) => {
+                // A text file dropped on the Script page becomes the script.
+                self.drag_hover = false;
+                self.st.drag_hover = false;
+            }
             AppEvent::ShelfAdd(paths) => {
                 let n = self.st.store.shelf.add_paths(&paths, self.st.unix);
                 for p in &paths {
@@ -1058,7 +1066,10 @@ impl App {
                 self.drag_hover = on;
                 self.st.drag_hover = on;
                 if on {
-                    self.st.page = PageKind::Shelf;
+                    // The Script page takes a text file; everything else goes to the Shelf.
+                    if !(self.expanded && self.st.page == PageKind::Script) {
+                        self.st.page = PageKind::Shelf;
+                    }
                     self.expand();
                 } else {
                     self.maybe_schedule_collapse();
@@ -1453,6 +1464,8 @@ impl App {
                     53 => Some(KeyInput::Escape),
                     123 => Some(KeyInput::Left),
                     124 => Some(KeyInput::Right),
+                    126 => Some(KeyInput::Up),
+                    125 => Some(KeyInput::Down),
                     115 => Some(KeyInput::Home),
                     119 => Some(KeyInput::End),
                     _ => None,
@@ -1642,6 +1655,13 @@ impl App {
                 }
                 Command::FocusText => self.focus_text(),
                 Command::BlurText => self.blur_text(),
+                Command::ScriptPaste => {
+                    let text = services::clipboard::read_text().map(|t| poni_core::script::clean(&t)).filter(|t| !t.is_empty());
+                    match text {
+                        Some(text) => pages::script::set_text(&mut self.st, text),
+                        None => pages::script::note(&mut self.st, "Copy your script first"),
+                    }
+                }
                 Command::SaveSettings => {
                     let before = self.saved_settings.clone();
                     self.settings_changed(&before);
@@ -1695,9 +1715,10 @@ impl App {
 
     // ------------------------------------------------------------ phone drop
 
-    /// The QR code waits for a phone, or a phone waits for an answer (Shelf page only).
+    /// The QR code waits for a phone, or a phone waits for an answer (Shelf
+    /// page only), or a reading is under way (Script page only).
     fn phone_holds(&self) -> bool {
-        self.st.phone_holds_island()
+        self.st.page_holds_island()
     }
 
     fn phone_cmd(&mut self, c: PhoneCmd) {
@@ -1863,6 +1884,17 @@ impl App {
         if let Some(ended) = self.st.pomodoro.tick(now) {
             pages::focus::on_phase_ended(&mut self.st, ended);
         }
+        // The Script page: a reading pauses while its page isn't on screen,
+        // and the island may close once nothing holds it.
+        let shown = self.expanded && self.st.page == PageKind::Script && !self.away.0 && !self.away.1;
+        if !shown && self.st.script.playing() {
+            self.st.script.pause(now);
+        }
+        let held = self.st.script_holds_island();
+        if self.script_held && !held {
+            self.maybe_schedule_collapse();
+        }
+        self.script_held = held;
     }
 
     /// Step the island to the frame the display shows next. Returns the part
