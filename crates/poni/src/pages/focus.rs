@@ -188,12 +188,18 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
     let (size, digits_cy) = if countdown.len() > 5 { (24.0, rc.y - 8.0) } else { (ts::DISPLAY, rc.y - 10.0) };
     let digits = TextStyle::new(size).weight(Weight::Semibold).tabular().center().color(if paused { palette::TEXT_DIM } else { palette::TEXT });
     ui.c.text(&countdown, Rect::new(rc.x - 50.0, digits_cy - 20.0, 100.0, 40.0), &digits);
+    let phase_name = |phase: Phase| match (phase, super::pt(st)) {
+        (Phase::Focus, true) => "Foco",
+        (Phase::ShortBreak, true) => "Pausa curta",
+        (Phase::LongBreak, true) => "Pausa longa",
+        _ => phase.label(),
+    };
     let (label, label_color) = if paused {
-        ("Paused".to_string(), ring_color)
+        (super::tr(st, "Paused", "Pausado").to_string(), ring_color)
     } else if running {
-        (format!("until {}", end_clock(st, remaining)), palette::TEXT_DIM)
+        (format!("{} {}", super::tr(st, "until", "até"), end_clock(st, remaining)), palette::TEXT_DIM)
     } else {
-        (phase.label().to_string(), palette::TEXT_DIM)
+        (phase_name(phase).to_string(), palette::TEXT_DIM)
     };
     ui.c.text(&label, Rect::new(rc.x - 48.0, rc.y + 6.0, 96.0, 16.0), &TextStyle::footnote().color(label_color).center());
 
@@ -209,7 +215,7 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
         // Switching is only possible while idle, so a running session shows
         // what it is instead of a row of dead chips.
         let minutes = (st.pomodoro.phase_duration(phase) / 60.0).round() as u32;
-        let status = format!("{} · {minutes} min", phase.label());
+        let status = format!("{} · {minutes} min", phase_name(phase));
         let style = TextStyle::body().weight(Weight::Semibold).color(palette::TEXT_DIM);
         ui.c.text(&status, Rect::new(x0, chips_y, col_w, CHIP_H), &style);
     } else {
@@ -217,16 +223,19 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
     }
 
     let (toggle_label, toggle_icon) = if running {
-        ("Pause", Icon::Pause)
+        (super::tr(st, "Pause", "Pausar"), Icon::Pause)
     } else if paused {
-        ("Resume", Icon::Play)
+        (super::tr(st, "Resume", "Retomar"), Icon::Play)
     } else {
-        ("Start", Icon::Play)
+        (super::tr(st, "Start", "Iniciar"), Icon::Play)
     };
     // The primary keeps one width for all three labels; squeeze everything on narrow islands.
-    let mut toggle_w = ["Start", "Pause", "Resume"].iter().map(|l| ui.pill_width(l, true, false)).fold(TOGGLE_MIN_W, f32::max);
-    let mut reset_w = ui.pill_width("Reset", true, false);
-    let mut skip_w = ui.pill_width("Skip", true, false);
+    let toggle_names = if super::pt(st) { ["Iniciar", "Pausar", "Retomar"] } else { ["Start", "Pause", "Resume"] };
+    let reset_label = super::tr(st, "Reset", "Reiniciar");
+    let skip_label = super::tr(st, "Skip", "Pular");
+    let mut toggle_w = toggle_names.iter().map(|l| ui.pill_width(l, true, false)).fold(TOGGLE_MIN_W, f32::max);
+    let mut reset_w = ui.pill_width(reset_label, true, false);
+    let mut skip_w = ui.pill_width(skip_label, true, false);
     let need = toggle_w + reset_w + skip_w + 2.0 * PILL_GAP;
     if need > col_w && need > 0.0 {
         let k = ((col_w - 2.0 * PILL_GAP) / (need - 2.0 * PILL_GAP)).clamp(0.6, 1.0);
@@ -240,14 +249,14 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
     }
     let reset_r = Rect::new(toggle_r.right() + PILL_GAP, buttons_y, reset_w, BUTTON_H);
     if active {
-        if ui.pill(wid("focus.reset"), reset_r, "Reset", Some(Icon::Reset), PillStyle::Neutral).clicked {
+        if ui.pill(wid("focus.reset"), reset_r, reset_label, Some(Icon::Reset), PillStyle::Neutral).clicked {
             st.pomodoro.reset();
         }
     } else {
-        disabled_pill(ui, reset_r, "Reset", Icon::Reset);
+        disabled_pill(ui, reset_r, reset_label, Icon::Reset);
     }
     let skip_r = Rect::new(reset_r.right() + PILL_GAP, buttons_y, skip_w, BUTTON_H);
-    if ui.pill(wid("focus.skip"), skip_r, "Skip", Some(Icon::Next), PillStyle::Neutral).clicked {
+    if ui.pill(wid("focus.skip"), skip_r, skip_label, Some(Icon::Next), PillStyle::Neutral).clicked {
         // A skipped phase is not a completed session, so no stats or notice.
         let _ = st.pomodoro.skip(now);
     }

@@ -16,7 +16,7 @@ use crate::state::{AppState, OyenzaLink};
 use crate::ui::{wid, wid_n, PillStyle, Ui, PILL_GAP, PILL_REGULAR, PILL_SMALL};
 use poni_core::geom::{palette, Color, Point, Rect};
 use poni_core::oyenza;
-use poni_core::settings::{IdleStyle, Theme};
+use poni_core::settings::{IdleStyle, Language, Theme};
 
 /// Account row, a line, the pickers under their labels (or a row each on a
 /// narrow island), then the switches and choices: four rows on Windows,
@@ -59,13 +59,17 @@ const OYENZA: Color = palette::ORANGE;
 const THEMES: [(Theme, &str); 4] = [(Theme::Classic, "Classic"), (Theme::Oyen, "Oyen"), (Theme::Glass, "Glass"), (Theme::Pill, "Pill")];
 
 /// An idle look's name in the picker (`eyes` is Oyen in his theme).
-fn idle_name(s: IdleStyle, eyes: &'static str) -> &'static str {
-    match s {
-        IdleStyle::Clock => "Clock",
-        IdleStyle::Eyes => eyes,
-        IdleStyle::Minimal => "Minimal",
-        IdleStyle::Hidden => "Hidden",
-        IdleStyle::Status => "Status",
+fn idle_name(s: IdleStyle, eyes: &'static str, pt: bool) -> &'static str {
+    match (s, pt) {
+        (IdleStyle::Clock, true) => "Relógio",
+        (IdleStyle::Eyes, _) => eyes,
+        (IdleStyle::Minimal, true) => "Minimal",
+        (IdleStyle::Hidden, true) => "Oculto",
+        (IdleStyle::Status, true) => "Status",
+        (IdleStyle::Clock, false) => "Clock",
+        (IdleStyle::Minimal, false) => "Minimal",
+        (IdleStyle::Hidden, false) => "Hidden",
+        (IdleStyle::Status, false) => "Status",
     }
 }
 
@@ -118,6 +122,7 @@ pub fn next_wake(st: &AppState) -> Option<f64> {
 }
 
 pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
+    let pt = st.settings.language == Language::PortugueseBrazil;
     draw_account(ui, st, Rect::new(area.x, area.y, area.w, ACCOUNT_H));
     let px = 1.0 / ui.c.scale().max(0.5);
     ui.c.fill_rect(Rect::new(area.x, area.y + RULE_Y, area.w, px), Color::white(0.10));
@@ -131,8 +136,8 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
     let theme_sel = THEMES.iter().position(|t| t.0 == st.settings.theme).unwrap_or(0);
     let looks = status::looks(st.settings.theme);
     // In the Oyen theme the eyes are Oyen's own (as in the tray menu).
-    let eyes = if st.settings.theme == Theme::Oyen { "Oyen" } else { "Eyes" };
-    let look_names: Vec<&str> = looks.iter().map(|s| idle_name(*s, eyes)).collect();
+    let eyes = if st.settings.theme == Theme::Oyen { "Oyen" } else if pt { "Olhos" } else { "Eyes" };
+    let look_names: Vec<&str> = looks.iter().map(|s| idle_name(*s, eyes, pt)).collect();
     let look_sel = looks.iter().position(|s| *s == status::shown(st.settings.theme, st.settings.idle_style)).unwrap_or(0);
     // Side by side under their labels when both fit their columns, each
     // closed up only as far as it needs; else a row each. Whether they fit is
@@ -142,8 +147,8 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
     let theme_pad = pad_to_fit(ui, &theme_names, col_w);
     let side_by_side = theme_pad >= SEG_PAD_MIN && pad_to_fit(ui, &look_names, col_w) >= SEG_PAD_MIN;
     let (theme_pick, look_pick) = if side_by_side {
-        ui.c.text("THEME", Rect::new(cols[0], area.y + LABELS_Y, col_w, 14.0), &label_st);
-        ui.c.text("IDLE LOOK", Rect::new(cols[1], area.y + LABELS_Y, col_w, 14.0), &label_st);
+        ui.c.text(if pt { "TEMA" } else { "THEME" }, Rect::new(cols[0], area.y + LABELS_Y, col_w, 14.0), &label_st);
+        ui.c.text(if pt { "VISUAL EM REPOUSO" } else { "IDLE LOOK" }, Rect::new(cols[1], area.y + LABELS_Y, col_w, 14.0), &label_st);
         let y = area.y + PICKERS_Y;
         let look_pad = pad_to_fit(ui, &look_names, col_w);
         (
@@ -153,7 +158,7 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
     } else {
         // A row each, the labels in a column of their own and both pickers
         // starting after it.
-        let labels = ["THEME", "IDLE LOOK"];
+        let labels = if pt { ["TEMA", "VISUAL EM REPOUSO"] } else { ["THEME", "IDLE LOOK"] };
         let label_w = labels.iter().map(|l| ui.c.measure(l, &label_st, 300.0).0.ceil()).fold(0.0f32, f32::max);
         let x = area.x + label_w + STACK_GAP;
         let pick = |ui: &mut Ui, i: usize, id: &str, names: &[&str], sel: usize| {
@@ -181,6 +186,17 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
             let row = Rect::new(cols[c], area.y + SWITCHES_Y + r as f32 * ROW_H, col_w, ROW_H);
             match kind {
                 Row::Switch(sw, label) => {
+                    let label = if pt {
+                        match sw {
+                            Switch::Lyrics => "Letras sincronizadas",
+                            Switch::Pronunciation => "Pronúncia das letras",
+                            Switch::Sounds => "Sons",
+                            Switch::Clipboard => "Área de transferência",
+                            Switch::Autostart => "Iniciar com o Windows",
+                        }
+                    } else {
+                        label
+                    };
                     let on = switch_on(st, sw);
                     let id = wid_n("settings.switch", (c * ROWS + r) as u64);
                     if switch_row_on(ui, id, row, label, on, accent, card) {
@@ -189,7 +205,8 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
                 }
                 Row::Fullscreen => {
                     let sel = FULLSCREEN.iter().position(|f| f.0 == st.settings.hide_in_fullscreen).unwrap_or(0);
-                    if let Some(i) = choice_row(ui, row, "In full-screen apps", "settings.fullscreen", &FULLSCREEN.map(|f| f.1), sel) {
+                    let names = if pt { ["Ocultar", "Por cima"] } else { FULLSCREEN.map(|f| f.1) };
+                    if let Some(i) = choice_row(ui, row, if pt { "Tela cheia" } else { "In full-screen apps" }, "settings.fullscreen", &names, sel) {
                         st.settings.hide_in_fullscreen = FULLSCREEN[i].0;
                         st.cmd(Command::SaveSettings);
                     }
@@ -197,7 +214,8 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
                 Row::Aside => {
                     let sel = ASIDE.iter().position(|a| a.0 == st.settings.step_aside).unwrap_or(0);
                     // The tray's "Over maximized windows", short enough for its column.
-                    if let Some(i) = choice_row(ui, row, "Maximized windows", "settings.aside", &ASIDE.map(|a| a.1), sel) {
+                    let names = if pt { ["Recolher", "Permanecer"] } else { ASIDE.map(|a| a.1) };
+                    if let Some(i) = choice_row(ui, row, if pt { "Janelas maximizadas" } else { "Maximized windows" }, "settings.aside", &names, sel) {
                         st.settings.step_aside = ASIDE[i].0;
                         st.cmd(Command::SaveSettings);
                     }
@@ -249,40 +267,44 @@ fn flip(st: &mut AppState, sw: Switch, on: Option<bool>) {
 // ---------------------------------------------------------------- account
 
 fn draw_account(ui: &mut Ui, st: &mut AppState, r: Rect) {
+    let pt = st.settings.language == Language::PortugueseBrazil;
     let cy = r.center().y;
     crate::oyen::app_icon(ui.c, Point::new(r.x + ICON / 2.0, cy), ICON);
     match st.oyenza.link.clone() {
         OyenzaLink::Off => {
-            let label = "Sign in with Oyenza";
+            let label = if pt { "Entrar com Oyenza" } else { "Sign in with Oyenza" };
             let w = ui.pill_width(label, false, false);
             let b = Rect::new(r.right() - w, cy - PILL_REGULAR / 2.0, w, PILL_REGULAR);
             if ui.pill(wid("settings.sign-in"), b, label, None, PillStyle::Primary(OYENZA)).clicked {
                 st.cmd(Command::Oyenza(OyenzaCmd::SignIn));
             }
-            account_text(ui, r, b.x, "Oyenza", "Sign in to see money in and bills due here.");
+            account_text(ui, r, b.x, "Oyenza", if pt { "Entre para ver recebimentos e contas a vencer aqui." } else { "Sign in to see money in and bills due here." });
         }
         OyenzaLink::Connecting { code, until, .. } => {
-            let cancel_w = ui.pill_width("Cancel", false, true);
+            let cancel_label = if pt { "Cancelar" } else { "Cancel" };
+            let cancel_w = ui.pill_width(cancel_label, false, true);
             let cancel = Rect::new(r.right() - cancel_w, cy - PILL_SMALL / 2.0, cancel_w, PILL_SMALL);
-            if ui.pill(wid("settings.cancel"), cancel, "Cancel", None, PillStyle::Utility).clicked {
+            if ui.pill(wid("settings.cancel"), cancel, cancel_label, None, PillStyle::Utility).clicked {
                 st.cmd(Command::Oyenza(OyenzaCmd::Cancel));
             }
-            let show_w = ui.pill_width("Show code", false, true);
+            let show_label = if pt { "Mostrar código" } else { "Show code" };
+            let show_w = ui.pill_width(show_label, false, true);
             let show = Rect::new(cancel.x - PILL_GAP - show_w, cancel.y, show_w, PILL_SMALL);
-            if ui.pill(wid("settings.show-code"), show, "Show code", None, PillStyle::Primary(OYENZA)).clicked {
+            if ui.pill(wid("settings.show-code"), show, show_label, None, PillStyle::Primary(OYENZA)).clicked {
                 st.cmd(Command::SetPage(PageKind::Oyenza));
             }
-            let line = format!("Code {code} · works for {}", oyenza::code_time_left(until - st.now));
-            account_text(ui, r, show.x, "Signing in to Oyenza", &line);
+            let line = if pt { format!("Código {code} · válido por {}", oyenza::code_time_left(until - st.now)) } else { format!("Code {code} · works for {}", oyenza::code_time_left(until - st.now)) };
+            account_text(ui, r, show.x, if pt { "Entrando no Oyenza" } else { "Signing in to Oyenza" }, &line);
         }
         OyenzaLink::Connected { account } => {
-            let dis_w = ui.pill_width("Disconnect", false, true);
+            let dis_label = if pt { "Desconectar" } else { "Disconnect" };
+            let dis_w = ui.pill_width(dis_label, false, true);
             let dis = Rect::new(r.right() - dis_w, cy - PILL_SMALL / 2.0, dis_w, PILL_SMALL);
-            if ui.pill(wid("settings.disconnect"), dis, "Disconnect", None, PillStyle::Utility).clicked {
+            if ui.pill(wid("settings.disconnect"), dis, dis_label, None, PillStyle::Utility).clicked {
                 st.cmd(Command::Oyenza(OyenzaCmd::Disconnect));
             }
             // Sums and senders straight away on the island (off: they wait for Show).
-            let label = "Show amounts";
+            let label = if pt { "Mostrar valores" } else { "Show amounts" };
             let lw = ui.c.measure(label, &TextStyle::body(), 300.0).0.ceil();
             let row = Rect::new(dis.x - 2.0 * ROW_BLEED - lw - 10.0 - SWITCH_W, cy - ROW_H / 2.0, lw + 10.0 + SWITCH_W, ROW_H);
             let on = st.settings.oyenza_show_amounts;
@@ -290,7 +312,7 @@ fn draw_account(ui: &mut Ui, st: &mut AppState, r: Rect) {
                 st.settings.oyenza_show_amounts = !on;
                 st.cmd(Command::SaveSettings);
             }
-            account_text(ui, r, row.x - ROW_BLEED, "Oyenza", &format!("Signed in as {account}"));
+            account_text(ui, r, row.x - ROW_BLEED, "Oyenza", &if pt { format!("Conectado como {account}") } else { format!("Signed in as {account}") });
         }
     }
 }

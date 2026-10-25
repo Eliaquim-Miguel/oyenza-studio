@@ -2084,16 +2084,15 @@ impl SelfTest {
         if w <= 0 || h <= 0 || px.len() != (w as usize) * (h as usize) * 4 {
             checks.push(check("pixels", false, format!("{w}x{h} frame with {} bytes", px.len())));
         } else if scene.rests_aside() {
-            // Nothing drawn over the window under the island: the strip it
-            // rests as is there only for the pointer (alpha 1/255 at most).
+            // A small visible grab bar remains over the maximized window.
             let seen = px.chunks_exact(4).filter(|p| p[3] > 1).count();
-            checks.push(check("aside-invisible", seen == 0, format!("{seen} pixels drawn with alpha above 1/255")));
+            checks.push(check("aside-visible", seen > 0, format!("{seen} visible pixels in the compact grab bar")));
             let (mode, aside) = app.selftest_mode();
-            // The Hidden look's strip: 150 wide, as short as the island gets (8).
+            let want_w = if crate::pill::on(self.theme) { 72.0 } else { 88.0 };
             checks.push(check(
                 "aside-strip",
-                mode == Mode::Aside && aside && (body.w - 150.0).abs() < 0.5 && body.h <= 8.5,
-                format!("{mode:?} (stepped aside: {aside}), body {:.1}x{:.1} DIP, want the Hidden look's 150x8 strip", body.w, body.h),
+                mode == Mode::Aside && aside && (body.w - want_w).abs() < 0.5 && (body.h - 8.0).abs() < 0.5,
+                format!("{mode:?} (stepped aside: {aside}), body {:.1}x{:.1} DIP, want the visible {want_w}x8 grab bar", body.w, body.h),
             ));
         } else {
             let cx = ((body.x + body.w / 2.0) * scale).floor() as i32;

@@ -75,7 +75,7 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
     if st.clip.is_empty() {
         st.ui.clip_scroll = 0.0;
         st.ui.clip_flash = None;
-        super::empty_state(ui, area, Icon::Clipboard, "Nothing copied yet", "Text you copy shows up here, kept in memory only");
+        super::empty_state(ui, area, Icon::Clipboard, super::tr(st, "Nothing copied yet", "Nada copiado ainda"), super::tr(st, "Text you copy shows up here, kept in memory only", "O texto copiado aparece aqui e fica somente na memória"));
         return;
     }
     let list = Rect::new(rest.x, rest.y + HEAD_GAP, rest.w, (rest.h - HEAD_GAP).max(0.0));
@@ -95,9 +95,10 @@ fn draw_summary(ui: &mut Ui, st: &mut AppState, r: Rect, undo: bool) {
     let mut text_right = r.right();
 
     if undo {
-        let w = snap(ui.pill_width("Undo", true, true), scale);
+        let undo_label = super::tr(st, "Undo", "Desfazer");
+        let w = snap(ui.pill_width(undo_label, true, true), scale);
         let pr = Rect::new(snap(r.right() - w, scale), pill_y, w, PILL_SMALL);
-        if ui.pill(wid("clip.undo"), pr, "Undo", Some(Icon::Undo), PillStyle::UtilityAccent(st.accent)).clicked {
+        if ui.pill(wid("clip.undo"), pr, undo_label, Some(Icon::Undo), PillStyle::UtilityAccent(st.accent)).clicked {
             if let Some(u) = take_undo() {
                 restore(&mut st.clip, &u);
             }
@@ -106,9 +107,10 @@ fn draw_summary(ui: &mut Ui, st: &mut AppState, r: Rect, undo: bool) {
         text_right = pr.x - PILL_GAP;
     } else if pinned < n {
         // Only when something unpinned is left to clear.
-        let w = snap(ui.pill_width("Clear", true, true), scale);
+        let clear_label = super::tr(st, "Clear", "Limpar");
+        let w = snap(ui.pill_width(clear_label, true, true), scale);
         let pr = Rect::new(snap(r.right() - w, scale), pill_y, w, PILL_SMALL);
-        if ui.pill(wid("clip.clear"), pr, "Clear", Some(Icon::Trash), PillStyle::Utility).clicked {
+        if ui.pill(wid("clip.clear"), pr, clear_label, Some(Icon::Trash), PillStyle::Utility).clicked {
             let before: Vec<ClipItem> = st.clip.iter().cloned().collect();
             st.clip.clear();
             let removed = before.iter().filter(|it| !it.pinned).cloned().collect();
@@ -124,9 +126,10 @@ fn draw_summary(ui: &mut Ui, st: &mut AppState, r: Rect, undo: bool) {
         return;
     }
     let pinned = st.clip.iter().filter(|it| it.pinned).count();
-    let mut count = format!("{n} {}", if n == 1 { "item" } else { "items" });
+    let pt = super::pt(st);
+    let mut count = format!("{n} {}", if pt { if n == 1 { "item" } else { "itens" } } else if n == 1 { "item" } else { "items" });
     if pinned > 0 {
-        count.push_str(&format!(" \u{b7} {pinned} pinned"));
+        count.push_str(&if pt { format!(" \u{b7} {pinned} fixados") } else { format!(" \u{b7} {pinned} pinned") });
     }
     let count_st = TextStyle::body().weight(Weight::Semibold).color(palette::TEXT_DIM);
     ui.c.text(&count, Rect::new(r.x, r.y, (text_right - r.x).max(0.0), r.h), &count_st);
@@ -193,7 +196,7 @@ fn draw_list(ui: &mut Ui, st: &mut AppState, list: Rect, card: Option<(Rect, f32
     ui.c.unclip();
 
     if n <= 2 {
-        draw_hint(ui, Rect::new(list.x, list.y + content_h, list.w, list.bottom() - list.y - content_h));
+        draw_hint(ui, st, Rect::new(list.x, list.y + content_h, list.w, list.bottom() - list.y - content_h));
     }
 
     match action {
@@ -310,12 +313,12 @@ fn draw_row(
 }
 
 /// Faint usage hint in the empty space below a short list.
-fn draw_hint(ui: &mut Ui, r: Rect) {
+fn draw_hint(ui: &mut Ui, st: &AppState, r: Rect) {
     if r.h < 36.0 {
         return;
     }
     ui.c.text(
-        "Click a row to copy it again",
+        super::tr(st, "Click a row to copy it again", "Clique em uma linha para copiar novamente"),
         Rect::new(r.x, r.y + (r.h - 20.0) / 2.0, r.w, 20.0),
         &TextStyle::footnote().color(palette::TEXT_FAINT).center(),
     );
@@ -330,10 +333,10 @@ fn draw_disabled(ui: &mut Ui, st: &mut AppState, area: Rect) {
     let cx = area.center().x;
     ui.c.icon(Icon::Clipboard, Rect::from_center(Point::new(cx, y + 13.0), 26.0, 26.0), Color::white(0.35));
     y += 36.0;
-    ui.c.text("Clipboard history is off", Rect::new(area.x, y, area.w, 20.0), &TextStyle::headline().center());
+    ui.c.text(super::tr(st, "Clipboard history is off", "O histórico da área de transferência está desativado"), Rect::new(area.x, y, area.w, 20.0), &TextStyle::headline().center());
     y += 22.0;
     ui.c.text(
-        "Keep your last text copies here. Nothing is written to disk.",
+        super::tr(st, "Keep your last text copies here. Nothing is written to disk.", "Guarde aqui os últimos textos copiados. Nada é salvo no disco."),
         Rect::new(area.x, y, area.w, 18.0),
         &TextStyle::footnote().color(palette::TEXT_DIM).center(),
     );

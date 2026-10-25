@@ -253,6 +253,15 @@ pub fn geom(m: &Mode, st: &AppState) -> Geom {
             let h = pages::HEADER_H + pages::content_height(*p, st) + pages::PAD;
             Geom::new(st.settings.expanded_width, h.round(), 30.0)
         }
+        // Every visible idle look keeps a discreet grab bar over maximized
+        // apps. Hidden remains the one deliberately invisible choice.
+        Mode::Aside if st.settings.idle_style != IdleStyle::Hidden => {
+            if crate::pill::on(st.settings.theme) {
+                Geom::new(72.0, 8.0, 4.0)
+            } else {
+                Geom::new(88.0, 8.0, 4.0)
+            }
+        }
         Mode::Aside => hidden_strip(),
     }
 }
@@ -842,8 +851,12 @@ mod tests {
         idle.aside = true;
         assert_eq!(collapsed_mode(&idle), Mode::Aside);
         assert_eq!(resting_mode(&idle), Mode::Idle, "where it would rest doesn't change");
-        // The strip is the Hidden look's, whatever the idle look.
-        assert_eq!(geom(&Mode::Aside, &idle), hidden_strip());
+        // Visible idle looks keep a compact grab bar over the window.
+        assert_eq!(geom(&Mode::Aside, &idle), Geom::new(88.0, 8.0, 4.0));
+        idle.settings.theme = poni_core::settings::Theme::Pill;
+        assert_eq!(geom(&Mode::Aside, &idle), Geom::new(72.0, 8.0, 4.0));
+        idle.settings.theme = poni_core::settings::Theme::Classic;
+        // Hidden remains the deliberately invisible strip.
         idle.settings.idle_style = IdleStyle::Hidden;
         assert_eq!(geom(&Mode::Idle, &idle), geom(&Mode::Aside, &idle));
 

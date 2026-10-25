@@ -46,6 +46,17 @@ pub enum MonitorChoice {
     Cursor,
 }
 
+/// Language used by the island and its notification-area menu.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Language {
+    English,
+    /// Brazilian Portuguese. This custom build starts here, while English
+    /// remains available from the tray menu.
+    #[default]
+    PortugueseBrazil,
+}
+
 /// Bumped when defaults change in a way existing files should pick up.
 pub const SETTINGS_VERSION: u32 = 3;
 
@@ -61,6 +72,7 @@ pub struct Settings {
     pub settings_version: u32,
     pub theme: Theme,
     pub idle_style: IdleStyle,
+    pub language: Language,
     pub use_24h: bool,
     /// Delay before hover expands the island.
     pub hover_delay_ms: u32,
@@ -158,6 +170,7 @@ impl Default for Settings {
             settings_version: SETTINGS_VERSION,
             theme: Theme::Classic,
             idle_style: IdleStyle::Clock,
+            language: Language::PortugueseBrazil,
             use_24h: true,
             hover_delay_ms: 220,
             collapse_delay_ms: 0,

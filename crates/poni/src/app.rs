@@ -1613,6 +1613,7 @@ impl App {
         match cmd {
             ToggleIdleStyle(style) => s.idle_style = style,
             SetTheme(theme) => s.theme = theme,
+            SetLanguage(language) => s.language = language,
             ToggleClipboard => s.clipboard_history = !s.clipboard_history,
             ToggleSystemHistory => s.system_history = !s.system_history,
             ToggleLyrics => s.lyrics = !s.lyrics,
@@ -2497,7 +2498,8 @@ impl App {
     /// The closed island rests invisible, a strip at the top edge that only
     /// catches the pointer: the Hidden idle look, or stepped aside.
     fn rests_hidden(&self) -> bool {
-        self.mode == Mode::Aside || (self.mode == Mode::Idle && self.st.settings.idle_style == IdleStyle::Hidden)
+        (self.mode == Mode::Aside && self.st.settings.idle_style == IdleStyle::Hidden)
+            || (self.mode == Mode::Idle && self.st.settings.idle_style == IdleStyle::Hidden)
     }
 
     /// Step aside: where the island rests (what it shows at rest, the clock

@@ -41,8 +41,13 @@ const RING_ICON: f32 = 12.0;
 
 const WEEKDAY_LONG: [&str; 7] = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const MONTH_LONG: [&str; 12] = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const WEEKDAY_LONG_PT: [&str; 7] = ["domingo", "segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado"];
+const MONTH_LONG_PT: [&str; 12] = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+const WEEKDAY_SHORT_PT: [&str; 7] = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
+const MONTH_SHORT_PT: [&str; 12] = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
 /// Monday-first initials.
 const INITIALS: [&str; 7] = ["M", "T", "W", "T", "F", "S", "S"];
+const INITIALS_PT: [&str; 7] = ["S", "T", "Q", "Q", "S", "S", "D"];
 
 pub fn height(_st: &AppState) -> f32 {
     HEIGHT
@@ -79,15 +84,18 @@ fn draw_date(ui: &mut Ui, st: &AppState, r: Rect, top: f32) {
         return;
     }
     let wd = t.weekday() as usize % 7;
+    let pt = super::pt(st);
+    let weekdays = if pt { &WEEKDAY_LONG_PT } else { &WEEKDAY_LONG };
+    let months = if pt { &MONTH_LONG_PT } else { &MONTH_LONG };
     let y = top;
-    ui.c.text(&WEEKDAY_LONG[wd].to_uppercase(), Rect::new(r.x, y, r.w, INITIALS_H - 2.0), &TextStyle::caption().weight(Weight::Bold).color(st.accent));
+    ui.c.text(&weekdays[wd].to_uppercase(), Rect::new(r.x, y, r.w, INITIALS_H - 2.0), &TextStyle::caption().weight(Weight::Bold).color(st.accent));
     ui.c.text(&t.day.to_string(), Rect::new(r.x - 2.0, y + 14.0, r.w + 2.0, 58.0), &TextStyle::hero().weight(Weight::Semibold));
     ui.c.text(
-        &format!("{} {}", MONTH_LONG[(t.month - 1) as usize], t.year),
+        &format!("{} {}", months[(t.month - 1) as usize], t.year),
         Rect::new(r.x, y + 74.0, r.w, 18.0),
         &TextStyle::body().color(palette::TEXT_DIM),
     );
-    ui.c.text(&format!("Week {}", iso_week(&t)), Rect::new(r.x, y + 92.0, r.w, 16.0), &TextStyle::footnote().color(palette::TEXT_FAINT));
+    ui.c.text(&format!("{} {}", if pt { "Semana" } else { "Week" }, iso_week(&t)), Rect::new(r.x, y + 92.0, r.w, 16.0), &TextStyle::footnote().color(palette::TEXT_FAINT));
 }
 
 // ------------------------------------------------------------------ calendar
@@ -111,13 +119,16 @@ fn draw_calendar(ui: &mut Ui, st: &AppState, r: Rect, top: f32, with_title: bool
     }
     let grid = month_grid(t.year, t.month);
     let rows = week_rows(&t);
+    let pt = super::pt(st);
+    let months = if pt { &MONTH_LONG_PT } else { &MONTH_LONG };
     let mut y = top;
 
     if with_title {
         // Without the big date block the title names the day as well.
         let st_title = TextStyle::body().weight(Weight::Semibold);
         let tr = Rect::new(r.x + 4.0, y, r.w - 4.0, TITLE_H - 4.0);
-        let day = format!("{} {} {}", WEEKDAY_SHORT[t.weekday() as usize % 7], t.day, MONTH_LONG[(t.month - 1) as usize]);
+        let weekday = if pt { WEEKDAY_SHORT_PT[t.weekday() as usize % 7] } else { WEEKDAY_SHORT[t.weekday() as usize % 7] };
+        let day = format!("{} {} {}", weekday, t.day, months[(t.month - 1) as usize]);
         let full = format!("{day} {}", t.year);
         let title = if ui.c.measure(&full, &st_title, 10_000.0).0 <= tr.w { full } else { day };
         ui.c.text(&title, tr, &st_title);
@@ -126,7 +137,8 @@ fn draw_calendar(ui: &mut Ui, st: &AppState, r: Rect, top: f32, with_title: bool
 
     // Every initial in one tone; weekend days are told apart by the dimmer numbers.
     let initials_st = TextStyle::caption().weight(Weight::Semibold).color(palette::TEXT_FAINT).center();
-    for (col, s) in INITIALS.iter().enumerate() {
+    let initials = if pt { &INITIALS_PT } else { &INITIALS };
+    for (col, s) in initials.iter().enumerate() {
         ui.c.text(s, Rect::new(r.x + col as f32 * CELL_W, y, CELL_W, INITIALS_H - 2.0), &initials_st);
     }
     y += INITIALS_H;
@@ -170,7 +182,8 @@ fn draw_tiles(ui: &mut Ui, st: &mut AppState, r: Rect, card: Option<(Rect, f32)>
     }
     let s = &st.stats;
     let battery = st.power.has_battery;
-    let tiles = [cpu_tile(s), memory_tile(s), disk_tile(s), if battery { battery_tile(&st.power) } else { uptime_tile(st) }];
+    let pt = super::pt(st);
+    let tiles = [cpu_tile(s, pt), memory_tile(s, pt), disk_tile(s, pt), if battery { battery_tile(&st.power, pt) } else { uptime_tile(st, pt) }];
     // Each ring opens its module on the System page (uptime lives under CPU there).
     let modules = [Module::Cpu, Module::Memory, Module::Drives, if battery { Module::Battery } else { Module::Cpu }];
     let rows = r.rows(2, TILE_GAP);
@@ -226,59 +239,59 @@ fn placeholder(icon: Icon, label: &'static str) -> Tile {
     Tile { icon, label, frac: None, color: Color::white(0.92), value: PLACEHOLDER.into(), detail: String::new(), detail_short: String::new() }
 }
 
-fn cpu_tile(s: &SysStats) -> Tile {
+fn cpu_tile(s: &SysStats, pt: bool) -> Tile {
     if !s.valid || !s.cpu.is_finite() {
         return placeholder(Icon::Cpu, "CPU");
     }
     let f = s.cpu.clamp(0.0, 1.0);
     let detail = match f {
-        f if f < 0.10 => "Idle",
-        f if f < 0.35 => "Light load",
-        f if f < 0.70 => "Moderate",
-        f if f < 0.90 => "Busy",
-        _ => "Very busy",
+        f if f < 0.10 => if pt { "Ociosa" } else { "Idle" },
+        f if f < 0.35 => if pt { "Carga leve" } else { "Light load" },
+        f if f < 0.70 => if pt { "Moderada" } else { "Moderate" },
+        f if f < 0.90 => if pt { "Ocupada" } else { "Busy" },
+        _ => if pt { "Muito ocupada" } else { "Very busy" },
     };
     Tile { icon: Icon::Cpu, label: "CPU", frac: Some(f), color: load_color(f), value: pct(f), detail: detail.into(), detail_short: String::new() }
 }
 
-fn memory_tile(s: &SysStats) -> Tile {
+fn memory_tile(s: &SysStats, pt: bool) -> Tile {
     if !s.valid || s.mem_total == 0 {
-        return placeholder(Icon::Memory, "Memory");
+        return placeholder(Icon::Memory, if pt { "Memória" } else { "Memory" });
     }
     let f = (s.mem_used as f64 / s.mem_total as f64).clamp(0.0, 1.0) as f32;
     let detail = format!("{} / {}", gb_one_decimal(s.mem_used), fmt_bytes(s.mem_total));
     let short = gb_one_decimal(s.mem_used) + " GB";
-    Tile { icon: Icon::Memory, label: "Memory", frac: Some(f), color: load_color(f), value: pct(f), detail, detail_short: short }
+    Tile { icon: Icon::Memory, label: if pt { "Memória" } else { "Memory" }, frac: Some(f), color: load_color(f), value: pct(f), detail, detail_short: short }
 }
 
-fn disk_tile(s: &SysStats) -> Tile {
+fn disk_tile(s: &SysStats, pt: bool) -> Tile {
     if !s.valid || s.disk_total == 0 {
-        return placeholder(Icon::Disk, "Disk");
+        return placeholder(Icon::Disk, if pt { "Disco" } else { "Disk" });
     }
     let free = s.disk_free.min(s.disk_total);
     let used = 1.0 - (free as f64 / s.disk_total as f64) as f32;
-    let detail = format!("free of {}", fmt_bytes(s.disk_total));
-    Tile { icon: Icon::Disk, label: "Disk", frac: Some(used), color: load_color(used), value: fmt_bytes(free), detail, detail_short: "free".into() }
+    let detail = format!("{} {}", if pt { "livres de" } else { "free of" }, fmt_bytes(s.disk_total));
+    Tile { icon: Icon::Disk, label: if pt { "Disco" } else { "Disk" }, frac: Some(used), color: load_color(used), value: fmt_bytes(free), detail, detail_short: if pt { "livres".into() } else { "free".into() } }
 }
 
-fn battery_tile(p: &PowerState) -> Tile {
+fn battery_tile(p: &PowerState, pt: bool) -> Tile {
     let percent = p.percent.min(100);
     let f = percent as f32 / 100.0;
     let (detail, color) = if p.charging {
-        ("Charging", palette::GREEN)
+        (if pt { "Carregando" } else { "Charging" }, palette::GREEN)
     } else if p.on_ac {
-        (if percent >= 99 { "Fully charged" } else { "Plugged in" }, palette::GREEN)
+        (if percent >= 99 { if pt { "Carga completa" } else { "Fully charged" } } else if pt { "Conectada" } else { "Plugged in" }, palette::GREEN)
     } else if percent <= 20 {
-        ("Low battery", palette::RED)
+        (if pt { "Bateria fraca" } else { "Low battery" }, palette::RED)
     } else if p.saver {
-        ("Battery saver", palette::YELLOW)
+        (if pt { "Economia de bateria" } else { "Battery saver" }, palette::YELLOW)
     } else {
-        ("On battery", Color::white(0.92))
+        (if pt { "Usando bateria" } else { "On battery" }, Color::white(0.92))
     };
-    let short = if p.charging || p.on_ac { "Plugged in" } else { "On battery" };
+    let short = if p.charging || p.on_ac { if pt { "Conectada" } else { "Plugged in" } } else if pt { "Na bateria" } else { "On battery" };
     Tile {
         icon: if p.charging { Icon::Bolt } else { Icon::Battery },
-        label: "Battery",
+        label: if pt { "Bateria" } else { "Battery" },
         frac: Some(f),
         color,
         value: format!("{percent}%"),
@@ -287,13 +300,13 @@ fn battery_tile(p: &PowerState) -> Tile {
     }
 }
 
-fn uptime_tile(st: &AppState) -> Tile {
+fn uptime_tile(st: &AppState, pt: bool) -> Tile {
     let s = &st.stats;
     if !s.valid {
-        return placeholder(Icon::Clock, "Uptime");
+        return placeholder(Icon::Clock, if pt { "Ligado há" } else { "Uptime" });
     }
-    let (detail, detail_short) = boot_label(&st.local, s.uptime_s, st.settings.use_24h).unwrap_or_default();
-    Tile { icon: Icon::Clock, label: "Uptime", frac: None, color: Color::white(0.92), value: fmt_uptime(s.uptime_s), detail, detail_short }
+    let (detail, detail_short) = boot_label_lang(&st.local, s.uptime_s, st.settings.use_24h, pt).unwrap_or_default();
+    Tile { icon: Icon::Clock, label: if pt { "Ligado há" } else { "Uptime" }, frac: None, color: Color::white(0.92), value: fmt_uptime(s.uptime_s), detail, detail_short }
 }
 
 // ------------------------------------------------------------------ formatting
@@ -344,6 +357,10 @@ fn fmt_uptime(secs: u64) -> String {
 /// When the PC booted: ("Since 09:14", "Since today"), ("Since Mon 09:14",
 /// "Since Mon") or ("Since 3 Oct", same) — full text plus a narrow fallback.
 fn boot_label(now: &LocalDateTime, uptime_s: u64, use_24h: bool) -> Option<(String, String)> {
+    boot_label_lang(now, uptime_s, use_24h, false)
+}
+
+fn boot_label_lang(now: &LocalDateTime, uptime_s: u64, use_24h: bool, pt: bool) -> Option<(String, String)> {
     if !valid_date(now) {
         return None;
     }
@@ -357,12 +374,13 @@ fn boot_label(now: &LocalDateTime, uptime_s: u64, use_24h: bool) -> Option<(Stri
     let clock = fmt_clock(&boot, use_24h);
     let ago = today - boot_day;
     Some(if ago <= 0 {
-        (format!("Since {clock}"), "Since today".to_string())
+        (format!("{} {clock}", if pt { "Desde" } else { "Since" }), if pt { "Desde hoje".to_string() } else { "Since today".to_string() })
     } else if ago < 7 {
-        let wd = WEEKDAY_SHORT[weekday_from_days(boot_day) as usize % 7];
-        (format!("Since {wd} {clock}"), format!("Since {wd}"))
+        let wd = if pt { WEEKDAY_SHORT_PT[weekday_from_days(boot_day) as usize % 7] } else { WEEKDAY_SHORT[weekday_from_days(boot_day) as usize % 7] };
+        (format!("{} {wd} {clock}", if pt { "Desde" } else { "Since" }), format!("{} {wd}", if pt { "Desde" } else { "Since" }))
     } else {
-        let s = format!("Since {} {}", day, MONTH_SHORT[(month.clamp(1, 12) - 1) as usize]);
+        let month = if pt { MONTH_SHORT_PT[(month.clamp(1, 12) - 1) as usize] } else { MONTH_SHORT[(month.clamp(1, 12) - 1) as usize] };
+        let s = format!("{} {} {}", if pt { "Desde" } else { "Since" }, day, month);
         (s.clone(), s)
     })
 }

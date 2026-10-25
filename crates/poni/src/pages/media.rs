@@ -325,7 +325,7 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
         draw_session(ui, st, area, &mut a, &fr);
     } else {
         let r = Rect::new(area.x, area.y, area.w, H_EMPTY);
-        super::empty_state(ui, r, Icon::Music, "Nothing playing", "Play music in Spotify, a browser or any media app");
+        super::empty_state(ui, r, Icon::Music, super::tr(st, "Nothing playing", "Nada tocando"), super::tr(st, "Play music in Spotify, a browser or any media app", "Reproduza algo no Spotify, navegador ou outro aplicativo"));
     }
     put_anim(a);
 }
@@ -375,7 +375,7 @@ fn draw_session(ui: &mut Ui, st: &mut AppState, area: Rect, a: &mut Anim, fr: &F
 
     // Title, artist, player.
     let title = match m.title.trim() {
-        "" => "Unknown title",
+        "" => super::tr(st, "Unknown title", "Título desconhecido"),
         t => t,
     };
     let artist = match m.artist.trim() {
@@ -389,8 +389,8 @@ fn draw_session(ui: &mut Ui, st: &mut AppState, area: Rect, a: &mut Anim, fr: &F
     let app = m.app_name.trim();
     let source = match (app.is_empty(), playing) {
         (false, true) => Some(app.to_string()),
-        (false, false) => Some(format!("{app} \u{b7} Paused")),
-        (true, false) => Some("Paused".to_string()),
+        (false, false) => Some(format!("{app} \u{b7} {}", super::tr(st, "Paused", "Pausado"))),
+        (true, false) => Some(super::tr(st, "Paused", "Pausado").to_string()),
         (true, true) => None,
     };
     if let Some(label) = source {

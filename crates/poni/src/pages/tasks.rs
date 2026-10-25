@@ -131,7 +131,7 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
 
     // ---- Input: the list's first row, sharing its checkbox and text columns.
     let input_r = Rect::new(area.x, area.y, area.w, INPUT_H);
-    let placeholder = if full { "Task list is full" } else { "Add a task, Enter to save" };
+    let placeholder = if full { super::tr(st, "Task list is full", "A lista de tarefas está cheia") } else { super::tr(st, "Add a task, Enter to save", "Adicione uma tarefa e pressione Enter") };
     let accent = st.accent;
     let resp = ui.text_input_row(wid("tasks.input"), input_r, &mut st.ui.task_input, placeholder, MAX_TASK_LEN, accent, Some(Icon::Plus));
     if resp.submitted {
@@ -153,7 +153,7 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
 
     if items.is_empty() {
         let hint_area = Rect::new(area.x, view.y, area.w, HEIGHT - LIST_TOP);
-        super::empty_state(ui, hint_area, Icon::ListChecks, "Nothing on your list", "Done tasks clear at the end of the day");
+        super::empty_state(ui, hint_area, Icon::ListChecks, super::tr(st, "Nothing on your list", "Nenhuma tarefa na sua lista"), super::tr(st, "Done tasks clear at the end of the day", "As tarefas concluídas são limpas ao fim do dia"));
         st.ui.task_scroll = 0.0;
         anim.scroll = 0.0;
         anim.rows.clear();
@@ -407,9 +407,10 @@ fn fade(ui: &mut Ui, r: Rect, top: bool) {
 /// `row`. Returns its left edge.
 fn undo_pill(ui: &mut Ui, st: &mut AppState, anim: &mut ListAnim, id: WidgetId, row: Rect) -> f32 {
     let accent = st.accent;
-    let w = ui.pill_width("Undo", true, true);
+    let label = super::tr(st, "Undo", "Desfazer");
+    let w = ui.pill_width(label, true, true);
     let r = Rect::new(row.right() - w, row.y, w, row.h);
-    let clicked = ui.pill(id, r, "Undo", Some(Icon::Undo), PillStyle::UtilityAccent(accent)).clicked;
+    let clicked = ui.pill(id, r, label, Some(Icon::Undo), PillStyle::UtilityAccent(accent)).clicked;
     if clicked {
         restore(st, anim);
     }
@@ -429,10 +430,11 @@ fn draw_footer(ui: &mut Ui, st: &mut AppState, r: Rect, day_start: i64, full: bo
     if anim.undo.is_some() {
         text_right = undo_pill(ui, st, anim, undo_id, r) - 12.0;
     } else if show_clear {
-        let w = ui.pill_width("Clear done", false, true);
+        let clear = super::tr(st, "Clear done", "Limpar concluídas");
+        let w = ui.pill_width(clear, false, true);
         let pr = Rect::new(r.right() - w, r.y, w, r.h);
         text_right = pr.x - 12.0;
-        if ui.pill(wid("tasks.clear"), pr, "Clear done", None, PillStyle::Utility).clicked {
+        if ui.pill(wid("tasks.clear"), pr, clear, None, PillStyle::Utility).clicked {
             let removed: Vec<Task> = st.store.tasks.tasks.iter().filter(|t| t.done).cloned().collect();
             if st.store.tasks.clear_done() > 0 {
                 // The scroll offset is clamped to the shorter list on the next frame.
@@ -446,14 +448,15 @@ fn draw_footer(ui: &mut Ui, st: &mut AppState, r: Rect, day_start: i64, full: bo
 
     let tx = r.x + TEXT_X;
     let text_r = Rect::new(tx, r.y, (text_right - tx).max(0.0), r.h);
+    let pt = super::pt(st);
     let (text, color) = if full && show_clear {
-        ("List is full — clear done tasks to add more".to_string(), palette::ORANGE)
+        (if pt { "A lista está cheia — limpe as concluídas" } else { "List is full — clear done tasks to add more" }.to_string(), palette::ORANGE)
     } else if full {
-        (format!("List is full ({MAX_TASKS} tasks)"), palette::ORANGE)
+        (if pt { format!("Lista cheia ({MAX_TASKS} tarefas)") } else { format!("List is full ({MAX_TASKS} tasks)") }, palette::ORANGE)
     } else if total > 0 && done == total {
-        ("All done for today".to_string(), palette::GREEN)
+        (if pt { "Tudo concluído por hoje" } else { "All done for today" }.to_string(), palette::GREEN)
     } else {
-        (format!("{done}/{total} done today"), palette::TEXT_DIM)
+        (if pt { format!("{done}/{total} concluídas hoje") } else { format!("{done}/{total} done today") }, palette::TEXT_DIM)
     };
     ui.c.text(&text, text_r, &TextStyle::footnote().color(color));
 }

@@ -30,6 +30,7 @@ use crate::state::AppState;
 use crate::ui::{wid, wid_n, Input, Ui};
 use poni_core::datetime::{fmt_clock, fmt_date_short};
 use poni_core::geom::{lerp, palette, Color, Point, Rect};
+use poni_core::settings::Language;
 
 /// Height of the header band (tabs + clock) above the page content. The
 /// header row itself is a fixed 36 DIPs ([`header_rect`]); the rest is the
@@ -39,6 +40,14 @@ pub const HEADER_H: f32 = 50.0;
 const HEADER_ROW_H: f32 = 36.0;
 /// Horizontal padding inside the expanded island, also used below the content.
 pub const PAD: f32 = 18.0;
+
+pub(crate) fn pt(st: &AppState) -> bool {
+    st.settings.language == Language::PortugueseBrazil
+}
+
+pub(crate) fn tr<'a>(st: &AppState, english: &'a str, portuguese: &'a str) -> &'a str {
+    if pt(st) { portuguese } else { english }
+}
 
 /// The header row inside the expanded island `body`. Fixed size, so changing
 /// [`HEADER_H`] only moves the content, never the tabs.
@@ -110,7 +119,24 @@ impl PageKind {
         Self::ALL.into_iter().find(|p| p.key().eq_ignore_ascii_case(s)).unwrap_or(PageKind::Media)
     }
 
-    pub fn title(self) -> &'static str {
+    pub fn title(self, language: Language) -> &'static str {
+        if language == Language::PortugueseBrazil {
+            return match self {
+                PageKind::Media => "Música",
+                PageKind::Focus => "Foco",
+                PageKind::Health => "Saúde",
+                PageKind::Shelf => "Arquivos",
+                PageKind::Tasks => "Tarefas",
+                PageKind::Clipboard => "Área de transferência",
+                PageKind::Today => "Hoje",
+                PageKind::System => "Sistema",
+                PageKind::Script => "Roteiro",
+                PageKind::Oyenza => "Oyenza",
+                PageKind::Prayer => "Orações",
+                PageKind::Addons => "Complementos",
+                PageKind::Settings => "Configurações",
+            };
+        }
         match self {
             PageKind::Media => "Music",
             PageKind::Focus => "Focus",
@@ -392,11 +418,11 @@ pub(crate) struct Tip {
 }
 
 /// Tab slots (x, width) of `tabs`, with `active` showing its label.
-fn tab_layout(ui: &mut Ui, x0: f32, tabs: &[PageKind], active: PageKind, label_st: &TextStyle, scale: f32) -> Vec<(f32, f32)> {
+fn tab_layout(ui: &mut Ui, x0: f32, tabs: &[PageKind], active: PageKind, label_st: &TextStyle, scale: f32, language: Language) -> Vec<(f32, f32)> {
     let mut x = x0;
     tabs.iter()
         .map(|&p| {
-            let w = if p == active { snap(TAB_LABEL_X + ui.c.measure(p.title(), label_st, 200.0).0 + TAB_LABEL_END, scale) } else { TAB_W };
+            let w = if p == active { snap(TAB_LABEL_X + ui.c.measure(p.title(language), label_st, 200.0).0 + TAB_LABEL_END, scale) } else { TAB_W };
             let slot = (snap(x, scale), w);
             x += w + TAB_GAP;
             slot
@@ -414,8 +440,9 @@ pub(crate) fn draw_header(ui: &mut Ui, st: &mut AppState, r: Rect, page: PageKin
     let from = tr.map_or(page, |t| t.from);
     let e = tr.map_or(1.0, |t| ease_out_cubic(t.t / TABS_END));
     let row = self::tabs(st);
-    let lay_from = tab_layout(ui, r.x, &row, from, &label_st, scale);
-    let lay_to = if from == page { lay_from.clone() } else { tab_layout(ui, r.x, &row, page, &label_st, scale) };
+    let language = st.settings.language;
+    let lay_from = tab_layout(ui, r.x, &row, from, &label_st, scale, language);
+    let lay_to = if from == page { lay_from.clone() } else { tab_layout(ui, r.x, &row, page, &label_st, scale, language) };
     let tabs: Vec<Rect> =
         (0..row.len()).map(|i| Rect::new(lerp(lay_from[i].0, lay_to[i].0, e), cy - TAB_H / 2.0, lerp(lay_from[i].1, lay_to[i].1, e), TAB_H)).collect();
     // A page that isn't in the row (Oyenza right after signing out) counts as the first tab.
@@ -452,10 +479,10 @@ pub(crate) fn draw_header(ui: &mut Ui, st: &mut AppState, r: Rect, page: PageKin
         }
     }
     if from.tabbed() && (fi != pi || !page.tabbed()) {
-        draw_tab_label(ui, from, tabs[fi], &label_st, 1.0 - e);
+        draw_tab_label(ui, from, tabs[fi], &label_st, 1.0 - e, language);
     }
     if page.tabbed() {
-        draw_tab_label(ui, page, tabs[pi], &label_st, e);
+        draw_tab_label(ui, page, tabs[pi], &label_st, e, language);
     }
 
     // Right side: the clock ends on the content column's right edge (where
@@ -542,7 +569,11 @@ pub(crate) fn draw_header(ui: &mut Ui, st: &mut AppState, r: Rect, page: PageKin
         return None;
     }
     let text = match row.get(slot) {
-        Some(p) => p.title(),
+        Some(p) => p.title(language),
+        None if slot == GEAR_SLOT && page == PageKind::Settings && language == Language::PortugueseBrazil => "Fechar configurações",
+        None if slot == GEAR_SLOT && language == Language::PortugueseBrazil => "Configurações",
+        None if st.pinned && language == Language::PortugueseBrazil => "Desafixar",
+        None if language == Language::PortugueseBrazil => "Manter aberto",
         None if slot == GEAR_SLOT && page == PageKind::Settings => "Close settings",
         None if slot == GEAR_SLOT => "Settings",
         None if st.pinned => "Unpin",
@@ -553,7 +584,7 @@ pub(crate) fn draw_header(ui: &mut Ui, st: &mut AppState, r: Rect, page: PageKin
 
 /// A tab's label, faded by `alpha` and cut (not ellipsized) at the tab's
 /// current right edge while the tab is narrower than its settled width.
-fn draw_tab_label(ui: &mut Ui, p: PageKind, tab: Rect, st: &TextStyle, alpha: f32) {
+fn draw_tab_label(ui: &mut Ui, p: PageKind, tab: Rect, st: &TextStyle, alpha: f32, language: Language) {
     if alpha <= 0.01 {
         return;
     }
@@ -562,12 +593,13 @@ fn draw_tab_label(ui: &mut Ui, p: PageKind, tab: Rect, st: &TextStyle, alpha: f3
     if avail <= 0.5 {
         return;
     }
-    let lw = ui.c.measure(p.title(), st, 200.0).0;
+    let title = p.title(language);
+    let lw = ui.c.measure(title, st, 200.0).0;
     let cut = avail < lw + 1.0;
     if cut {
         ui.c.clip(Rect::new(lx, tab.y, avail, tab.h));
     }
-    ui.c.with_alpha(alpha, |c| c.text(p.title(), Rect::new(lx, tab.y, lw + 2.0, tab.h), st));
+    ui.c.with_alpha(alpha, |c| c.text(title, Rect::new(lx, tab.y, lw + 2.0, tab.h), st));
     if cut {
         ui.c.unclip();
     }
