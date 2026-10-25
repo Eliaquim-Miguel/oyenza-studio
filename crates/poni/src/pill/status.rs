@@ -43,7 +43,6 @@ const BATT: (f32, f32) = (20.0, 10.0);
 const NUB: (f32, f32, f32) = (0.75, 1.75, 4.0);
 const BATT_END: f32 = 14.0;
 const BATT_W: f32 = BATT.0 + NUB.0 + NUB.1;
-const OUTLINE: Color = Color::white(0.42);
 /// Ink for the percentage.
 const PCT: Color = Color::white(0.55);
 
@@ -192,29 +191,10 @@ fn snap(ui: &Ui, v: f32) -> f32 {
 }
 
 /// A small battery (spec 6.3) in the 20 x 10 body `r`, its nub to the right:
-/// the charge in green, red when low and not charging, and a white bolt
-/// with a ground-coloured edge while it charges.
-// TODO(status): switch to `pill::idle::battery` once the idle lane's lands.
+/// the resting pill's own glyph (`pill::idle::battery`, which takes the box
+/// with the nub), so every Pill battery is one drawing.
 pub(crate) fn battery(ui: &mut Ui, r: Rect, percent: u8, charging: bool) {
-    let p = (percent as f32 / 100.0).clamp(0.0, 1.0);
-    let fill = if low(percent, charging) { palette::RED } else { palette::GREEN };
-    let inner = r.inset(2.0, 2.0);
-    if p > 0.0 {
-        ui.c.fill_rrect(Rect::new(inner.x, inner.y, (inner.w * p).max(2.0), inner.h), 1.5, fill);
-    }
-    if charging {
-        // The bolt's path fills 14 x 19 of its 24 grid: a 9.5 box draws it
-        // about 5.5 x 7.5, its tips clear of the outline; the larger dark one
-        // under it cuts its edge out of the charge.
-        let c = r.center();
-        ui.c.icon(Icon::Bolt, Rect::from_center(c, 12.5, 12.5), palette::ISLAND);
-        ui.c.icon(Icon::Bolt, Rect::from_center(c, 9.5, 9.5), palette::TEXT);
-    }
-    // The outline last, so the bolt's dark edge never cuts it.
-    let stroke = 1.25;
-    // stroke_rrect keeps the stroke inside `r` itself, as the pop-ups' battery does.
-    ui.c.stroke_rrect(r, 3.0 - stroke / 2.0, OUTLINE, stroke);
-    ui.c.fill_rrect(Rect::new(r.right() + NUB.0, r.center().y - NUB.2 / 2.0, NUB.1, NUB.2), 0.75, OUTLINE);
+    super::idle::battery(ui, Rect::new(r.x, r.y, r.w + NUB.0 + NUB.1, r.h), percent, charging);
 }
 
 #[cfg(test)]

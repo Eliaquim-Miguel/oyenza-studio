@@ -48,7 +48,6 @@ const NUB_GAP: f32 = 0.75;
 const NUB_W: f32 = 1.75;
 const BATTERY_GLYPH_W: f32 = BODY_W + NUB_GAP + NUB_W;
 const CLUSTER_W: f32 = PCT_SLOT + PCT_GAP + BATTERY_GLYPH_W;
-const BATTERY_LINE: Color = Color::white(0.42);
 /// Bluetooth's disc sits in the left end, 6 from the edge like the music pill's art (spec 6.4).
 const DISC: f32 = 20.0;
 const DISC_GLYPH: f32 = 12.0;
@@ -273,30 +272,9 @@ fn battery_cluster(ui: &mut Ui, right: f32, cy: f32, percent: u8, charging: bool
     ui.c.text(&format!("{percent}%"), Rect::new(tr - bw, cy - 10.0, bw, 20.0), &value_style().right());
 }
 
-/// The resting pill's battery glyph (spec 6.3) in `r` (body and nub): a
-/// 20 x 10 outline filled to `percent`, green (red when low and not
-/// charging), with a bolt inside while charging. Drawn here until the idle
-/// pill's own (`pill::idle::battery`) is in; then this calls that.
+/// The resting pill's battery glyph (spec 6.3) in `r` (body and nub).
 fn battery(ui: &mut Ui, r: Rect, percent: u8, charging: bool) {
-    let (x, y) = (snap(ui, r.x), snap(ui, r.center().y - BODY_H / 2.0));
-    let body = Rect::new(x, y, BODY_W, BODY_H);
-    ui.c.stroke_rrect(body, 3.0, BATTERY_LINE, 1.25);
-    ui.c.fill_rrect(Rect::new(body.right() + NUB_GAP, body.center().y - 2.0, NUB_W, 4.0), 0.75, BATTERY_LINE);
-    let p = (percent as f32 / 100.0).clamp(0.0, 1.0);
-    if p > 0.0 {
-        let fill = if percent <= 20 && !charging { palette::RED } else { palette::GREEN };
-        ui.c.fill_rrect(Rect::new(x + 2.0, y + 2.0, ((BODY_W - 4.0) * p).max(1.5), BODY_H - 4.0), 1.5, fill);
-    }
-    if charging {
-        let c = body.center();
-        let pts = [(0.6, -4.2), (-2.6, 0.6), (-0.2, 0.6), (-0.8, 4.2), (2.6, -0.8), (0.2, -0.8)];
-        let mut bolt: Vec<Seg> = pts.iter().map(|&(dx, dy)| Seg::LineTo(c.x + dx, c.y + dy)).collect();
-        bolt[0] = Seg::MoveTo(c.x + pts[0].0, c.y + pts[0].1);
-        bolt.push(Seg::Close);
-        // Cut a 1 DIP edge through the fill in the ground's colour so the bolt reads on green.
-        ui.c.path(&bolt, Some(palette::ISLAND), Some((palette::ISLAND, 2.0)));
-        ui.c.path(&bolt, Some(Color::white(1.0)), None);
-    }
+    super::idle::battery(ui, r, percent, charging);
 }
 
 #[cfg(test)]
