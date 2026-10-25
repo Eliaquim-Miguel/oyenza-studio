@@ -23,6 +23,9 @@
 //! and its own checks say the gap above the body shows the screen and the
 //! shadow fades out inside the window (see `pill_checks`).
 //!
+//! PONI_SELFTEST_PRAYER_AT=HH:MM shows the Prayer page at that time of the
+//! day (the other Prayer scenes stay 8 minutes before Ashar).
+//!
 //! PONI_SELFTEST_ADDONS=download also downloads the Prayer times add-on's
 //! files from their release while the scenes run and checks each one
 //! (`addon-download`; Windows CI only, it needs github.com).
@@ -673,8 +676,18 @@ fn seed_prayer(st: &mut AppState, scene: Scene, until: f64) {
         st.prayer.query.clear();
     }
     let site = st.prayer.site().expect("Jakarta's site");
-    let ashar = poni_core::prayer::day_times(&site, site.local_day(st.unix)).expect("today's times").ashar;
-    st.prayer.clock_shift = ashar - 8 * 60 - st.unix;
+    let today = site.local_day(st.unix);
+    let ashar = poni_core::prayer::day_times(&site, today).expect("today's times").ashar;
+    // PONI_SELFTEST_PRAYER_AT=HH:MM: the Prayer page at that time of
+    // Jakarta's day instead (pictures of the night side: the moon on the arc).
+    let at = std::env::var("PONI_SELFTEST_PRAYER_AT").ok().filter(|_| scene == Scene::Page(PageKind::Prayer)).and_then(|v| {
+        let (h, m) = v.trim().split_once(':')?;
+        Some(h.parse::<i64>().ok()? * 3600 + m.parse::<i64>().ok()? * 60)
+    });
+    st.prayer.clock_shift = match at {
+        Some(secs) => today * 86_400 - i64::from(site.offset_min) * 60 + secs - st.unix,
+        None => ashar - 8 * 60 - st.unix,
+    };
     st.prayer.handled_until = Some(st.prayer_now());
     st.prayer.adzan = scene == Scene::PrayerNotice;
     if scene == Scene::PrayerNotice {
@@ -814,9 +827,23 @@ enum Scene {
     MediaLyric,
     /// The battery ran low: the pop-up, not charging.
     LowBatteryHud,
+    /// The Script page partway through a reading (paused, so the shot holds still).
+    ScriptReading,
 }
 
-const SCENES: [Scene; 66] = [
+/// Running under Wine: its ntdll exports `wine_get_version`.
+fn under_wine() -> bool {
+    use windows::core::{s, w};
+    use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
+    unsafe { GetModuleHandleW(w!("ntdll.dll")).is_ok_and(|h| GetProcAddress(h, s!("wine_get_version")).is_some()) }
+}
+
+/// What the Script page reads in its self-test scenes.
+const SAMPLE_SCRIPT: &str = "Hi everyone, this one takes two minutes. Today I'll show you the Shelf, and how to send a file to your phone.\n\n\
+Drop any file on the island and it waits on the Shelf. Press the phone button, scan the code, and the file is on your phone. \
+No cable, no account, nothing to install on the phone.\n\nThat's it. Thanks for watching.";
+
+const SCENES: [Scene; 68] = [
     Scene::IdleClock,
     Scene::IdleEyes,
     Scene::Media,
@@ -890,6 +917,9 @@ const SCENES: [Scene; 66] = [
     Scene::IdleStatus,
     Scene::MediaLyric,
     Scene::LowBatteryHud,
+    // The Script page: empty, then partway through a reading.
+    Scene::Page(PageKind::Script),
+    Scene::ScriptReading,
 ];
 
 impl Scene {
@@ -952,6 +982,7 @@ impl Scene {
             Scene::IdleStatus => "idle-status".into(),
             Scene::MediaLyric => "media-lyric".into(),
             Scene::LowBatteryHud => "low-battery-hud".into(),
+            Scene::ScriptReading => "page-script-reading".into(),
         }
     }
 
@@ -976,6 +1007,7 @@ impl Scene {
             Scene::AddonsDownloading | Scene::AddonsOn | Scene::AddonsOffline | Scene::AddonsFailed => Some(PageKind::Addons),
             Scene::JaOffer | Scene::JaGetting => Some(PageKind::Media),
             Scene::PrayerPicker => Some(PageKind::Prayer),
+            Scene::ScriptReading => Some(PageKind::Script),
             _ => None,
         }
     }
@@ -1821,6 +1853,15 @@ impl SelfTest {
             st.lyrics.wants_ja_readings = self.lyrics.wants_ja_readings || matches!(scene, Scene::JaOffer | Scene::JaGetting);
         }
         seed_prayer(st, scene, until);
+        // The Script page: empty, or partway through the sample script.
+        st.script = poni_core::script::Reader::default();
+        if scene == Scene::ScriptReading {
+            st.store.script.text = SAMPLE_SCRIPT.into();
+            st.script.word = 22;
+            st.script.active = true;
+        } else {
+            st.store.script.text.clear();
+        }
         st.system = fake_system(scene);
         st.settings.game_stats = scene.game();
         st.game = fake_game(scene, &mut st.system);
@@ -2018,6 +2059,17 @@ impl SelfTest {
         }
         if scene == Scene::MediaLyric {
             checks.push(lyric_line_check(&app.st));
+        }
+        if scene.page() == Some(PageKind::Script) {
+            // The script stays out of screen shares and recordings: ask Windows.
+            let build = crate::window::windows_build();
+            let can = build.is_some_and(|b| b >= crate::glass::EXCLUDE_FROM_CAPTURE_BUILD);
+            let hidden = crate::window::capture_excluded(app.hwnd());
+            let said = if hidden { "left out of capture" } else { "in capture" };
+            // Wine says Windows 10 but can't leave a window out of capture.
+            let wine = under_wine();
+            let note = if wine { " (Wine, which can't leave a window out)" } else { "" };
+            checks.push(check("script-hidden-from-capture", hidden == can || (wine && !hidden), format!("display affinity: {said}, Windows build {build:?}{note}")));
         }
 
         let ok = checks.iter().all(|c| c.ok);

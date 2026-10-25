@@ -73,8 +73,9 @@ pub struct LyricsState {
     /// Korean, Chinese); empty for lines that need none.
     pub ruby: Vec<Vec<Ruby>>,
     /// The song's kanji went unread because Windows has no Japanese reading
-    /// data and the Japanese readings add-on isn't on this PC: the Music page
-    /// offers the add-on.
+    /// data and the Japanese readings add-on isn't on this PC: the app
+    /// switches the add-on on the first time, and the Music page shows how
+    /// it comes in (or offers it, after a switch-off by hand).
     pub wants_ja_readings: bool,
 }
 
@@ -452,6 +453,13 @@ pub struct AppState {
     pub addons: BTreeMap<&'static str, AddonStatus>,
     /// The Prayer times add-on, while it is on (its choices: `settings.prayer`).
     pub prayer: PrayerState,
+    /// The Script page's reading (its script and pace are in `store.script`).
+    pub script: poni_core::script::Reader,
+    /// A message under the script until a time (mono seconds).
+    pub script_note: Option<(&'static str, f64)>,
+    /// Whether Windows leaves the island out of screen capture while the
+    /// Script page shows (None = not asked yet, or not on Windows).
+    pub script_hidden: Option<bool>,
     /// Side effects requested during the frame.
     pub cmds: Vec<Command>,
 }
@@ -461,6 +469,17 @@ impl AppState {
     /// while the Shelf is the page on screen.
     pub fn phone_holds_island(&self) -> bool {
         self.page == PageKind::Shelf && self.phone.as_ref().is_some_and(|p| p.holds_island())
+    }
+
+    /// A reading under way on the Script page keeps the open island from
+    /// closing, while that page is on screen.
+    pub fn script_holds_island(&self) -> bool {
+        self.page == PageKind::Script && self.script.active
+    }
+
+    /// Something on the page on screen keeps the open island from closing.
+    pub fn page_holds_island(&self) -> bool {
+        self.phone_holds_island() || self.script_holds_island()
     }
 
     pub fn new(settings: Settings, store: Store) -> Self {
@@ -502,6 +521,9 @@ impl AppState {
             oyenza: OyenzaState::default(),
             addons: BTreeMap::new(),
             prayer: PrayerState::default(),
+            script: poni_core::script::Reader::default(),
+            script_note: None,
+            script_hidden: None,
             cmds: Vec::new(),
         };
         // On ones start by checking their files (the worker reports back).

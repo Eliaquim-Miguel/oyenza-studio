@@ -41,6 +41,8 @@ pub enum KeyInput {
     Escape,
     Left,
     Right,
+    Up,
+    Down,
     Home,
     End,
     /// Ctrl+V (paste from clipboard; the app supplies the text as chars).
@@ -323,6 +325,28 @@ impl<'a, 'g> Ui<'a, 'g> {
             self.c.text(label, Rect::new(x + iw, r.y, tw + 2.0, r.h), &st);
         }
         resp
+    }
+
+    /// A widget that takes the keyboard without being a text field (the
+    /// Script page's reading view): `clicked` focuses it, Esc lets go.
+    /// Returns the keys pressed while it has focus.
+    pub fn key_focus(&mut self, id: WidgetId, clicked: bool) -> Vec<KeyInput> {
+        if clicked && self.input.focused != Some(id) {
+            self.input.focused = Some(id);
+            self.wants_focus = Some(true);
+        }
+        if self.input.focused != Some(id) {
+            return Vec::new();
+        }
+        let keys = std::mem::take(&mut self.input.keys);
+        if keys.contains(&KeyInput::Escape) {
+            self.input.focused = None;
+            self.wants_focus = Some(false);
+        }
+        if !keys.is_empty() {
+            self.repaint = true;
+        }
+        keys
     }
 
     /// Mouse-wheel notches over `r` (consumed so only one widget scrolls).
