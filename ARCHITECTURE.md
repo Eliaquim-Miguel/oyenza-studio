@@ -145,6 +145,7 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect);  // draw + handle input
 | `app.rs` | message loop, island state machine, input, timers, commands |
 | `activities.rs` | collapsed modes + their geometry and drawing |
 | `oyen.rs` | the Oyen theme: draws `poni_core::oyen` frames peeking over the island's edge (idle, beside the clock, in the media pill) |
+| `pill/*.rs` | the Pill theme (`Theme::Pill`, `look::PILL` with `Shape::Pill`): the island floats `pill::TOP_GAP` below the top edge (`Island::set_floating`); `shape` draws the floating outline, shadow and hit area, `motion` its springs, and one module per surface (`idle`, `status`, `media`, `lyric`, `live`, `hud`, `notice`, `expanded`, `music`) behind hooks in `activities.rs` and `pages` that fall back to Classic's drawing |
 | `gfx.rs`, `icons.rs`, `ui.rs`, `island.rs`, `window.rs` | rendering/UI foundation |
 | `state.rs`, `events.rs`, `commands.rs` | shared contracts |
 | `pages/*.rs` | expanded pages |

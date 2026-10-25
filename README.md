@@ -81,7 +81,7 @@ CPU, GPU, memory, drives, network and battery: rings and gauges, each core's loa
 
 ### Black, Oyen, Glass or Pill
 
-The island is black by default, like the one on a phone. **Oyen** turns it warm cream, and Oyen the cat moves in: he peeks over the edge, follows your pointer and sleeps from midnight to five. **Glass** bends and frosts whatever is behind it, after Apple's Liquid Glass. **Pill**, new in 0.1.21 (to confirm), changes the shape: the island floats just below the top of the screen as a black capsule, with the time and battery at rest, the song and the line being sung while music plays, and a rounded card when it opens.
+The island is black by default, like the one on a phone. **Oyen** turns it warm cream, and Oyen the cat moves in: he peeks over the edge, follows your pointer and sleeps from midnight to five. **Glass** bends and frosts whatever is behind it, after Apple's Liquid Glass. **Pill**, new in 0.1.21, changes the shape: the island floats just below the top of the screen as a black capsule, with the time and battery at rest, the song and the line being sung while music plays, and a rounded card when it opens.
 
 <p align="center"><img src="docs/brand/readme/themes.webp" width="880" alt="The Music page in Classic, in the Oyen theme, in the Glass theme over a light and a dark page, and in the Pill theme as a card floating below the top edge, beside Pill's capsule while music plays"></p>
 
