@@ -181,7 +181,7 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, body: Rect) -> bool {
 }
 
 /// The battery runs low (as Classic's clock badge counts it).
-fn low(percent: u8, charging: bool) -> bool {
+pub(crate) fn low(percent: u8, charging: bool) -> bool {
     percent <= 20 && !charging
 }
 
@@ -195,7 +195,7 @@ fn snap(ui: &Ui, v: f32) -> f32 {
 /// the charge in green, red when low and not charging, and a white bolt
 /// with a ground-coloured edge while it charges.
 // TODO(status): switch to `pill::idle::battery` once the idle lane's lands.
-fn battery(ui: &mut Ui, r: Rect, percent: u8, charging: bool) {
+pub(crate) fn battery(ui: &mut Ui, r: Rect, percent: u8, charging: bool) {
     let p = (percent as f32 / 100.0).clamp(0.0, 1.0);
     let fill = if low(percent, charging) { palette::RED } else { palette::GREEN };
     let inner = r.inset(2.0, 2.0);

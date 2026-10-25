@@ -23,7 +23,7 @@
 //! Screens without a notch (older Macs, external displays) show the island
 //! exactly as Windows does.
 
-use crate::activities::{Activity, Mode};
+use crate::activities::{self, Activity, Mode};
 use crate::gfx::{Canvas, TextStyle, Weight};
 use crate::icons::Icon;
 use crate::island::{Geom, SHOULDER};
@@ -34,7 +34,7 @@ use crate::ui::Ui;
 use poni_core::datetime::{fmt_clock, fmt_countdown};
 use poni_core::geom::{clamp01, palette, Color, Point, Rect};
 use poni_core::pomodoro::Phase;
-use poni_core::settings::IdleStyle;
+use poni_core::settings::{IdleStyle, Theme};
 use poni_core::svgpath::Seg;
 
 /// The notch as macOS reports it, in DIPs (points).
@@ -71,14 +71,12 @@ const PILL_CAMERA: f32 = 8.0;
 const PILL_EAR_24H: f32 = 88.0;
 const PILL_EAR_12H: f32 = 96.0;
 const PILL_EAR_TIME_ONLY: f32 = 66.0;
-/// Pill's battery: body, its corner, the nub, and the gap to the percentage.
+/// The status bar's battery (`pill::status::battery`): its body, how far
+/// its nub reaches past it, and the gap to the percentage.
 const BATTERY: (f32, f32) = (20.0, 10.0);
-const BATTERY_R: f32 = 3.0;
-const NUB: (f32, f32) = (1.75, 4.0);
-const NUB_GAP: f32 = 0.75;
+const NUB_W: f32 = 0.75 + 1.75;
 const PCT_GAP: f32 = 6.0;
-/// Pill's outlines and secondary text on black.
-const PILL_LINE: Color = Color::white(0.42);
+/// Pill's secondary text on black.
 const PILL_DIM: Color = Color::white(0.55);
 
 pub fn fit(m: &Mode, st: &AppState) -> Fit {
@@ -237,12 +235,20 @@ pub fn pill_outline(body: Rect, radius: f32, shoulder: f32, detach: f32) -> Vec<
 
 /// The Pill theme's island body while it floats or is on its way there:
 /// the shared floating body (outline, hairline, shadow) once it is all the
-/// way out, the blended outline before that. The hairline waits until the
-/// shoulders are gone (Classic's never runs along the screen edge either).
+/// way out, the blended outline before that. The shadow fades in over the
+/// second half of the way out (it would pop in at the end), and the
+/// hairline waits until the shoulders are gone (Classic's never runs along
+/// the screen edge either).
 pub fn draw_pill_body(c: &mut Canvas, body: Rect, radius: f32, shoulder: f32, detach: f32, fill: Color, border: Option<Color>) {
     if detach >= 1.0 {
         pill::shape::draw_body(c, body, radius, fill, border);
         return;
+    }
+    let fade = (2.0 * detach - 1.0).clamp(0.0, 1.0) * fill.a;
+    if fade > 0.0 && c.on_gpu() {
+        let b = pill::shape::snap(body, c.scale());
+        let r = radius.min(b.h / 2.0).min(b.w / 2.0).max(0.0);
+        c.rrect_shadow(b.offset(0.0, pill::shape::SHADOW_DROP), r, Color::black(fade), &pill::shape::SHADOW_RAMP);
     }
     c.path(&detached_segments(body, radius, shoulder, detach), Some(fill), None);
     if let Some(b) = border.filter(|_| detach >= 0.5) {
@@ -315,6 +321,16 @@ fn draw_pill_ears(ui: &mut Ui, st: &mut AppState, m: &Mode, body: Rect, left: Re
             }
             true
         }
+        // Art left and bars right, nothing under the camera, as the other
+        // themes draw music around a notch: Pill's music pill fills its middle
+        // with words, which the camera would cut (its sung line floats below
+        // the notch instead). Classic's own drawing, for this one call.
+        Mode::Activity(Activity::Media) => {
+            let theme = std::mem::replace(&mut st.settings.theme, Theme::Classic);
+            activities::draw(ui, st, m, body);
+            st.settings.theme = theme;
+            true
+        }
         Mode::Activity(Activity::Timer) => {
             let p = &st.pomodoro;
             let col = match p.phase {
@@ -343,34 +359,21 @@ fn snap(ui: &Ui, v: f32) -> f32 {
     (v * s).round() / s
 }
 
-/// Pill's battery, right-aligned to `right` and centred on `cy`: the
-/// percentage in grey, then a small battery with its fill in green (red when
-/// low), a bolt inside while it charges.
+/// Pill's battery, right-aligned to `right` and centred on `cy`, as the
+/// status bar draws it (`pill::status::battery`): the percentage in grey
+/// (red when low), then the battery, green (red when low), with a bolt while
+/// it charges or is plugged in.
 fn pill_battery(ui: &mut Ui, st: &AppState, right: f32, cy: f32) {
     let p = st.power;
-    let low = p.percent <= 20 && !p.charging;
-    let fill = if low { palette::RED } else { palette::GREEN };
-    let x = snap(ui, right - NUB.0 - NUB_GAP - BATTERY.0);
+    // Plugged in counts as charging, as the status bar and the Charging
+    // pop-up have it: a full battery on its charger keeps the bolt.
+    let charging = p.charging || p.on_ac;
+    let x = snap(ui, right - NUB_W - BATTERY.0);
     let y = snap(ui, cy - BATTERY.1 / 2.0);
-    let shell = Rect::new(x, y, BATTERY.0, BATTERY.1);
-    ui.c.stroke_rrect(shell.inset(0.625, 0.625), BATTERY_R - 0.625, PILL_LINE, 1.25);
-    ui.c.fill_rrect(Rect::new(shell.right() + NUB_GAP, cy - NUB.1 / 2.0, NUB.0, NUB.1), 0.75, PILL_LINE);
-    let frac = (p.percent as f32 / 100.0).clamp(0.0, 1.0);
-    if frac > 0.0 {
-        let inner = shell.inset(2.0, 2.0);
-        ui.c.fill_rrect(Rect::new(inner.x, inner.y, (inner.w * frac).max(2.0), inner.h), 1.5, fill);
-    }
-    if p.charging {
-        // The bolt cuts through the fill: the ground colour around it first,
-        // kept inside the outline.
-        let at = shell.center();
-        ui.c.clip(shell.inset(1.25, 1.25));
-        ui.c.icon(Icon::Bolt, Rect::from_center(at, 12.5, 12.5), palette::ISLAND);
-        ui.c.unclip();
-        ui.c.icon(Icon::Bolt, Rect::from_center(at, 10.0, 10.0), Color::white(1.0));
-    }
-    let label = format!("{}%", p.percent);
-    let ts = TextStyle::body().weight(Weight::Medium).tabular().color(PILL_DIM).right();
+    pill::status::battery(ui, Rect::new(x, y, BATTERY.0, BATTERY.1), p.percent, charging);
+    let label = format!("{}%", p.percent.min(100));
+    let color = if pill::status::low(p.percent, charging) { palette::RED } else { PILL_DIM };
+    let ts = TextStyle::body().weight(Weight::Medium).tabular().color(color).right();
     let w = 40.0;
     ui.c.text(&label, Rect::new(x - PCT_GAP - w, cy - 10.0, w, 20.0), &ts);
 }
