@@ -257,3 +257,10 @@ job_id,step,run_id,attempt,started_at,branch,workflow,release,file
 121133061234,Fetch the release to upgrade from,40181142410,1,2026-10-25T09:37:33Z,release/0.2.2,ci.yml,v0.1.1,Poni-Setup-0.1.1.exe
 121134781398,Fetch the release to upgrade from,40181713667,1,2026-10-25T09:46:03Z,v0.2.2,ci.yml,v0.1.1,Poni-Setup-0.1.1.exe
 121138248065,Fetch the release to upgrade from,40182899553,1,2026-10-25T10:02:58Z,mac-prayer,ci.yml,v0.1.1,Poni-Setup-0.1.1.exe
+121140528909,Fetch the release to upgrade from,40183642791,1,2026-10-25T10:14:03Z,mac-prayer,ci.yml,v0.1.1,Poni-Setup-0.1.1.exe
+121142471063,Fetch the release to upgrade from,40184288691,1,2026-10-25T10:23:26Z,main,ci.yml,v0.1.1,Poni-Setup-0.1.1.exe
+121144637307,Fetch the release to upgrade from,40185018150,1,2026-10-25T10:33:46Z,site-021-sizes,ci.yml,v0.1.1,Poni-Setup-0.1.1.exe
+121146222718,Fetch the release to upgrade from,40185566096,1,2026-10-25T10:41:43Z,main,ci.yml,v0.1.1,Poni-Setup-0.1.1.exe
+121150023426,Fetch the release to upgrade from,40186794336,1,2026-10-25T11:00:40Z,step-aside,ci.yml,v0.1.1,Poni-Setup-0.1.1.exe
+121153157702,Fetch the release to upgrade from,40187867622,1,2026-10-25T11:16:04Z,sing-latin,ci.yml,v0.1.1,Poni-Setup-0.1.1.exe
+121154510058,Fetch the release to upgrade from,40188311381,1,2026-10-25T11:22:29Z,step-aside,ci.yml,v0.1.1,Poni-Setup-0.1.1.exe
