@@ -4,10 +4,12 @@
 //! macOS does the hiding. With Hide picked, the island's panel no longer
 //! joins full-screen Spaces (`window::over_fullscreen`), so when a video, a
 //! game or a slideshow goes full screen the window server leaves the island
-//! on the desktop's Space. The app still needs to know, to close the island,
-//! keep the prayer sound quiet and stop drawing: the panel's occlusion
-//! changes when its Space goes out of view, and NSWorkspace says when a
-//! Space changes. Both are notifications; nothing polls.
+//! on the desktop's Space. A panel already on every Space is carried onto
+//! the new full-screen Space as it opens, though, so when NSWorkspace says a
+//! Space came to the front the panel is placed again (`window::space_changed`).
+//! The app still needs to know, to close the island, keep the prayer sound
+//! quiet and stop drawing: the panel's occlusion changes when its Space goes
+//! out of view. Both are notifications; nothing polls.
 //!
 //! Stay on top keeps the island on full-screen Spaces too, as before. A game
 //! that covers the screen with an ordinary window rather than a Space of its
@@ -50,8 +52,14 @@ define_class!(
     unsafe impl NSObjectProtocol for Observer {}
 
     impl Observer {
-        #[unsafe(method(changed:))]
-        fn changed(&self, _n: &NSNotification) {
+        #[unsafe(method(occlusionChanged:))]
+        fn occlusion_changed(&self, _n: &NSNotification) {
+            report();
+        }
+
+        #[unsafe(method(spaceChanged:))]
+        fn space_changed(&self, _n: &NSNotification) {
+            crate::window::space_changed();
             report();
         }
     }
@@ -68,13 +76,13 @@ pub fn watch(mtm: MainThreadMarker, sink: EventSink) {
     unsafe {
         NSNotificationCenter::defaultCenter().addObserver_selector_name_object(
             obs,
-            sel!(changed:),
+            sel!(occlusionChanged:),
             Some(NSWindowDidChangeOcclusionStateNotification),
             panel.as_deref().map(|p| p.as_ref()),
         );
         NSWorkspace::sharedWorkspace().notificationCenter().addObserver_selector_name_object(
             obs,
-            sel!(changed:),
+            sel!(spaceChanged:),
             Some(NSWorkspaceActiveSpaceDidChangeNotification),
             None,
         );

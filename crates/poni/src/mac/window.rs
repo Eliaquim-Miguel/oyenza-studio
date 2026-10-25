@@ -414,6 +414,19 @@ pub fn over_fullscreen(stay: bool) {
     });
 }
 
+/// A Space came to the front. A panel on every Space is carried onto a
+/// full-screen app's new Space as it opens, whatever its rule says; with
+/// Hide picked, ordering it out and in again has macOS apply the rule there
+/// (on a desktop's Space it stays where it is).
+pub fn space_changed() {
+    with_window(|win| {
+        if win.panel.isVisible() && !win.panel.collectionBehavior().contains(NSWindowCollectionBehavior::FullScreenAuxiliary) {
+            win.panel.orderOut(None);
+            win.panel.orderFrontRegardless();
+        }
+    });
+}
+
 /// The panel is shown but out of view: its Space isn't the one in front on
 /// its screen (a full-screen app's is), or the screen sleeps or is locked.
 pub fn off_its_space() -> bool {

@@ -2782,6 +2782,9 @@ impl App {
             // copy of the app): with Hide, macOS leaves the island on the
             // desktop's Space, and the island knows.
             "fullscreen-hide" => {
+                // From rest, with nothing to say.
+                self.st.notice = None;
+                self.collapse();
                 self.st.settings.hide_in_fullscreen = true;
                 self.st.cmds.push(Command::SaveSettings);
                 match std::env::current_exe().and_then(|exe| std::process::Command::new(exe).args(["--full-screen-window", "90"]).spawn()) {
