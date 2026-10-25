@@ -64,6 +64,8 @@ const TIMER_PEEK: usize = 10;
 const PEEK_S: f64 = 5.0;
 const DROP_PEEK_EVERY_S: f64 = 30.0;
 const HOTKEY_PEEK: i32 = 1;
+/// Alt+Shift+S pauses and resumes the Script page's reading from any app.
+const HOTKEY_SCRIPT: i32 = 2;
 /// Raises that follow a new foreground window, and their spacing.
 const RAISE_REPEATS: u8 = 4;
 const RAISE_INTERVAL_MS: u32 = 500;
@@ -364,6 +366,12 @@ pub struct App {
     game_drop_at: f64,
     /// Alt+Shift+F is registered (only while a game is in front).
     peek_hotkey: bool,
+    /// Alt+Shift+S is registered (only while the Script page can read).
+    script_hotkey: bool,
+    /// The Script page has asked for the island to stay out of screen capture.
+    script_excluded: bool,
+    /// A reading held the island open at the last tick.
+    script_held: bool,
     /// App icons the System page asked for and hasn't got yet (the Shelf's
     /// thumbnail worker answers both pages with the same event).
     icon_wait: HashSet<String>,
@@ -538,6 +546,9 @@ impl App {
             game_peek_until: 0.0,
             game_drop_at: f64::NEG_INFINITY,
             peek_hotkey: false,
+            script_hotkey: false,
+            script_excluded: false,
+            script_held: false,
             icon_wait: HashSet::new(),
             tray: None,
             taskbar_created_msg,
@@ -608,6 +619,7 @@ impl App {
         // Stops the frame count's trace session (it would outlive Poni).
         self.frames = None;
         self.set_peek_hotkey(false);
+        self.set_script_hotkey(false);
         self.glass.stop(self.hwnd, &mut self.gfx);
         if let Some(p) = self.phone.take() {
             p.stop();
@@ -977,6 +989,8 @@ impl App {
                         VK_ESCAPE => Some(KeyInput::Escape),
                         VK_LEFT => Some(KeyInput::Left),
                         VK_RIGHT => Some(KeyInput::Right),
+                        VK_UP => Some(KeyInput::Up),
+                        VK_DOWN => Some(KeyInput::Down),
                         VK_HOME => Some(KeyInput::Home),
                         VK_END => Some(KeyInput::End),
                         VK_V if unsafe { GetKeyState(VK_CONTROL.0 as i32) } < 0 => {
@@ -1098,6 +1112,12 @@ impl App {
             }
             WM_HOTKEY if wp.0 == HOTKEY_PEEK as usize => {
                 self.toggle_peek();
+                self.request_frame();
+                Some(LRESULT(0))
+            }
+            WM_HOTKEY if wp.0 == HOTKEY_SCRIPT as usize => {
+                self.st.now = clock::mono();
+                pages::script::toggle(&mut self.st);
                 self.request_frame();
                 Some(LRESULT(0))
             }
@@ -1729,6 +1749,12 @@ impl App {
                 self.sync_game();
             }
             AppEvent::Foreground => self.start_raises(),
+            AppEvent::ShelfAdd(paths) if self.expanded && self.st.page == PageKind::Script && pages::script::take_drop(&mut self.st, &paths) => {
+                // A text file dropped on the Script page becomes the script.
+                self.drag_hover = false;
+                self.st.drag_hover = false;
+                self.request_frame();
+            }
             AppEvent::ShelfAdd(paths) => {
                 let n = self.st.store.shelf.add_paths(&paths, self.st.unix);
                 for p in &paths {
@@ -1745,7 +1771,10 @@ impl App {
                 self.drag_hover = on;
                 self.st.drag_hover = on;
                 if on {
-                    self.st.page = PageKind::Shelf;
+                    // The Script page takes a text file; everything else goes to the Shelf.
+                    if !(self.expanded && self.st.page == PageKind::Script) {
+                        self.st.page = PageKind::Shelf;
+                    }
                     self.expand();
                 } else {
                     self.maybe_schedule_collapse();
@@ -2112,6 +2141,60 @@ impl App {
         }
     }
 
+    /// Alt+Shift+S belongs to Poni only while the Script page can read.
+    fn set_script_hotkey(&mut self, on: bool) {
+        if on == self.script_hotkey {
+            return;
+        }
+        unsafe {
+            if on {
+                match RegisterHotKey(self.helper, HOTKEY_SCRIPT, MOD_ALT | MOD_SHIFT | MOD_NOREPEAT, u32::from(b'S')) {
+                    Ok(()) => self.script_hotkey = true,
+                    Err(e) => pwarn!("script: Alt+Shift+S is taken ({e})"),
+                }
+            } else {
+                let _ = UnregisterHotKey(self.helper, HOTKEY_SCRIPT);
+                self.script_hotkey = false;
+            }
+        }
+    }
+
+    /// The Script page: a reading pauses while its page isn't on screen, the
+    /// island may close once nothing holds it, and the shortcut is Poni's
+    /// only while there's a script to read on the page.
+    fn script_tick(&mut self) {
+        let shown = self.expanded && self.st.page == PageKind::Script && !self.locked && !self.display_off && !self.fullscreen_hidden;
+        if !shown && self.st.script.playing() {
+            self.st.script.pause(self.st.now);
+        }
+        let held = self.st.script_holds_island();
+        if self.script_held && !held {
+            self.maybe_schedule_collapse();
+        }
+        self.script_held = held;
+        let can_read = self.st.page == PageKind::Script && !self.st.store.script.is_empty() && (self.expanded || self.st.script.active);
+        self.set_script_hotkey(can_read && self.selftest.is_none());
+    }
+
+    /// Out of screen shares and recordings while the Script page shows, and
+    /// until the island has closed over it.
+    fn sync_script_capture(&mut self, on: bool) {
+        if on == self.script_excluded {
+            return;
+        }
+        self.script_excluded = on;
+        if !on {
+            window::exclude_from_capture(self.hwnd, window::CaptureOwner::Script, false);
+            return;
+        }
+        let ok = window::windows_build().is_some_and(|b| b >= crate::glass::EXCLUDE_FROM_CAPTURE_BUILD)
+            && window::exclude_from_capture(self.hwnd, window::CaptureOwner::Script, true);
+        if self.st.script_hidden != Some(ok) {
+            pinfo!("script: {}", if ok { "left out of screen capture" } else { "Windows can't leave the island out of screen capture" });
+        }
+        self.st.script_hidden = Some(ok);
+    }
+
     /// Show over games: the readout shows while the setting is on and a
     /// full-screen app has the island's monitor with the island over it.
     /// It follows the full-screen app; the readings and the frame count run
@@ -2417,6 +2500,7 @@ impl App {
             self.st.page = PageKind::ALL[0];
         }
         self.prayer_tick();
+        self.script_tick();
         // Prayer times switched off: its tab is gone.
         if self.st.page == PageKind::Prayer && !self.st.prayer_on() {
             self.st.page = PageKind::Addons;
@@ -2581,6 +2665,7 @@ impl App {
             && !self.fullscreen_on
             && matches!(self.gfx.renderer(), crate::gfx::Renderer::Gpu { .. });
         self.glass.sync(copy_on, self.hwnd, &self.sink, self.monitor.handle, window_px, &mut self.gfx);
+        self.sync_script_capture(self.st.page == PageKind::Script && (self.expanded || !self.island.settled()));
         let mut glass_moving = false;
         let glass = if glass_theme && !hidden_idle {
             let small = !matches!(mode, Mode::Expanded(_));
@@ -3173,6 +3258,14 @@ impl App {
                 }
                 Command::FocusText => self.focus_text(),
                 Command::BlurText => self.blur_text(),
+                Command::ScriptPaste => {
+                    // Read here, not through the text field path: that one drops line breaks.
+                    let text = services::clipboard::read_text(self.hwnd).map(|t| poni_core::script::clean(&t)).filter(|t| !t.is_empty());
+                    match text {
+                        Some(text) => pages::script::set_text(&mut self.st, text),
+                        None => pages::script::note(&mut self.st, "Copy your script first"),
+                    }
+                }
                 Command::SaveSettings => {
                     let before = self.saved_settings.clone();
                     self.settings_changed(&before);
@@ -3226,9 +3319,10 @@ impl App {
 
     // ------------------------------------------------------------ phone drop
 
-    /// The QR code waits for a phone, or a phone waits for an answer (Shelf page only).
+    /// The QR code waits for a phone, or a phone waits for an answer (Shelf
+    /// page only), or a reading is under way (Script page only).
     fn phone_holds(&self) -> bool {
-        self.st.phone_holds_island()
+        self.st.page_holds_island()
     }
 
     fn phone_cmd(&mut self, c: PhoneCmd) {

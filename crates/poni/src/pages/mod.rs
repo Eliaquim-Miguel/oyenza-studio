@@ -16,6 +16,7 @@ pub mod health;
 pub mod media;
 pub mod oyenza;
 pub mod prayer;
+pub mod script;
 pub mod settings;
 pub mod shelf;
 pub mod system;
@@ -55,6 +56,8 @@ pub enum PageKind {
     Clipboard,
     Today,
     System,
+    /// The teleprompter: a script read under the webcam.
+    Script,
     /// Only while signing in to Oyenza or signed in ([`tabs`]).
     Oyenza,
     /// Prayer times, while that add-on is on ([`tabs`]).
@@ -67,7 +70,7 @@ pub enum PageKind {
 }
 
 impl PageKind {
-    pub const ALL: [PageKind; 12] = [
+    pub const ALL: [PageKind; 13] = [
         PageKind::Media,
         PageKind::Focus,
         PageKind::Health,
@@ -76,6 +79,7 @@ impl PageKind {
         PageKind::Clipboard,
         PageKind::Today,
         PageKind::System,
+        PageKind::Script,
         PageKind::Oyenza,
         PageKind::Prayer,
         PageKind::Addons,
@@ -92,6 +96,7 @@ impl PageKind {
             PageKind::Clipboard => "clipboard",
             PageKind::Today => "today",
             PageKind::System => "system",
+            PageKind::Script => "script",
             PageKind::Oyenza => "oyenza",
             PageKind::Prayer => "prayer",
             PageKind::Addons => "addons",
@@ -115,6 +120,7 @@ impl PageKind {
             PageKind::Clipboard => "Clipboard",
             PageKind::Today => "Today",
             PageKind::System => "System",
+            PageKind::Script => "Script",
             PageKind::Oyenza => "Oyenza",
             PageKind::Prayer => "Prayer",
             PageKind::Addons => "Add-ons",
@@ -132,6 +138,7 @@ impl PageKind {
             PageKind::Clipboard => Icon::Clipboard,
             PageKind::Today => Icon::Calendar,
             PageKind::System => Icon::Gauge,
+            PageKind::Script => Icon::Script,
             PageKind::Oyenza => Icon::Wallet,
             PageKind::Prayer => Icon::Moon,
             PageKind::Addons => Icon::Addons,
@@ -187,6 +194,7 @@ pub fn content_height(p: PageKind, st: &AppState) -> f32 {
         PageKind::Clipboard => clipboard::height(st),
         PageKind::Today => today::height(st),
         PageKind::System => system::height(st),
+        PageKind::Script => script::height(st),
         PageKind::Oyenza => oyenza::height(st),
         PageKind::Prayer => prayer::height(st),
         PageKind::Addons => addons::height(st),
@@ -205,6 +213,7 @@ pub fn next_wake(page: PageKind, st: &AppState) -> Option<f64> {
         PageKind::Shelf => shelf::next_wake(st),
         PageKind::Oyenza => oyenza::next_wake(st),
         PageKind::Settings => settings::next_wake(st),
+        PageKind::Script => script::next_wake(st),
         _ => None,
     };
     // Oyen in the header blinks and flicks an ear now and then.
@@ -314,6 +323,7 @@ pub(crate) fn draw_page(ui: &mut Ui, st: &mut AppState, area: Rect, page: PageKi
         PageKind::Clipboard => clipboard::draw(ui, st, area),
         PageKind::Today => today::draw(ui, st, area),
         PageKind::System => system::draw(ui, st, area),
+        PageKind::Script => script::draw(ui, st, area),
         PageKind::Oyenza => oyenza::draw(ui, st, area),
         PageKind::Prayer => prayer::draw(ui, st, area),
         PageKind::Addons => addons::draw(ui, st, area),

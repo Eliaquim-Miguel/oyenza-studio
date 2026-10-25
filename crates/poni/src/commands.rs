@@ -80,6 +80,9 @@ pub enum Command {
     CopyText(String),
     /// Give the island keyboard focus for a text field.
     FocusText,
+    /// The Script page's Paste: the clipboard's text, line breaks kept,
+    /// becomes the script.
+    ScriptPaste,
     /// Drop keyboard focus.
     BlurText,
     /// Persist `AppState::store` soon.

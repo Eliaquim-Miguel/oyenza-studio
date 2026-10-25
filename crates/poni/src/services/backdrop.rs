@@ -4,7 +4,7 @@
 //! Runs only while the Glass theme is on. A thread of its own owns a Direct3D
 //! device on the island monitor's adapter and duplicates that output (DXGI
 //! Desktop Duplication). The island window is left out of screen capture
-//! (`window::set_capture_excluded`), so the copy shows what's under it, never
+//! (`window::exclude_from_capture`), so the copy shows what's under it, never
 //! the island itself. Windows hands over a frame only when the desktop
 //! changed; the thread copies the window's rectangle and, when those pixels
 //! really differ from the last copy, keeps them and wakes the UI thread.
