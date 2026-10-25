@@ -7,10 +7,11 @@ use crate::commands::{Command, MediaCmd, OyenzaCmd, PairCmd, PhoneCmd};
 use crate::events::{AppEvent, AppleMusicStatus, EventSink, OyenzaEvent, SendHwnd, WM_APP_APPBAR, WM_APP_EVENT, WM_APP_FRAME, WM_APP_TRAY};
 use crate::gfx::{px_rect, px_union, scale_about, union_rect, Canvas, Gfx, HitMask};
 use crate::icons::Icon;
-use crate::island::{Geom, Island, HIT_MARGIN, SHOULDER};
+use crate::island::{Geom, Island, SHOULDER};
 use crate::oyen;
 use crate::pages::{self, PageKind};
 use crate::paths;
+use crate::pill;
 use crate::services::{self, Services};
 use crate::state::{
     AppState, FpsAccess, HudKind, InlineAction, Locate, LyricsState, LyricsStatus, Notice, NoticeAction, OyenzaLink, PairedPhone, PhoneAsk, PhoneDrop,
@@ -406,6 +407,9 @@ pub struct App {
     phone_offer: Vec<String>,
     /// The Shelf paths last handed to the paired-phones service.
     pair_offer: Option<Vec<String>>,
+    /// Whether the island floated when the window was last laid out (its
+    /// room differs: see `sync_room`).
+    laid_floating: bool,
 }
 
 /// The island window: position and size in screen pixels.
@@ -477,7 +481,8 @@ impl App {
         st.unix = clock::unix_now();
         st.accent = theme_accent(st.settings.theme);
         let mode = Mode::Idle;
-        let island = Island::new(activities::geom(&mode, &st));
+        let mut island = Island::new(activities::geom(&mode, &st));
+        island.set_floating(pill::on(st.settings.theme).then_some(pill::TOP_GAP));
         let clock = FrameClock::start(SendHwnd::new(hwnd), monitor.handle);
         let taskbar_created_msg = unsafe { RegisterWindowMessageW(w!("TaskbarCreated")) };
         let selftest = selftest_dir.map(selftest::SelfTest::new);
@@ -558,6 +563,7 @@ impl App {
             phone: None,
             phone_offer: Vec::new(),
             pair_offer: None,
+            laid_floating: false,
         })
     }
 
@@ -652,12 +658,8 @@ impl App {
     fn layout_surface_for(&mut self, body_w: f32, body_h: f32) {
         let s = self.gfx.scale();
         let mon_w = self.monitor.rect.right - self.monitor.rect.left;
-        let mut w = ((body_w * OVERSHOOT + 2.0 * (SHOULDER + HIT_MARGIN)) * s).ceil() as i32;
-        // An even margin on both sides puts the centre on the monitor's centre.
-        if (mon_w - w) % 2 != 0 {
-            w += 1;
-        }
-        let h = ((body_h * OVERSHOOT + HIT_MARGIN) * s).ceil() as i32;
+        let (w, h) = surface_size(&self.island, body_w, body_h, s, mon_w);
+        self.laid_floating = self.island.floating();
         let surface = Surface { x: self.monitor.rect.left + (mon_w - w) / 2, y: self.monitor.top(), w, h };
         if surface != self.surface {
             self.surface = surface;
@@ -670,6 +672,22 @@ impl App {
         }
     }
 
+    /// The island started or stopped floating since the window was laid out
+    /// (a theme switch into or out of Pill, the self-test picking its theme
+    /// after start, or the outline docking at the edge after rising back to
+    /// it): lay the window out again for the new room, grown for the gap and
+    /// the shadow or given back, so Classic, Oyen and Glass keep exactly the
+    /// window they start with and Pill gets its own. Called every frame
+    /// after the island steps; a layout only on that change.
+    fn sync_room(&mut self) {
+        let floats = self.island.floating();
+        if floats != self.laid_floating {
+            self.layout_surface();
+            let (w, h) = (self.surface.w, self.surface.h);
+            self.log_queue.push(format!("island {}; window {w}x{h}", if floats { "floats below the top edge" } else { "hangs from the top edge" }));
+        }
+    }
+
     /// The island no longer fits the window (a target beyond the laid-out
     /// size, with room for its overshoot, or an outline past it): grow it.
     fn ensure_room(&mut self) {
@@ -677,8 +695,8 @@ impl App {
         let t = self.island.target();
         let (bw, bh) = ((t.w * OVERSHOOT).max(g.w), (t.h * OVERSHOOT).max(g.h));
         let s = self.gfx.scale();
-        let need_w = ((bw + 2.0 * (SHOULDER + HIT_MARGIN)) * s).ceil() as i32;
-        let need_h = ((bh + HIT_MARGIN) * s).ceil() as i32;
+        let need_w = ((bw + 2.0 * self.island.side_room()) * s).ceil() as i32;
+        let need_h = ((bh + self.island.bottom_room() + self.island.top()) * s).ceil() as i32;
         if need_w > self.surface.w || need_h > self.surface.h {
             let tallest = PageKind::ALL.iter().map(|p| pages::content_height(*p, &self.st)).fold(0.0f32, f32::max);
             let body_h = (pages::HEADER_H + tallest + pages::PAD).max(bh / OVERSHOOT * 1.1);
@@ -805,8 +823,12 @@ impl App {
                 Some(LRESULT(0))
             }
             WM_LBUTTONDOWN | WM_LBUTTONDBLCLK => {
-                self.dbl_press = msg == WM_LBUTTONDBLCLK;
                 let p = self.mouse_dip(lp);
+                if self.over_shadow(p) {
+                    // A press on the floating pill's shadow (software renderer): not the island.
+                    return Some(LRESULT(0));
+                }
+                self.dbl_press = msg == WM_LBUTTONDBLCLK;
                 self.input.mouse = Some(p);
                 self.input.down = true;
                 self.input.just_pressed = true;
@@ -890,6 +912,9 @@ impl App {
             }
             WM_RBUTTONUP => {
                 let p = self.mouse_dip(lp);
+                if self.over_shadow(p) {
+                    return Some(LRESULT(0));
+                }
                 match self.hit_at(p) {
                     Some(h) => self.input.clicked = Some((h.id, MouseButton::Right)),
                     None => {
@@ -2267,23 +2292,57 @@ impl App {
     }
 
     /// Whether `p` is over a part of the window that takes the mouse: the
-    /// whole canvas while expanded (hit margin), only the island collapsed.
+    /// whole canvas while expanded (hit margin), only the island collapsed
+    /// (floating: its outline and the gap above it, see [`hit_mask_for`]).
     fn hovering_inside(&self, p: Point) -> bool {
-        if !self.expanded {
-            return self.island.body_rect_at(self.cx).contains(p);
+        if self.expanded {
+            return self.island.canvas_rect_at(self.cx).contains(p);
         }
-        self.island.canvas_rect_at(self.cx).contains(p)
+        if self.island.floating() {
+            return self.hit_mask().contains(p);
+        }
+        self.island.body_rect_at(self.cx).contains(p)
     }
 
+    /// Where the window takes the mouse now (see [`hit_mask_for`]).
+    fn hit_mask(&self) -> HitMask {
+        let hidden = self.mode == Mode::Idle && self.st.settings.idle_style == IdleStyle::Hidden;
+        hit_mask_for(&self.island, self.cx, self.expanded, hidden)
+    }
+
+    /// Whether `p`, where the window took the mouse, is off the island.
     /// GPU renderer: the invisible hit mask trails a moving outline by up to
-    /// [`MASK_INTERVAL`]. A pointer over the part the island already left
-    /// (well outside its shape and shoulders) gets no hover.
+    /// [`MASK_INTERVAL`], and a pointer over the part the island already left
+    /// (well outside its shape and shoulders) gets no hover. Software
+    /// renderer: see [`App::over_shadow`].
     fn over_stale_mask(&self, p: Point) -> bool {
-        if !self.gfx.needs_hit_mask() || self.island.settled() || self.input.down {
+        if self.input.down {
             return false;
         }
-        let r = if self.expanded { self.island.canvas_rect_at(self.cx) } else { self.island.body_rect_at(self.cx).inset(-SHOULDER - 2.0, 0.0) };
+        if !self.gfx.needs_hit_mask() {
+            return self.over_shadow(p);
+        }
+        if self.island.settled() {
+            return false;
+        }
+        let r = if self.expanded { self.island.canvas_rect_at(self.cx) } else { self.island.hover_rect_at(self.cx).inset(-SHOULDER - 2.0, 0.0) };
         !Rect::new(r.x, r.y, r.w, r.h + 2.0).contains(p)
+    }
+
+    /// Software renderer, floating island (the Pill theme) collapsed: a
+    /// layered window takes the mouse wherever its pixels aren't fully
+    /// transparent. That renderer draws the pill without its shadow
+    /// (`pill::shape::draw_body`), so what's left beside the outline is its
+    /// anti-aliased edge: a pointer there is off the island (no hover, no
+    /// click, no menu). (The GPU renderer's hit mask decides on its own.)
+    /// `p` is a pixel's corner: its centre is tested, so an edge pixel the
+    /// outline mostly covers still counts.
+    fn over_shadow(&self, p: Point) -> bool {
+        if self.expanded || !self.island.floating() || self.gfx.needs_hit_mask() {
+            return false;
+        }
+        let half = 0.5 / self.gfx.scale();
+        !self.hit_mask().contains(Point::new(p.x + half, p.y + half))
     }
 
     fn target_mode(&self) -> Mode {
@@ -2303,7 +2362,12 @@ impl App {
             _ => false,
         };
         if liftable && self.hovering && !self.expanded {
-            Geom::new(g.w + HOVER_LIFT.0, g.h + HOVER_LIFT.1, g.r + HOVER_LIFT.2)
+            if pill::on(self.st.settings.theme) {
+                // Floating, it swells evenly about its middle and stays a capsule.
+                pill::motion::hover_lift(g)
+            } else {
+                Geom::new(g.w + HOVER_LIFT.0, g.h + HOVER_LIFT.1, g.r + HOVER_LIFT.2)
+            }
         } else {
             g
         }
@@ -2430,7 +2494,10 @@ impl App {
         self.set_stats(self.mode == Mode::Expanded(PageKind::Today));
         self.set_sysmon(self.mode == Mode::Expanded(PageKind::System));
         self.set_oyenza_watch(self.mode == Mode::Expanded(PageKind::Oyenza));
+        // The Pill theme floats the island below the top edge.
+        self.island.set_floating(pill::on(self.st.settings.theme).then_some(pill::TOP_GAP));
         self.island.step(dt, now);
+        self.sync_room();
         self.ensure_room();
         self.note_motion(retarget, rendered_at, period, dt as f64);
 
@@ -2453,6 +2520,10 @@ impl App {
         hits.clear();
 
         let hidden_idle = self.mode == Mode::Idle && self.st.settings.idle_style == IdleStyle::Hidden;
+        let floating = self.island.floating();
+        // Software renderer: what of the floating island's hit area isn't
+        // drawn (the gap above it) is painted at 1/255 (see hit_mask_for).
+        let float_hit = if floating && !self.expanded { self.hit_mask().rect } else { None };
         // Content is masked to the island silhouette only while the outline
         // or the content moves. At rest every layout fits inside the body,
         // and skipping the mask layer keeps ambient frames cheap.
@@ -2513,20 +2584,36 @@ impl App {
                     // panel. Collapsed, only the visible shape takes the mouse.
                     // (The GPU renderer keeps this in its hit mask instead.)
                     canvas.fill_rect(canvas_r, Color::black(1.0 / 255.0));
+                } else if let Some(r) = float_hit.filter(|_| !canvas.on_gpu()) {
+                    // The gap above the floating pill (or the Hidden style's
+                    // band at the top edge) takes the mouse too.
+                    canvas.fill_rect(r, Color::black(1.0 / 255.0));
                 }
                 if let Some(p) = glass.as_ref() {
                     canvas.glass(p, canvas_r);
                 } else {
                     let island_color = if hidden_idle { Color::black(1.0 / 255.0) } else { palette::ISLAND };
                     let border = if hidden_idle { None } else { Some(canvas.look().border) };
-                    canvas.notch(body, geom.r, SHOULDER, island_color, border);
+                    if floating {
+                        // Hidden floats nothing: its band takes the mouse.
+                        if !hidden_idle {
+                            pill::shape::draw_body(&mut canvas, body, geom.r, island_color, border);
+                        }
+                    } else {
+                        canvas.notch(body, geom.r, SHOULDER, island_color, border);
+                    }
                 }
 
-                // Content scales about the top centre, where the island hangs.
-                let pivot = Point::new(body.center().x, body.y);
+                // Content scales about the top centre, where the island hangs
+                // (floating, about the middle of the pill end of the morph).
+                let pivot = if floating { pill::motion::pivot(body, self.island.target()) } else { Point::new(body.center().x, body.y) };
                 if morphing {
                     canvas.clip(body);
-                    canvas.push_shape_mask(body, geom.r, SHOULDER);
+                    if floating {
+                        canvas.push_outline_mask(&pill::shape::segments(body, geom.r));
+                    } else {
+                        canvas.push_shape_mask(body, geom.r, SHOULDER);
+                    }
                 }
 
                 // Outgoing content: laid out at its own (old) size, centred,
@@ -2539,7 +2626,8 @@ impl App {
                     } else {
                         let old_body = Rect::new(body.center().x - g.w / 2.0, body.y, g.w, g.h);
                         let alpha = from * outgoing_left(now - t0);
-                        let xf = scale_about(pivot, (geom.w / g.w.max(1.0)).clamp(GHOST_MIN_SCALE, 1.0));
+                        let shrink = if floating { pill::motion::ghost_scale(geom, g, GHOST_MIN_SCALE) } else { (geom.w / g.w.max(1.0)).clamp(GHOST_MIN_SCALE, 1.0) };
+                        let xf = scale_about(pivot, shrink);
                         let st = &mut self.st;
                         canvas.layered(old_body, alpha, xf, |c| {
                             let mut ghost_input = Input::default();
@@ -2557,7 +2645,8 @@ impl App {
                 // as one layer, so its text doesn't re-hint every frame.
                 let out = if content_alpha < 1.0 {
                     let grow = scale_about(pivot, CONTENT_SCALE_FROM + (1.0 - CONTENT_SCALE_FROM) * content_alpha);
-                    let xf = grow * Matrix3x2::translation(0.0, -CONTENT_DROP * (1.0 - content_alpha));
+                    let drop_by = if floating { pill::motion::CONTENT_DROP } else { CONTENT_DROP };
+                    let xf = grow * Matrix3x2::translation(0.0, -drop_by * (1.0 - content_alpha));
                     let (input, st) = (&mut self.input, &mut self.st);
                     canvas.layered(union_rect(lay, body), content_alpha, xf, |c| draw_content(c, input, &mut hits, st, mode, lay, body, transition, now))
                 } else {
@@ -2619,7 +2708,7 @@ impl App {
         }
         let presented_at = clock::mono();
         if self.gfx.needs_hit_mask() {
-            self.update_hit_mask(body, geom.r, canvas_r, now);
+            self.update_hit_mask(now);
         }
         if let (Some(t), true) = (tick, self.motion.is_some() && self.motions_logged < 6 && self.trace.len() < 200) {
             let ms = |a: f64, b: f64| ((b - a) * 1000.0) as f32;
@@ -2677,8 +2766,8 @@ impl App {
     /// GPU renderer: keep the window's invisible hit mask on the island.
     /// While the outline moves it follows at [`MASK_INTERVAL`]; at rest it
     /// matches exactly.
-    fn update_hit_mask(&mut self, body: Rect, radius: f32, canvas_r: Rect, now: f64) {
-        let mask = if self.expanded { HitMask { rect: Some(canvas_r), notch: None } } else { HitMask { rect: None, notch: Some((body, radius, SHOULDER)) } };
+    fn update_hit_mask(&mut self, now: f64) {
+        let mask = self.hit_mask();
         let due = match &self.mask {
             None => true,
             Some((m, at)) => *m != mask && (self.island.settled() || now - at >= MASK_INTERVAL),
@@ -2768,7 +2857,11 @@ impl App {
         if let poni_core::pomodoro::RunState::Running { ends_at } = self.st.pomodoro.run {
             consider(ends_at + 0.005);
         }
-        if let Some(t) = activities::next_wake(&self.mode, &self.st).filter(|_| visible) {
+        // Pill's music pill wakes for every sung line; nobody sees those while
+        // the session is locked or the display is off, so they rest then (the
+        // lock and display events ask for a frame, which picks them up again).
+        let watched = visible && !(pill::on(self.st.settings.theme) && (self.locked || self.display_off));
+        if let Some(t) = activities::next_wake(&self.mode, &self.st).filter(|_| watched) {
             consider(t);
         }
         if let Mode::Expanded(p) = self.mode {
@@ -3586,6 +3679,49 @@ fn dwm_counters() -> Option<(u64, u64, u64)> {
     Some((info.cRefresh, info.cFrame, info.cFramesMissed))
 }
 
+/// The window's size in pixels for an island body up to `body_w`×`body_h`
+/// DIPs at `scale`, on a monitor `mon_w` pixels wide: room for the spring's
+/// overshoot, and the island's own room around the body (Classic: the
+/// shoulders and hit margin; floating: the gap above, the shadow's room
+/// beside and below).
+fn surface_size(island: &Island, body_w: f32, body_h: f32, scale: f32, mon_w: i32) -> (i32, i32) {
+    let mut w = ((body_w * OVERSHOOT + 2.0 * island.side_room()) * scale).ceil() as i32;
+    // An even margin on both sides puts the centre on the monitor's centre.
+    if (mon_w - w) % 2 != 0 {
+        w += 1;
+    }
+    // The gap the island rests at, not where an outline sliding into or out
+    // of it is now: the window never resizes during that motion.
+    let top = if island.floating() { pill::TOP_GAP } else { 0.0 };
+    let h = ((body_h * OVERSHOOT + island.bottom_room() + top) * scale).ceil() as i32;
+    (w, h)
+}
+
+/// Where the island window takes the mouse (DIPs, window space). Open: the
+/// whole canvas, a forgiving margin around the panel. Collapsed: the
+/// island's own outline. While it floats (the Pill theme) the gap above it
+/// takes the mouse too, down to the pill's middle, so a pointer thrown at
+/// the top edge lands on it as it lands on Classic's island; beside and
+/// below the pill (its shadow) clicks pass through. The Hidden idle style's
+/// invisible island takes it only in a band at the top edge as tall as its
+/// body, as Classic's hidden strip does, so what sits under the gap keeps
+/// its clicks. The GPU renderer pushes this as the window's hit mask; the
+/// software renderer paints it at alpha 1/255 under the island.
+fn hit_mask_for(island: &Island, cx: f32, expanded: bool, hidden: bool) -> HitMask {
+    if expanded {
+        return HitMask { rect: Some(island.canvas_rect_at(cx)), notch: None, pill: None };
+    }
+    let body = island.body_rect_at(cx);
+    if !island.floating() {
+        return HitMask { rect: None, notch: Some((body, island.current().r, SHOULDER)), pill: None };
+    }
+    if hidden {
+        return HitMask { rect: Some(Rect::new(body.x, 0.0, body.w, body.h)), notch: None, pill: None };
+    }
+    let gap = island.hover_rect_at(cx);
+    HitMask { rect: Some(Rect::new(gap.x, gap.y, gap.w, body.y + body.h / 2.0 - gap.y)), notch: None, pill: Some((body, island.current().r)) }
+}
+
 /// Name of a morph for the motion log.
 fn motion_name(from: &Mode, to: &Mode) -> &'static str {
     match (from, to) {
@@ -3620,5 +3756,166 @@ pub(crate) fn steps_goal_notice(steps: u32, until: f64) -> Notice {
         action: Some(NoticeAction::OpenPage(PageKind::Health)),
         inline: None,
         reveal: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::island::HIT_MARGIN;
+
+    /// The window's centre in DIPs (any value: the geometry follows it).
+    const CX: f32 = 336.6;
+    const SCALES: [f32; 4] = [1.0, 1.25, 1.5, 2.0];
+
+    fn island(g: Geom, floating: bool) -> Island {
+        let mut i = Island::new(g);
+        i.set_floating(floating.then_some(pill::TOP_GAP));
+        i
+    }
+
+    fn pt(x: f32, y: f32) -> Point {
+        Point::new(x, y)
+    }
+
+    /// The pixel centre `over_shadow` tests for the pixel at (x, y) px.
+    fn px_centre(x: i32, y: i32, s: f32) -> Point {
+        pt((x as f32 + 0.5) / s, (y as f32 + 0.5) / s)
+    }
+
+    #[test]
+    fn classic_hangs_from_the_edge() {
+        let i = island(Geom::new(84.0, 30.0, 14.0), false);
+        let body = i.body_rect_at(CX);
+        assert_eq!(body, Rect::new(CX - 42.0, 0.0, 84.0, 30.0));
+        assert_eq!(i.hover_rect_at(CX), body, "Classic hovers on its body");
+        let side = SHOULDER + HIT_MARGIN;
+        assert_eq!(i.canvas_rect_at(CX), Rect::new(CX - 42.0 - side, 0.0, 84.0 + 2.0 * side, 30.0 + HIT_MARGIN));
+        assert_eq!((i.top(), i.side_room(), i.bottom_room()), (0.0, side, HIT_MARGIN));
+    }
+
+    #[test]
+    fn pill_floats_below_the_edge() {
+        let i = island(Geom::new(152.0, 32.0, 16.0), true);
+        let (gap, side, below) = (pill::TOP_GAP, i.side_room(), i.bottom_room());
+        assert!(i.floating() && i.top() == gap && side > 0.0 && below > 0.0, "room for the gap and the shadow");
+        let body = i.body_rect_at(CX);
+        assert_eq!(body, Rect::new(CX - 76.0, gap, 152.0, 32.0));
+        assert_eq!(i.hover_rect_at(CX), Rect::new(CX - 76.0, 0.0, 152.0, gap + 32.0), "the gap above it and the body");
+        assert_eq!(i.canvas_rect_at(CX), Rect::new(CX - 76.0 - side, 0.0, 152.0 + 2.0 * side, gap + 32.0 + below));
+    }
+
+    #[test]
+    fn classic_masks_are_unchanged() {
+        let i = island(Geom::new(84.0, 30.0, 14.0), false);
+        let body = i.body_rect_at(CX);
+        assert_eq!(hit_mask_for(&i, CX, false, false), HitMask { rect: None, notch: Some((body, 14.0, SHOULDER)), pill: None });
+        // Hidden is Classic's own strip there, with its shoulders.
+        assert_eq!(hit_mask_for(&i, CX, false, true), HitMask { rect: None, notch: Some((body, 14.0, SHOULDER)), pill: None });
+        assert_eq!(hit_mask_for(&i, CX, true, false), HitMask { rect: Some(i.canvas_rect_at(CX)), notch: None, pill: None });
+    }
+
+    #[test]
+    fn pill_takes_the_gap_not_its_shadow() {
+        let i = island(Geom::new(152.0, 32.0, 16.0), true);
+        let body = i.body_rect_at(CX);
+        let m = hit_mask_for(&i, CX, false, false);
+        assert_eq!(m.pill, Some((body, 16.0)));
+        // A pointer thrown at the top edge: anywhere above the pill.
+        for x in [body.x + 0.1, CX, body.right() - 0.1] {
+            assert!(m.contains(pt(x, 0.0)), "top edge at x {x}");
+            assert!(m.contains(pt(x, pill::TOP_GAP - 0.1)), "just above the pill at x {x}");
+        }
+        assert!(m.contains(pt(body.x + 0.5, body.y + 0.5)), "the top corners: the gap reaches the pill's middle");
+        assert!(m.contains(pt(CX, body.bottom() - 0.5)), "the pill's bottom edge");
+        // Beside it at the top edge, beside and below it (its shadow): through.
+        assert!(!m.contains(pt(body.x - 0.5, 0.0)) && !m.contains(pt(body.right() + 0.5, 0.0)));
+        for d in [0.5, 3.0, 8.0] {
+            assert!(!m.contains(pt(body.x - d, body.center().y)), "beside, {d} out");
+            assert!(!m.contains(pt(body.right() + d, body.center().y)), "beside, {d} out");
+            assert!(!m.contains(pt(CX, body.bottom() + d)), "below, {d} down");
+        }
+        assert!(!m.contains(pt(body.x + 1.0, body.bottom() - 1.0)), "the round bottom corners");
+    }
+
+    #[test]
+    fn pill_open_takes_the_card_its_margin_and_the_gap() {
+        let i = island(Geom::new(620.0, 216.0, 40.0), true);
+        let canvas = i.canvas_rect_at(CX);
+        let m = hit_mask_for(&i, CX, true, false);
+        assert_eq!(m, HitMask { rect: Some(canvas), notch: None, pill: None });
+        let body = i.body_rect_at(CX);
+        assert!(m.contains(pt(CX, 0.0)), "the gap above the card");
+        assert!(m.contains(pt(body.x - i.side_room() + 0.5, body.center().y)), "the margin beside it");
+        assert!(m.contains(pt(CX, body.bottom() + i.bottom_room() - 0.5)), "the margin below it");
+        assert!(!m.contains(pt(canvas.right() + 0.5, body.center().y)) && !m.contains(pt(CX, canvas.bottom() + 0.5)));
+    }
+
+    #[test]
+    fn hidden_pill_takes_a_band_at_the_edge() {
+        // Classic's hidden strip (150 x 5, drawn at least 8 tall), floating:
+        // the mouse finds it at the top edge in a band as tall as Classic's,
+        // not down the gap and the invisible body under it.
+        let i = island(Geom::new(150.0, 5.0, 2.5), true);
+        let classic = island(Geom::new(150.0, 5.0, 2.5), false).body_rect_at(CX);
+        let body = i.body_rect_at(CX);
+        let m = hit_mask_for(&i, CX, false, true);
+        assert_eq!(m, HitMask { rect: Some(Rect::new(classic.x, 0.0, classic.w, classic.h)), notch: None, pill: None });
+        assert!(m.contains(pt(CX, 0.0)) && m.contains(pt(body.x + 0.1, classic.h - 0.1)));
+        assert!(!m.contains(pt(CX, classic.h)) && !m.contains(pt(CX, body.center().y)), "below the band, the invisible body included");
+    }
+
+    #[test]
+    fn pixels_at_every_scale() {
+        // What over_shadow sees, pixel by pixel, at 100 / 125 / 150 / 200 %:
+        // every pixel row of the gap above the pill takes the mouse, the
+        // pixels beside and under the pill don't.
+        let i = island(Geom::new(84.0, 32.0, 16.0), true);
+        let body = i.body_rect_at(CX);
+        let m = hit_mask_for(&i, CX, false, false);
+        for s in SCALES {
+            let x = (CX * s) as i32;
+            let top_px = (pill::TOP_GAP * s).round() as i32;
+            assert_eq!(top_px as f32, pill::TOP_GAP * s, "the gap is whole pixels at {s}");
+            for y in 0..top_px {
+                assert!(m.contains(px_centre(x, y, s)), "gap row {y} at {s}");
+            }
+            let mid = ((body.y + body.h / 2.0) * s) as i32;
+            let left = (body.x * s).floor() as i32 - 1;
+            let right = (body.right() * s).ceil() as i32;
+            assert!(!m.contains(px_centre(left, mid, s)) && !m.contains(px_centre(right, mid, s)), "beside at {s}");
+            assert!(m.contains(px_centre(left + 2, mid, s)) && m.contains(px_centre(right - 2, mid, s)), "inside the ends at {s}");
+            let below = (body.bottom() * s).ceil() as i32;
+            assert!(!m.contains(px_centre(x, below, s)) && m.contains(px_centre(x, below - 1, s)), "the bottom edge at {s}");
+            assert!(m.contains(px_centre(x, 0, s)), "the top edge at {s}");
+        }
+    }
+
+    #[test]
+    fn window_room_follows_the_theme_and_comes_back() {
+        // A theme switch lays the window out again: Pill grows it for the gap
+        // (and needs less room beside: no shoulders), Classic gets its exact
+        // size back.
+        let mut i = island(Geom::new(84.0, 30.0, 14.0), false);
+        for s in SCALES {
+            for mon_w in [1920, 1366, 2560, 3841] {
+                let classic = surface_size(&i, 620.0, 400.0, s, mon_w);
+                // The formula Classic has always laid out with.
+                let mut w = ((620.0 * OVERSHOOT + 2.0 * (SHOULDER + HIT_MARGIN)) * s).ceil() as i32;
+                if (mon_w - w) % 2 != 0 {
+                    w += 1;
+                }
+                assert_eq!(classic, (w, ((400.0 * OVERSHOOT + HIT_MARGIN) * s).ceil() as i32), "Classic at {s} on {mon_w}");
+                assert_eq!((mon_w - classic.0) % 2, 0, "centred on whole pixels");
+
+                i.set_floating(Some(pill::TOP_GAP));
+                let floating = surface_size(&i, 620.0, 400.0, s, mon_w);
+                let want_h = ((400.0 * OVERSHOOT + i.bottom_room() + pill::TOP_GAP) * s).ceil() as i32;
+                assert_eq!(floating.1, want_h, "Pill has room for the gap at {s}");
+                assert_eq!((mon_w - floating.0) % 2, 0);
+                i.set_floating(None);
+                assert_eq!(surface_size(&i, 620.0, 400.0, s, mon_w), classic, "back to Classic at {s} on {mon_w}");
+            }
+        }
     }
 }

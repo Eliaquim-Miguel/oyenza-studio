@@ -23,6 +23,7 @@ use crate::notch::{self, Fit, Notch};
 use crate::oyen;
 use crate::pages::{self, PageKind};
 use crate::paths;
+use crate::pill;
 use crate::services;
 use crate::events::{AppleMusicStatus, LyricsResult};
 use crate::state::{AppState, HudKind, InlineAction, LyricsState, LyricsStatus, NoticeAction, PhoneAsk, PhoneDrop, PhoneTransfer, VolumeState};
@@ -74,6 +75,10 @@ const CONTENT_DROP: f32 = 6.0;
 const GHOST_MIN_SCALE: f32 = 0.6;
 /// Phone drop closes itself after this long without a request from a phone.
 const PHONE_IDLE_S: f64 = 600.0;
+/// The hidden resting island's height, and how much taller the floating
+/// one is when it has faded all the way in.
+const HIDDEN_SLIVER: f32 = 5.0;
+const HIDDEN_FADE: f32 = 24.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Timer {
@@ -290,6 +295,16 @@ struct Drawn {
     live: bool,
 }
 
+/// What the smoke run measures of the drawing at rest: frames, the time in
+/// `draw`, and the part spent on the island's body (for a floating one, its
+/// shadow and hairline too).
+#[derive(Clone, Copy, Debug, Default)]
+struct DrawCost {
+    frames: u32,
+    draw: f64,
+    body: f64,
+}
+
 pub struct App {
     mtm: MainThreadMarker,
     gfx: Gfx,
@@ -364,6 +379,13 @@ pub struct App {
     motions_logged: u32,
     frames_drawn: u64,
     smoke: Option<Smoke>,
+    /// The smoke run: drawing cost at rest, a timer set aside while the
+    /// music pill is measured, and where the ear step points.
+    cost: DrawCost,
+    smoke_timer: Option<poni_core::pomodoro::Pomodoro>,
+    smoke_point: Option<Point>,
+    /// The island floated on the last frame (Pill letting go of the notch).
+    was_floating: bool,
 }
 
 impl App {
@@ -446,11 +468,17 @@ impl App {
             motions_logged: 0,
             frames_drawn: 0,
             smoke,
+            cost: DrawCost::default(),
+            smoke_timer: None,
+            smoke_point: None,
+            was_floating: false,
         }
     }
 
     fn start(&mut self) {
         self.layout_surface();
+        // Floating from the start: before the first frame the gap is taken at once.
+        self.island.set_floating(self.gap_target(&self.mode));
         let g = self.geom_for(&self.mode);
         self.island.snap(g);
         self.menubar = Some(MenuBar::add(self.mtm, &self.st.settings, self.st.pinned, services::login::status()));
@@ -647,6 +675,10 @@ impl App {
     fn settings_changed(&mut self, before: &Settings) {
         if before.theme != self.st.settings.theme {
             self.st.accent = theme_accent(self.st.settings.theme);
+        }
+        // The Pill theme's window keeps room for the gap above the island.
+        if pill::on(before.theme) != pill::on(self.st.settings.theme) {
+            self.layout_surface();
         }
         if before.clipboard_history && !self.st.settings.clipboard_history {
             // Privacy: turning history off forgets everything, pinned items included.
@@ -1112,12 +1144,12 @@ impl App {
     }
 
     fn layout_surface_for(&mut self, body_w: f32, body_h: f32) {
-        let notch_h = self.screen.notch.map_or(0.0, |n| n.h);
-        let mut w = (body_w * OVERSHOOT + 2.0 * (SHOULDER + HIT_MARGIN)).ceil();
+        let (side, top, bottom) = self.room();
+        let mut w = (body_w * OVERSHOOT + 2.0 * side).ceil();
         if w as i64 % 2 != 0 {
             w += 1.0;
         }
-        let h = ((body_h + notch_h) * OVERSHOOT + HIT_MARGIN).ceil();
+        let h = ((body_h + self.strip()) * OVERSHOOT + top + bottom).ceil();
         if (w, h) != self.surface {
             self.surface = (w, h);
             self.cx = w / 2.0;
@@ -1131,14 +1163,51 @@ impl App {
         let g = self.island.current();
         let t = self.island.target();
         let (bw, bh) = ((t.w * OVERSHOOT).max(g.w), (t.h * OVERSHOOT).max(g.h));
-        let need_w = bw + 2.0 * (SHOULDER + HIT_MARGIN);
-        let need_h = bh + HIT_MARGIN;
+        let (side, top, bottom) = self.room();
+        let need_w = bw + 2.0 * side;
+        let need_h = bh + top + bottom;
         if need_w > self.surface.0 || need_h > self.surface.1 {
-            let notch_h = self.screen.notch.map_or(0.0, |n| n.h);
             let tallest = PageKind::ALL.iter().map(|p| pages::content_height(*p, &self.st)).fold(0.0f32, f32::max);
-            let body_h = (pages::HEADER_H + tallest + pages::PAD).max((bh - notch_h) / OVERSHOOT * 1.1);
+            let body_h = (pages::HEADER_H + tallest + pages::PAD).max((bh - self.strip()) / OVERSHOOT * 1.1);
             pinfo!("island outgrew the window; growing it to fit {bw:.0}x{bh:.0} DIP");
             self.layout_surface_for(self.st.settings.expanded_width.max(bw / OVERSHOOT * 1.1), body_h);
+        }
+    }
+
+    /// Room the window keeps beside, above and below the island's body: the
+    /// shoulders and hit margin, and in the Pill theme the floating outline's
+    /// margin and the gap above it (below the menu bar on a notch).
+    fn room(&self) -> (f32, f32, f32) {
+        let side = SHOULDER + HIT_MARGIN;
+        if !pill::on(self.st.settings.theme) {
+            return (side, 0.0, HIT_MARGIN);
+        }
+        let top = self.screen.notch.map_or(0.0, |n| n.h) + pill::TOP_GAP;
+        (side.max(pill::shape::MARGIN), top, HIT_MARGIN.max(pill::shape::MARGIN))
+    }
+
+    /// The strip the open island keeps behind a notch over its content
+    /// (none in the Pill theme, which floats below the menu bar).
+    fn strip(&self) -> f32 {
+        match self.screen.notch {
+            Some(n) if !pill::on(self.st.settings.theme) => n.h,
+            _ => 0.0,
+        }
+    }
+
+    /// Where the Pill theme's island floats in `m`: `TOP_GAP` below the top
+    /// edge on a screen without a notch (as on Windows); around a notch below
+    /// the menu bar for what hangs under it, `None` (attached) in the menu
+    /// bar's line. `None` in the other themes. The island eases to it on its
+    /// own spring (island.rs), so it lets go of the notch and comes back with
+    /// the outline.
+    fn gap_target(&self, m: &Mode) -> Option<f32> {
+        if !pill::on(self.st.settings.theme) {
+            return None;
+        }
+        match self.screen.notch {
+            Some(n) => notch::pill_gap(m, &self.st, n),
+            None => Some(pill::TOP_GAP),
         }
     }
 
@@ -1179,7 +1248,12 @@ impl App {
             _ => false,
         };
         if liftable && self.hovering && !self.expanded {
-            Geom::new(g.w + HOVER_LIFT.0, g.h + HOVER_LIFT.1, g.r + HOVER_LIFT.2)
+            if self.gap_target(m).is_some() {
+                // Floating, it swells evenly about its middle and stays a capsule.
+                pill::motion::hover_lift(g)
+            } else {
+                Geom::new(g.w + HOVER_LIFT.0, g.h + HOVER_LIFT.1, g.r + HOVER_LIFT.2)
+            }
         } else {
             g
         }
@@ -1190,12 +1264,41 @@ impl App {
     }
 
     /// Whether `p` is over the part of the window that takes the mouse: the
-    /// whole canvas while expanded (a forgiving edge), only the island collapsed.
+    /// whole canvas while expanded (a forgiving edge), only the island
+    /// collapsed (floating, with the gap above it: a pointer thrown at the top
+    /// edge still lands on it).
     fn hovering_inside(&self, p: Point) -> bool {
+        // Floating below a notch, the menu bar beside the notch keeps its
+        // clicks: in the menu bar's line the notch takes the mouse (and the
+        // island under it with the gap between them), and for a pointer that
+        // already hovers, the resting island's ears too.
+        if let Some(n) = self.screen.notch.filter(|_| self.island.floating()) {
+            if p.y < n.h {
+                return (p.x - self.cx).abs() <= self.menu_line_w(n) / 2.0;
+            }
+        }
         if !self.expanded {
-            return self.island.body_rect_at(self.cx).contains(p);
+            return self.island.hover_rect_at(self.cx).contains(p);
         }
         self.island.canvas_rect_at(self.cx).contains(p)
+    }
+
+    /// How much of the menu bar's line takes the mouse while the island
+    /// floats below notch `n`: the notch itself, and while the pointer already
+    /// hovers the island (or presses or drags on it) the ears the resting
+    /// island has there, lifted. A card opened from an ear then stays open
+    /// under the pointer that opened it, and a pointer coming from the menu
+    /// bar still only meets the notch.
+    fn menu_line_w(&self, n: Notch) -> f32 {
+        if !(self.hovering || self.input.down || self.drag_hover) {
+            return n.w;
+        }
+        let rest = activities::collapsed_mode(&self.st);
+        if notch::floats(&rest, &self.st) {
+            return n.w;
+        }
+        let g = notch::geom(&rest, &self.st, n, activities::geom(&rest, &self.st));
+        (g.w + HOVER_LIFT.0).max(n.w)
     }
 
     // ------------------------------------------------------------ input
@@ -1807,7 +1910,21 @@ impl App {
         let dt = dt.clamp(0.0, 0.05) as f32;
         self.set_stats(self.mode == Mode::Expanded(PageKind::Today));
         self.set_sysmon(self.mode == Mode::Expanded(PageKind::System));
+        // The Pill theme floats the island below the top edge (below the menu
+        // bar for what hangs under a notch).
+        self.island.set_floating(self.gap_target(&self.mode));
         self.island.step(dt, now);
+        // The island let go of the notch or docked again under a pointer that
+        // didn't move: take the mouse there, or let it through, for where the
+        // island is now (the smoke run moves its own pointer).
+        if self.island.floating() != self.was_floating {
+            self.was_floating = self.island.floating();
+            if self.smoke.is_none() {
+                if let Some((x, y)) = window::pointer() {
+                    self.on_pointer(Point::new(x, y));
+                }
+            }
+        }
         self.ensure_room();
         self.note_motion(retarget, mono, period, dt as f64);
         // macOS's glass follows the island's outline, set before the repaint.
@@ -1818,13 +1935,25 @@ impl App {
 
         let canvas_r = self.island.canvas_rect_at(self.cx).inset(-2.0, -2.0);
         let full = Rect::new(0.0, 0.0, self.surface.0, self.surface.1);
-        let dirty = union_rect(self.prev_canvas.unwrap_or(full), canvas_r);
+        // Floating at rest, only the content changes (the equalizer, a line,
+        // the clock): redraw inside the body, and the shadow and hairline
+        // around it stay as drawn. Whole DIPs and one more, so no pixel on its
+        // edge is half redrawn. Anything else redraws the canvas.
+        let still = self.island.floating() && self.island.settled() && self.outgoing.is_none() && self.page_anim.is_none() && self.prev_canvas == Some(canvas_r);
+        let dirty = if still {
+            let b = self.island.body_rect_at(self.cx).inset(-1.0, -1.0);
+            let (x0, y0) = (b.x.floor(), b.y.floor());
+            Rect::new(x0, y0, b.right().ceil() - x0, b.bottom().ceil() - y0)
+        } else {
+            union_rect(self.prev_canvas.unwrap_or(full), canvas_r)
+        };
         self.prev_canvas = Some(canvas_r);
         Some(dirty)
     }
 
     /// Draw the island (called from the view's drawRect).
     fn draw(&mut self, ctx: &CGContext, dirty: Rect) {
+        let started = self.smoke.is_some().then(std::time::Instant::now);
         CGContext::clear_rect(
             Some(ctx),
             CGRect { origin: CGPoint { x: dirty.x as f64, y: dirty.y as f64 }, size: CGSize { width: dirty.w as f64, height: dirty.h as f64 } },
@@ -1855,21 +1984,43 @@ impl App {
         let shoulder = notch.map_or(SHOULDER, |n| notch::shoulder(n, geom.w));
         let hidden = self.island_hidden();
         let look = self.look();
+        // The Pill theme's island away from the edge, and how far.
+        let (floating, detach) = (self.island.floating(), notch::detach(self.island.top(), notch));
+        // The smoke run's pretend notch (CI's Macs have none), painted where a
+        // MacBook's camera hides the island, so its pictures show what one shows.
+        let pretend_notch = notch.filter(|_| self.smoke.is_some() && window::faking_notch()).map(|n| Rect::new(self.cx - n.w / 2.0, -12.0, n.w, n.h + 12.0));
         self.gfx.set_look(look);
         let mut hits = std::mem::take(&mut self.hits);
         hits.clear();
+        let mut body_s = 0.0;
         let (repaint, anim, focus, live) = {
             let mut canvas = self.gfx.canvas(ctx);
+            let body_started = started.map(|_| std::time::Instant::now());
             if look.material == Material::Glass {
                 glass::draw_body(&mut canvas, body, geom.r, shoulder, notch, hidden, false);
             } else {
                 let border = if hidden { None } else { Some(canvas.look().border) };
-                canvas.notch(body, geom.r, shoulder, palette::ISLAND, border);
+                if floating {
+                    // Hidden until hover, the floating island fades out as it nears
+                    // its sliver (one below the edge would show); the pointer test
+                    // takes the mouse there, not pixels. Inside a notch it stays black.
+                    let alpha = if hidden { ((geom.h - HIDDEN_SLIVER) / HIDDEN_FADE).clamp(0.0, 1.0) } else { 1.0 };
+                    canvas.with_alpha(alpha, |c| notch::draw_pill_body(c, body, geom.r, shoulder, detach, palette::ISLAND, border));
+                } else {
+                    canvas.notch(body, geom.r, shoulder, palette::ISLAND, border);
+                }
             }
-            let pivot = Point::new(body.center().x, body.y);
+            body_s = body_started.map_or(0.0, |t| t.elapsed().as_secs_f64());
+            // Content scales about the top centre, where the island hangs
+            // (floating, about the middle of the pill end of the morph).
+            let pivot = if floating { pill::motion::pivot(body, self.island.target()) } else { Point::new(body.center().x, body.y) };
             if morphing {
                 canvas.clip(body);
-                canvas.push_shape_mask(body, geom.r, shoulder);
+                if floating {
+                    canvas.push_outline_mask(&notch::pill_outline(body, geom.r, shoulder, detach));
+                } else {
+                    canvas.push_shape_mask(body, geom.r, shoulder);
+                }
             }
             // Outgoing content: at its own (old) size, shrinking with the
             // outline, fading out on a smoothstep. Ghost input: no clicks.
@@ -1880,7 +2031,8 @@ impl App {
                 } else {
                     let old_body = Rect::new(body.center().x - g.w / 2.0, body.y, g.w, g.h);
                     let alpha = 1.0 - t * t * (3.0 - 2.0 * t);
-                    let xf = scale_about(pivot, (geom.w / g.w.max(1.0)).clamp(GHOST_MIN_SCALE, 1.0));
+                    let shrink = if floating { pill::motion::ghost_scale(geom, g, GHOST_MIN_SCALE) } else { (geom.w / g.w.max(1.0)).clamp(GHOST_MIN_SCALE, 1.0) };
+                    let xf = scale_about(pivot, shrink);
                     let st = &mut self.st;
                     canvas.layered(old_body, alpha, xf, |c| {
                         let mut ghost_input = Input::default();
@@ -1892,7 +2044,8 @@ impl App {
             // Incoming content settles down from the bezel as it fades in.
             let out = if content_alpha < 1.0 {
                 let grow = scale_about(pivot, CONTENT_SCALE_FROM + (1.0 - CONTENT_SCALE_FROM) * content_alpha);
-                let xf = grow * Matrix3x2::translation(0.0, -CONTENT_DROP * (1.0 - content_alpha));
+                let drop_by = if floating { pill::motion::CONTENT_DROP } else { CONTENT_DROP };
+                let xf = grow * Matrix3x2::translation(0.0, -drop_by * (1.0 - content_alpha));
                 let (input, st) = (&mut self.input, &mut self.st);
                 canvas.layered(union_rect(lay, body), content_alpha, xf, |c| draw_content(c, input, &mut hits, st, mode, lay, body, transition, now, notch))
             } else {
@@ -1902,15 +2055,23 @@ impl App {
                 canvas.pop_shape_mask();
                 canvas.unclip();
             }
+            if let Some(r) = pretend_notch {
+                canvas.unthemed(|c| c.fill_rrect(r, 10.0, Color::black(1.0)));
+            }
             out
         };
         self.hits = hits;
         self.frames_drawn += 1;
+        if let Some(t) = started.filter(|_| !morphing) {
+            self.cost.frames += 1;
+            self.cost.draw += t.elapsed().as_secs_f64();
+            self.cost.body += body_s;
+        }
 
         // Unconsumed wheel over the header switches pages, one per whole notch.
         let wheel_left = self.input.wheel;
         if let Mode::Expanded(p) = self.mode {
-            let top = body.y + notch.map_or(0.0, |n| n.h);
+            let top = body.y + self.strip();
             let over_header = self.input.mouse.is_some_and(|m| m.y < top + pages::HEADER_H);
             if wheel_left != 0.0 && over_header {
                 if now - self.wheel_t > 0.25 || wheel_left.signum() != self.wheel_acc.signum() {
@@ -1938,7 +2099,12 @@ impl App {
             None => {}
         }
         self.run_commands();
-        let moving = !self.island.settled() || d.anim || d.repaint || !self.st.cmds.is_empty() || self.outgoing.is_some() || self.page_anim.is_some();
+        let moving = !self.island.settled()
+            || d.anim
+            || d.repaint
+            || !self.st.cmds.is_empty()
+            || self.outgoing.is_some()
+            || self.page_anim.is_some();
         let live = activities::is_live(&self.mode, &self.st) || d.live;
         window::set_frames(moving || live);
         self.schedule_wake();
@@ -2003,7 +2169,24 @@ impl App {
                 let ready = self.smoke_ready(name, now - t0);
                 // A lyrics lookup waits on LRCLIB (at least a second between requests).
                 let limit = if name == "music-check" { 25.0 } else { 6.0 };
-                if (settled && ready) || now - t0 > limit {
+                // The ear step: once the card floats, the pointer moves and comes
+                // up on the ear, and the card must still be open a moment later
+                // (a collapse would have run by then).
+                let replaying = name == "notch-pill-ear"
+                    && settled
+                    && ready
+                    && match sm.replayed {
+                        None => {
+                            if let Some(p) = self.smoke_point {
+                                self.on_pointer(p);
+                                let _ = self.on_view_input(ViewInput::Up { x: p.x, y: p.y });
+                            }
+                            sm.replayed = Some(now);
+                            true
+                        }
+                        Some(at) => now - at < 0.4,
+                    };
+                if ((settled && ready) || now - t0 > limit) && !replaying {
                     if !settled {
                         sm.note(name, false, format!("the island did not settle within {limit:.0} s"));
                     } else {
@@ -2090,6 +2273,17 @@ impl App {
                 self.st.hud = None;
             }
             "music-check" => {}
+            // What a frame costs to draw at rest while music plays: Classic's
+            // attached pill here, Pill's floating one (with its shadow) later.
+            "music-cost" => self.cost = DrawCost::default(),
+            "pill-music-cost" => {
+                // The pointer from pill-hover leaves; the timer waits aside, so
+                // the music pill shows alone (Pill's music and timer pill holds still).
+                self.leave();
+                self.smoke_timer = Some(self.st.pomodoro.clone());
+                self.st.pomodoro.reset();
+                self.cost = DrawCost::default();
+            }
             // The themes on the real window: Glass, then Oyen and Glass
             // around a notch (one the screen pretends to have; CI's Macs
             // have none), open and resting in the menu bar's line.
@@ -2098,8 +2292,49 @@ impl App {
                 self.st.page = PageKind::Today;
                 self.expand();
             }
-            "glass-collapsed" | "notch-oyen-collapsed" => self.collapse(),
+            "glass-collapsed" | "notch-oyen-collapsed" | "pill-collapsed" => self.collapse(),
+            // Around the notch Pill rests in the menu bar's line: with nothing
+            // playing and no timer, its resting ears (the time and the battery).
+            "notch-pill-collapsed" => {
+                self.st.pomodoro.reset();
+                self.st.media = None;
+                self.st.media_paused_at = None;
+                self.st.lyrics = LyricsState::default();
+                self.collapse();
+            }
+            // The pointer rests on an ear and the card opens below the menu bar
+            // (as after the dwell); once it floats, the pointer moves and comes
+            // up on the ear again, and the card must stay open (smoke_step).
+            "notch-pill-ear" => {
+                if let Some(n) = self.screen.notch {
+                    let g = self.island.current();
+                    let p = Point::new(self.cx - (n.w / 2.0 + (g.w - n.w) / 4.0), n.h / 2.0);
+                    self.smoke_point = Some(p);
+                    self.on_pointer(p);
+                    self.cancel_hover();
+                    self.expand();
+                }
+            }
+            // Pill floats below the top edge, open and resting; around the
+            // notch it rests in the menu bar's line and opens below it.
+            "pill-open" | "notch-pill-open" => {
+                self.on_menu(MenuCmd::SetTheme(Theme::Pill));
+                self.st.page = PageKind::Today;
+                self.expand();
+            }
+            // The pointer in the gap above the resting pill: it hovers (the
+            // pill swells), without the dwell that would open it.
+            "pill-hover" => {
+                self.on_pointer(Point::new(self.cx, pill::TOP_GAP / 2.0));
+                self.cancel_hover();
+            }
             "notch-oyen-open" => {
+                // The pointer from pill-hover leaves first, and the timer set
+                // aside for pill-music-cost comes back.
+                self.leave();
+                if let Some(p) = self.smoke_timer.take() {
+                    self.st.pomodoro = p;
+                }
                 window::fake_notch(Some(Notch::MACBOOK));
                 self.refresh_screen();
                 self.on_menu(MenuCmd::SetTheme(Theme::Oyen));
@@ -2112,6 +2347,8 @@ impl App {
                 self.expand();
             }
             "menu" => {
+                // The pointer from notch-pill-ear leaves.
+                self.leave();
                 window::fake_notch(None);
                 self.refresh_screen();
                 self.on_menu(MenuCmd::SetTheme(Theme::Classic));
@@ -2140,8 +2377,55 @@ impl App {
                 (self.st.media.is_some() && looked_up) || waited > 20.0
             }
             "menu" => waited > 1.0,
+            // About two seconds of frames at rest.
+            "music-cost" | "pill-music-cost" => waited > 2.5,
             _ => true,
         }
+    }
+
+    /// The Pill theme on the real window: where the island sits, and which
+    /// points take the mouse. Without a notch it floats `TOP_GAP` below the
+    /// top edge and the gap above it takes the mouse; around a notch it rests
+    /// attached in the menu bar's line and opens floating below it, where the
+    /// gap and the notch take the mouse and the menu bar beside the notch
+    /// doesn't.
+    fn pill_report(&self) -> (&'static str, bool, String) {
+        let body = self.island.body_rect_at(self.cx);
+        let look = *self.look() == poni_core::look::PILL && !glass::shown();
+        let at = |x: f32, y: f32| self.hovering_inside(Point::new(x, y));
+        let (ok, place) = match self.screen.notch {
+            None => {
+                let gap_takes = at(self.cx, pill::TOP_GAP / 2.0);
+                let ok = self.island.floating() && (self.island.top() - pill::TOP_GAP).abs() < 0.01 && gap_takes;
+                (ok, format!("floating {:.0} DIP below the top edge, the gap above it takes the mouse: {gap_takes}", self.island.top()))
+            }
+            Some(n) if self.expanded => {
+                let gap_takes = at(self.cx, n.h + pill::TOP_GAP / 2.0);
+                let notch_takes = at(self.cx, n.h / 2.0);
+                let bar_free = !at(self.cx - n.w / 2.0 - 24.0, n.h / 2.0);
+                let ok = self.island.floating() && (self.island.top() - n.h - pill::TOP_GAP).abs() < 0.01 && gap_takes && notch_takes && bar_free;
+                let place = format!(
+                    "floating {:.0} DIP below the top edge ({:.0} below a {:.0}x{:.0} notch); the gap takes the mouse: {gap_takes}, \
+                     the notch: {notch_takes}, the menu bar beside it stays clickable: {bar_free}",
+                    self.island.top(),
+                    self.island.top() - n.h,
+                    n.w,
+                    n.h
+                );
+                (ok, place)
+            }
+            Some(n) => {
+                let fit = notch::fit(&self.mode, &self.st);
+                let ok = !self.island.floating() && body.y == 0.0 && fit != Fit::Below;
+                (ok, format!("attached in the menu bar's line ({fit:?} around a {:.0}x{:.0} notch)", n.w, n.h))
+            }
+        };
+        let g = self.island.current();
+        (
+            "pill-theme",
+            ok && look,
+            format!("{:?}, {:.0}x{:.0} DIP r {:.0}, {place}; Pill's look: {look}", self.mode, g.w, g.h, g.r),
+        )
     }
 
     /// What each new part of the app did on a real Mac.
@@ -2198,6 +2482,51 @@ impl App {
                 let look = self.look();
                 let ok = self.screen.notch.is_some() && *look == poni_core::look::OYEN_NIGHT && !glass::shown();
                 Some(("oyen-around-notch", ok, format!("ground {:?}, ink {:?}, font {:?}", look.ground, look.ink, look.font)))
+            }
+            "pill-open" | "pill-collapsed" | "notch-pill-open" | "notch-pill-collapsed" => Some(self.pill_report()),
+            "music-cost" | "pill-music-cost" => {
+                let c = self.cost;
+                let per = |s: f64| if c.frames > 0 { s / c.frames as f64 * 1e6 } else { 0.0 };
+                let d = format!(
+                    "{:?}{}, {} frames at rest: {:.0} us a frame in draw, {:.0} us of it the body; at 120 Hz {:.1} ms of CPU a second",
+                    self.mode,
+                    if self.island.floating() { " floating (body = fill, hairline and shadow)" } else { "" },
+                    c.frames,
+                    per(c.draw),
+                    per(c.body),
+                    per(c.draw) * 120.0 / 1000.0
+                );
+                Some(("draw-cost", c.frames > 0, d))
+            }
+            "notch-pill-ear" => {
+                let armed = self.timers[Timer::Collapse as usize].is_some();
+                let ok = self.expanded && self.hovering && !armed && self.island.floating();
+                let d = format!(
+                    "{:?} {:.0} DIP below the top, pointer on the ear at {:?}: hovering {}, collapse armed {armed}",
+                    self.mode,
+                    self.island.top(),
+                    self.smoke_point.map(|p| (p.x.round(), p.y.round())),
+                    self.hovering
+                );
+                Some(("pill-ear-stays-open", ok, d))
+            }
+            "pill-hover" => {
+                let (now, rest) = (self.island.current(), activities::geom(&self.mode, &self.st));
+                let want = pill::motion::hover_lift(rest);
+                let top = pill::TOP_GAP + want.dy;
+                let ok = self.hovering && (now.w, now.h, now.r) == (want.w, want.h, want.r) && (self.island.top() - top).abs() < 0.01;
+                let d = format!(
+                    "pointer in the gap above the pill: hovering {}, {:.0}x{:.0} DIP r {:.0} at {:.0} below the top edge (resting {:.0}x{:.0} at {:.0})",
+                    self.hovering,
+                    now.w,
+                    now.h,
+                    now.r,
+                    self.island.top(),
+                    rest.w,
+                    rest.h,
+                    pill::TOP_GAP
+                );
+                Some(("pill-hover", ok, d))
             }
             "music-check" => {
                 let playing = self.st.media.as_ref().map_or("nothing".to_string(), |m| format!("{} by {} in {}", m.title, m.artist, m.app_name));
@@ -2375,7 +2704,7 @@ pub fn draw_content(
 
 // ---------------------------------------------------------------- smoke test bookkeeping
 
-const SMOKE_STEPS: [&str; 24] = [
+const SMOKE_STEPS: [&str; 32] = [
     "idle",
     "hover",
     "open-focus",
@@ -2394,11 +2723,19 @@ const SMOKE_STEPS: [&str; 24] = [
     "shelf-drop",
     "music-notify",
     "music-check",
+    "music-cost",
     "glass-open",
     "glass-collapsed",
+    "pill-open",
+    "pill-collapsed",
+    "pill-hover",
+    "pill-music-cost",
     "notch-oyen-open",
     "notch-oyen-collapsed",
     "notch-glass-open",
+    "notch-pill-open",
+    "notch-pill-collapsed",
+    "notch-pill-ear",
     "menu",
 ];
 /// The track CI announces as Spotify's own notification would.
@@ -2419,12 +2756,14 @@ struct Smoke {
     phase: SmokePhase,
     checks: Vec<(String, bool, String)>,
     failed: bool,
+    /// When the ear step moved the pointer on the floating card's ear.
+    replayed: Option<f64>,
 }
 
 impl Smoke {
     fn new(dir: PathBuf) -> Smoke {
         let _ = std::fs::create_dir_all(&dir);
-        Smoke { dir, step: 0, phase: SmokePhase::Apply, checks: Vec::new(), failed: false }
+        Smoke { dir, step: 0, phase: SmokePhase::Apply, checks: Vec::new(), failed: false, replayed: None }
     }
 
     fn file(&self, kind: &str, name: &str, ext: &str) -> PathBuf {

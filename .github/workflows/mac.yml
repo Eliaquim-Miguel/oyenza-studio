@@ -41,19 +41,21 @@ jobs:
       - name: Unit tests (core)
         run: cargo test -p poni-core --release
 
-      # Every island state with sample data, Classic, Oyen and Glass (a
-      # smoked stand-in for macOS's glass), without and with a MacBook's
-      # notch. The runner has no notch, so this is where the notch layouts
-      # are looked at.
+      # Every island state with sample data, Classic, Oyen, Glass (a
+      # smoked stand-in for macOS's glass) and Pill, without and with a
+      # MacBook's notch. The runner has no notch, so this is where the notch
+      # layouts are looked at.
       - name: Render the island (offscreen)
         run: |
           bin=target/aarch64-apple-darwin/release/poni
           $bin --render mac-renders
           $bin --render mac-renders --theme oyen
           $bin --render mac-renders --theme glass
+          $bin --render mac-renders --theme pill
           $bin --render mac-renders --notch
           $bin --render mac-renders --theme oyen --notch
           $bin --render mac-renders --theme glass --notch
+          $bin --render mac-renders --theme pill --notch
           ls mac-renders | wc -l
 
       - name: App icon
@@ -72,10 +74,10 @@ jobs:
       # Today with live stats), the timer, a notice, the volume and charging
       # pop-ups, a real copy landing in clipboard history, files dropped on
       # the Shelf, a Spotify "now playing" notification with its lyrics
-      # looked up on LRCLIB, the Glass theme, Oyen and Glass around a notch
-      # the app pretends the screen has, and the menu. At each state the app
-      # writes where its window is and waits; tools/mac-smoke.sh takes the
-      # screenshot and answers.
+      # looked up on LRCLIB, the Glass theme, Pill floating below the top
+      # edge, Oyen, Glass and Pill around a notch the app pretends the screen
+      # has, and the menu. At each state the app writes where its window is
+      # and waits; tools/mac-smoke.sh takes the screenshot and answers.
       - name: Smoke run (the real window, with screenshots)
         run: bash tools/mac-smoke.sh "dist/Oyen Poni.app/Contents/MacOS/poni"
 

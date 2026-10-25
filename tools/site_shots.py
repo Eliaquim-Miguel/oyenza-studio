@@ -18,6 +18,13 @@ a third argument and only that page is cut, as page-media-ko.webp:
 Shoot both themes in the same minute (run them side by side) so the island's
 clock matches when the site switches looks.
 
+The Pill theme has its own section on the page, so only the states it shows
+are cut (PILL_KEEP), into site/assets/shots/pill/. Pill floats below the top
+edge, so its pictures keep that gap above the island:
+
+    PONI_SELFTEST_DPI=192 PONI_SELFTEST_THEME=pill tools/run-selftest-wine.sh target/.../poni.exe out-pill
+    python3 tools/site_shots.py out-pill pill
+
 In the Oyen theme, music notes float up beside Oyen on the beat, and the
 scene's single frame may fall between notes. Record the media pill frame by
 frame (PONI_SELFTEST_LOOP=1 writes loop-media-NNN.png), pick a frame with
@@ -48,6 +55,12 @@ menu bar:
     gh run download <mac run> -R lucacadalora/poni -n mac-renders -D mac-renders
     python3 tools/site_shots.py mac-renders mac
 
+Pill's Mac pictures (mac/pill/, MAC_PILL_KEEP) are cut taller: what hangs
+below the notch floats there. A theme as a fourth argument cuts only that
+theme's pictures:
+
+    python3 tools/site_shots.py mac-renders mac pill
+
 The self-test writes NAME.png (the island's canvas on a test gradient, with
 margins) and NAME-alpha.png (the canvas's own alpha). This cuts the canvas out,
 takes its alpha from NAME-alpha.png and removes the gradient from the
@@ -69,6 +82,9 @@ KEEP = {
     "page-settings-stay-on-top", "page-shelf-pairing", "page-addons", "page-prayer", "prayer-countdown",
     "game-stats", "page-system-games",
 }
+# The Pill section: the island at rest (clock and status bar looks), playing music (the line being
+# sung), a timer, a pop-up and a notice, and open on the Music page.
+PILL_KEEP = {"idle-clock", "idle-status", "media-activity", "timer-activity", "volume-hud", "health-notice", "page-media"}
 # Glass pictures keep the page under the island: the glass is made of it.
 # By run: the open island in light and dark mode, and the resting island
 # over a bright page and over a dark one with Windows still in light mode.
@@ -78,11 +94,19 @@ GLASS_KEEP = {"light": {"page-media", "media-activity"}, "dark": {"page-media"},
 # the notch and are kept whole.
 MAC_KEEP = {"idle-clock", "media-activity", "timer-activity", "page-media", "page-today"}
 MAC_STRIP = (840, 136)
+# Pill on a Mac: what hangs below the notch (the line being sung, pop-ups) floats there, so its
+# strips are cut taller to keep the pill and its shadow; the resting island stays in the ears.
+MAC_PILL_KEEP = {"idle-clock", "media-activity", "volume-hud", "page-media", "page-today"}
+MAC_PILL_STRIP = (840, 216)
 
 
-def cut(shot: Path, alpha: Path) -> Image.Image:
+def cut(shot: Path, alpha: Path, floating: bool = False) -> Image.Image:
     rgba = np.asarray(Image.open(shot).convert("RGBA")).astype(np.float32)
     a = np.asarray(Image.open(alpha).convert("L")).astype(np.float32) / 255.0
+    if floating:
+        # Alpha 1/255 isn't paint: it's the window taking the mouse in the
+        # gap above a floating island and around an open one (the hit mask).
+        a = np.where(a < 1.5 / 255.0, 0.0, a)
     H, W = rgba.shape[:2]
     h, w = a.shape
     x0 = (W - w) // 2
@@ -97,6 +121,10 @@ def cut(shot: Path, alpha: Path) -> Image.Image:
     out = np.dstack([np.clip(color, 0, 255), a * 255.0]).round().astype(np.uint8)
     img = Image.fromarray(out, "RGBA")
     box = img.getchannel("A").point(lambda v: 255 if v > 0 else 0).getbbox()
+    if box and floating:
+        # Keep the gap above the island: on the page it floats below the
+        # strip's top edge the way it floats below the screen's.
+        box = (box[0], 0, box[2], box[3])
     return img.crop(box) if box else img
 
 
@@ -112,17 +140,19 @@ def glass(src: Path, run: str) -> None:
         print(f"glass/{run}-{name}.webp  {img.width}x{img.height}")
 
 
-def mac(src: Path) -> None:
+def mac(src: Path, only: str | None = None) -> None:
     for shot in sorted(src.glob("[0-9][0-9]-*-notch.png")):
         name = re.sub(r"^\d\d-", "", shot.stem)[: -len("-notch")]
         theme = "classic"
-        if name.endswith("-oyen"):
-            name, theme = name[: -len("-oyen")], "oyen"
-        if name not in MAC_KEEP:
+        for t in ("oyen", "pill"):
+            if name.endswith("-" + t):
+                name, theme = name[: -len(t) - 1], t
+        keep, strip = (MAC_PILL_KEEP, MAC_PILL_STRIP) if theme == "pill" else (MAC_KEEP, MAC_STRIP)
+        if name not in keep or (only and theme != only):
             continue
         img = Image.open(shot).convert("RGB")
         if not name.startswith("page-"):
-            w, h = MAC_STRIP
+            w, h = strip
             x0 = (img.width - w) // 2
             img = img.crop((x0, 0, x0 + w, h))
         dst = ROOT / "site" / "assets" / "shots" / "mac" / theme
@@ -135,18 +165,19 @@ def main() -> None:
     if len(sys.argv) == 4 and sys.argv[2] == "glass" and sys.argv[3] in ("light", "dark", "flip"):
         glass(Path(sys.argv[1]), sys.argv[3])
         return
-    if len(sys.argv) == 3 and sys.argv[2] == "mac":
-        mac(Path(sys.argv[1]))
+    if len(sys.argv) in (3, 4) and sys.argv[2] == "mac":
+        mac(Path(sys.argv[1]), sys.argv[3] if len(sys.argv) == 4 else None)
         return
-    if len(sys.argv) not in (3, 4) or sys.argv[2] not in ("classic", "oyen"):
+    if len(sys.argv) not in (3, 4) or sys.argv[2] not in ("classic", "oyen", "pill"):
         sys.exit(__doc__)
     src, theme = Path(sys.argv[1]), sys.argv[2]
     lang = sys.argv[3] if len(sys.argv) == 4 else None
-    keep = {"page-media"} if lang else KEEP
+    floating = theme == "pill"
+    keep = {"page-media"} if lang else PILL_KEEP if floating else KEEP
     dst = ROOT / "site" / "assets" / "shots" / theme
     dst.mkdir(parents=True, exist_ok=True)
     if lang and lang.startswith("loop-media-"):
-        img = cut(src / f"{lang}.png", src / f"{lang}-alpha.png")
+        img = cut(src / f"{lang}.png", src / f"{lang}-alpha.png", floating)
         img.save(dst / "media-activity.webp", lossless=True, method=6)
         print(f"{theme}/media-activity.webp  {img.width}x{img.height}  (from {lang})")
         return
@@ -155,7 +186,7 @@ def main() -> None:
         alpha = shot.with_name(shot.stem + "-alpha.png")
         if name.endswith("-alpha") or name not in keep or not alpha.exists():
             continue
-        img = cut(shot, alpha)
+        img = cut(shot, alpha, floating)
         out = f"{name}-{lang}" if lang else name
         img.save(dst / f"{out}.webp", lossless=True, method=6)
         print(f"{theme}/{out}.webp  {img.width}x{img.height}")

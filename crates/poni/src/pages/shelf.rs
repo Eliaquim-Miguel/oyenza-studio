@@ -156,18 +156,20 @@ fn draw_page(ui: &mut Ui, st: &mut AppState, area: Rect, l: &mut Local) {
     }
 
     let mut actions = Vec::new();
+    // Pill: the boxes that reach the card's bottom corners follow them.
+    let card = super::clipboard::pill_card(st, area);
     // With Phone drop open the shelf keeps its height and the panel sits below.
     let (main, phone_r) = match &st.phone {
         Some(_) => (Rect::new(area.x, area.y, area.w, PAGE_H), Some(Rect::new(area.x, area.y + PAGE_H + PHONE_GAP, area.w, PHONE_H))),
         None => (area, None),
     };
     if items.is_empty() {
-        draw_empty(ui, st, l, main, &mut actions);
+        draw_empty(ui, st, l, main, card, &mut actions);
     } else {
-        draw_items(ui, st, l, main, &items, dt, shown, &mut actions);
+        draw_items(ui, st, l, main, &items, dt, shown, card, &mut actions);
     }
     if let (Some(r), Some(pd)) = (phone_r, st.phone.clone()) {
-        draw_phone(ui, st, l, &pd, r, &mut actions);
+        draw_phone(ui, st, l, &pd, r, card, &mut actions);
     }
     apply(st, l, &items, actions);
 }
@@ -294,7 +296,17 @@ fn apply(st: &mut AppState, l: &mut Local, items: &[ShelfItem], actions: Vec<Act
 // ---------------------------------------------------------------- items
 
 #[allow(clippy::too_many_arguments)]
-fn draw_items(ui: &mut Ui, st: &mut AppState, l: &mut Local, area: Rect, items: &[ShelfItem], dt: f32, shown: bool, actions: &mut Vec<Action>) {
+fn draw_items(
+    ui: &mut Ui,
+    st: &mut AppState,
+    l: &mut Local,
+    area: Rect,
+    items: &[ShelfItem],
+    dt: f32,
+    shown: bool,
+    card: Option<(Rect, f32)>,
+    actions: &mut Vec<Action>,
+) {
     let now = st.now;
     let head = Rect::new(area.x, area.y + TOP, area.w, HEAD_H);
     let row_y = head.bottom() + HEAD_GAP;
@@ -445,7 +457,7 @@ fn draw_items(ui: &mut Ui, st: &mut AppState, l: &mut Local, area: Rect, items: 
     }
 
     if glow > 0.01 {
-        draw_drop_overlay(ui, st, Rect::new(row.x, row.y, row.w, tile_h), glow);
+        draw_drop_overlay(ui, st, Rect::new(row.x, row.y, row.w, tile_h), glow, card);
     }
     draw_header(ui, st, l, head, items, hovered.map(|(_, i)| i), actions);
 }
@@ -530,10 +542,10 @@ fn parent_dir(path: &str) -> String {
     }
 }
 
-fn draw_drop_overlay(ui: &mut Ui, st: &AppState, zone: Rect, glow: f32) {
+fn draw_drop_overlay(ui: &mut Ui, st: &AppState, zone: Rect, glow: f32, card: Option<(Rect, f32)>) {
     let base = ui.c.alpha();
     ui.c.set_alpha(base * glow);
-    drop_zone(ui, zone, 16.0, st.accent.with_alpha(0.10), st.accent.with_alpha(0.9));
+    drop_zone(ui, card, zone, 16.0, st.accent.with_alpha(0.10), st.accent.with_alpha(0.9));
     // One centred group: Plus + label.
     let ls = TextStyle::body().weight(Weight::Semibold);
     let tw = ui.c.measure(DROP_LABEL, &ls, zone.w).0;
@@ -547,7 +559,7 @@ fn draw_drop_overlay(ui: &mut Ui, st: &AppState, zone: Rect, glow: f32) {
 
 // ---------------------------------------------------------------- empty state
 
-fn draw_empty(ui: &mut Ui, st: &AppState, l: &Local, area: Rect, actions: &mut Vec<Action>) {
+fn draw_empty(ui: &mut Ui, st: &AppState, l: &Local, area: Rect, card: Option<(Rect, f32)>, actions: &mut Vec<Action>) {
     let g = l.glow;
     let accent = st.accent;
     // Same bottom edge as the drop overlay over a filled shelf.
@@ -555,7 +567,7 @@ fn draw_empty(ui: &mut Ui, st: &AppState, l: &Local, area: Rect, actions: &mut V
     // The Phone tile shares the row until Phone drop is open.
     let zone = if st.phone.is_none() {
         let tile = Rect::new(full.right() - PHONE_TILE_W, full.y, PHONE_TILE_W, full.h);
-        if draw_phone_tile(ui, tile, 1.0 - g) {
+        if draw_phone_tile(ui, tile, 1.0 - g, card) {
             actions.push(Action::PhoneOpen);
         }
         Rect::new(full.x, full.y, (full.w - PHONE_TILE_W - PILL_GAP).max(0.0), full.h)
@@ -564,7 +576,7 @@ fn draw_empty(ui: &mut Ui, st: &AppState, l: &Local, area: Rect, actions: &mut V
     };
     let fill = Color::lerp(Color::white(0.03), accent.with_alpha(0.10), g);
     let stroke = Color::lerp(Color::white(0.12), accent.with_alpha(0.9), g);
-    drop_zone(ui, zone, 18.0, fill, stroke);
+    drop_zone(ui, card, zone, 18.0, fill, stroke);
 
     let undo_live = g < 0.5 && l.undo.as_ref().is_some_and(|(_, t)| st.now - t < UNDO_SECS);
     let (icon, title, hint) = if g >= 0.5 {
@@ -627,10 +639,11 @@ fn fade_edge(ui: &mut Ui, r: Rect, from_left: bool) {
 }
 
 /// Drop zone: a fill plus one solid hairline whose outer edge follows the
-/// fill's corners exactly (no fill peeking past the stroke).
-fn drop_zone(ui: &mut Ui, zone: Rect, radius: f32, fill: Color, stroke: Color) {
-    ui.c.fill_rrect(zone, radius, fill);
-    ui.c.stroke_rrect(zone, (radius - ZONE_STROKE / 2.0).max(0.0), stroke, ZONE_STROKE);
+/// fill's corners exactly (no fill peeking past the stroke). On the Pill card
+/// (`card`) its corners in the card's rounded corners follow those.
+fn drop_zone(ui: &mut Ui, card: Option<(Rect, f32)>, zone: Rect, radius: f32, fill: Color, stroke: Color) {
+    super::clipboard::fill_box(ui, card, zone, radius, fill);
+    super::clipboard::stroke_box(ui, card, zone, radius, stroke, ZONE_STROKE);
 }
 
 /// When the Undo pill lapses or a phone result leaves the panel (the page
@@ -649,7 +662,7 @@ pub fn next_wake(st: &AppState) -> Option<f64> {
 // ---------------------------------------------------------------- phone drop
 
 /// The Phone tile on an empty shelf; true when clicked.
-fn draw_phone_tile(ui: &mut Ui, tile: Rect, alpha: f32) -> bool {
+fn draw_phone_tile(ui: &mut Ui, tile: Rect, alpha: f32, card: Option<(Rect, f32)>) -> bool {
     let resp = ui.button(wid("shelf.phone.tile"), tile);
     let base = ui.c.alpha();
     ui.c.set_alpha(base * alpha);
@@ -660,7 +673,7 @@ fn draw_phone_tile(ui: &mut Ui, tile: Rect, alpha: f32) -> bool {
     } else {
         Color::white(0.03)
     };
-    drop_zone(ui, tile, 18.0, fill, Color::white(0.12));
+    drop_zone(ui, card, tile, 18.0, fill, Color::white(0.12));
     let c = tile.center();
     ui.c.fill_circle(Point::new(c.x, c.y - 24.0), 18.0, Color::white(0.10));
     ui.c.icon(Icon::Phone, Rect::from_center(Point::new(c.x, c.y - 24.0), 20.0, 20.0), palette::TEXT);
@@ -692,8 +705,8 @@ fn link_host(url: &str) -> &str {
 
 /// The panel under the shelf while Phone drop is open: a QR code on the
 /// left (the same-Wi-Fi link, or a pairing link), what's happening on the right.
-fn draw_phone(ui: &mut Ui, st: &AppState, l: &mut Local, pd: &PhoneDrop, r: Rect, actions: &mut Vec<Action>) {
-    drop_zone(ui, r, PHONE_R, Color::white(0.03), Color::white(0.12));
+fn draw_phone(ui: &mut Ui, st: &AppState, l: &mut Local, pd: &PhoneDrop, r: Rect, card: Option<(Rect, f32)>, actions: &mut Vec<Action>) {
+    drop_zone(ui, card, r, PHONE_R, Color::white(0.03), Color::white(0.12));
     let inset = (r.h - QR_BOX) / 2.0;
     let qr_r = Rect::new(r.x + inset, r.y + inset, QR_BOX, QR_BOX);
     // A phone on the same Wi-Fi asking or sending comes first, whatever the view.

@@ -18,6 +18,11 @@
 //! mode) or flip (the dark page in light mode: small glass turns dark, the
 //! open island stays light). Its screenshots are composited over that page.
 //!
+//! PONI_SELFTEST_THEME=pill runs every scene in the Pill theme, where the
+//! island floats below the top edge: its ground is checked inside the body,
+//! and its own checks say the gap above the body shows the screen and the
+//! shadow fades out inside the window (see `pill_checks`).
+//!
 //! PONI_SELFTEST_ADDONS=download also downloads the Prayer times add-on's
 //! files from their release while the scenes run and checks each one
 //! (`addon-download`; Windows CI only, it needs github.com).
@@ -37,7 +42,7 @@ use crate::ui::wid;
 use poni_core::addons::{Status as AddonStatus, JAPANESE_READINGS, PRAYER_TIMES};
 use poni_core::geom::{palette, Color, Point, Rect};
 use poni_core::health::{HealthDay, HealthSnapshot, HealthSource};
-use poni_core::lrc::parse_lrc;
+use poni_core::lrc::{parse_lrc, Lyrics};
 use poni_core::oyenza::{Activity, Bill, Day, DayPick, Saved, Seen, Txn, WalletRef};
 use poni_core::phonedrop::QrMatrix;
 use poni_core::prayer::PlaceList;
@@ -76,9 +81,10 @@ const SETTLE_TIMEOUT: f64 = 3.0;
 const SOFT_GPU_SETTLE_TIMEOUT: f64 = 8.0;
 /// Seconds to wait for a simulated tab click to switch the page.
 const CLICK_TIMEOUT: f64 = 1.5;
-/// Stop visiting scenes after this many seconds. 36 scenes take about 22 s
-/// on CI's slowest run (Oyen theme, Japanese lyrics); the CI and Store test
-/// steps wait 120 s for the whole run, the Wine runner 180 s.
+/// Stop visiting scenes after this many seconds. The 66 scenes take about
+/// 32 s under Wine at 100 % and 33 to 38 s at 200 % (a busy machine is the
+/// slow end); a CI step takes under 30 s for the whole run. The CI and Store
+/// test steps wait 120 s for the whole run, the Wine runner 180 s.
 const SCENE_DEADLINE: f64 = 50.0;
 /// Give up waiting for PNG writers at this point.
 const WRITE_DEADLINE: f64 = 43.5;
@@ -112,6 +118,8 @@ const TRACK_POS_S: f64 = 64.0;
 /// Pomodoro time left in the running focus session (18:24).
 const TIMER_LEFT_S: f64 = 1104.5;
 const ART_PX: u32 = 240;
+/// The battery in the low-battery scene (Windows warns at 20 %).
+const LOW_BATTERY: u8 = 19;
 
 /// Original placeholder lyrics written for the self-test (not from any real song).
 const LYRICS_LRC: &str = "\
@@ -798,9 +806,17 @@ enum Scene {
     JaOffer,
     /// Music: ...and Japanese readings coming in.
     JaGetting,
+    /// The idle pill in the status bar look (the Pill theme's; the other
+    /// themes show the clock).
+    IdleStatus,
+    /// Music playing while a synced lyric line is sung (the Pill theme shows
+    /// the line on the closed island).
+    MediaLyric,
+    /// The battery ran low: the pop-up, not charging.
+    LowBatteryHud,
 }
 
-const SCENES: [Scene; 63] = [
+const SCENES: [Scene; 66] = [
     Scene::IdleClock,
     Scene::IdleEyes,
     Scene::Media,
@@ -869,6 +885,11 @@ const SCENES: [Scene; 63] = [
     Scene::SystemGamesAllow,
     Scene::JaOffer,
     Scene::JaGetting,
+    // Appended so the numbers above stay. Every theme runs them; the Pill
+    // theme draws the first two its own way.
+    Scene::IdleStatus,
+    Scene::MediaLyric,
+    Scene::LowBatteryHud,
 ];
 
 impl Scene {
@@ -928,6 +949,9 @@ impl Scene {
             Scene::SystemGamesAllow => "page-system-games-allow".into(),
             Scene::JaOffer => "page-media-ja-offer".into(),
             Scene::JaGetting => "page-media-ja-getting".into(),
+            Scene::IdleStatus => "idle-status".into(),
+            Scene::MediaLyric => "media-lyric".into(),
+            Scene::LowBatteryHud => "low-battery-hud".into(),
         }
     }
 
@@ -986,7 +1010,7 @@ impl Scene {
     }
 
     fn media_playing(self) -> bool {
-        matches!(self, Scene::Media | Scene::MediaTimer) || self.expanded()
+        matches!(self, Scene::Media | Scene::MediaTimer | Scene::MediaLyric) || self.expanded()
     }
 
     fn timer_running(self) -> bool {
@@ -1104,6 +1128,8 @@ pub struct SelfTest {
     art_color: Option<Color>,
     lyrics: LyricsState,
     track_key: String,
+    /// Where the media-lyric scene holds the song: inside a sung line.
+    lyric_pos: f64,
     /// The sample week every scene shows, except the signed-out Health page.
     health: Option<HealthSnapshot>,
     states: Vec<StateReport>,
@@ -1122,7 +1148,7 @@ pub struct SelfTest {
     /// the next line on a held clock, one frame per refresh at that rate.
     scroll_hz: Option<f64>,
     dpi_applied: bool,
-    /// PONI_SELFTEST_THEME=oyen|glass: run every scene in that theme.
+    /// PONI_SELFTEST_THEME=oyen|glass|pill: run every scene in that theme.
     theme: Theme,
     /// Glass: which page is under the island (PONI_SELFTEST_GLASS), the
     /// window size its backdrop was drawn for, and the scene last seeded.
@@ -1182,6 +1208,7 @@ impl SelfTest {
             art_color: None,
             lyrics: LyricsState { track_key: track_key.clone(), ..Default::default() },
             track_key,
+            lyric_pos: TRACK_POS_S,
             health: None,
             states: Vec::new(),
             checks: Vec::new(),
@@ -1196,6 +1223,7 @@ impl SelfTest {
             theme: match std::env::var("PONI_SELFTEST_THEME").map(|v| v.trim().to_ascii_lowercase()).as_deref() {
                 Ok("oyen") => Theme::Oyen,
                 Ok("glass") => Theme::Glass,
+                Ok("pill") => Theme::Pill,
                 _ => Theme::Classic,
             },
             glass: None,
@@ -1272,6 +1300,9 @@ impl SelfTest {
                 lyric_ok,
                 format!("{} lines, synced {}, line at {TRACK_POS_S}s = {:?}", parsed.lines.len(), parsed.synced, parsed.line_index_at(TRACK_POS_S)),
             ));
+        }
+        if let Some(pos) = lyric_scene_pos(&parsed) {
+            self.lyric_pos = pos;
         }
         // PONI_SELFTEST_ANALYZER: "required" (Windows CI) = Windows' own
         // analyzer must work and every line must read, kanji lines included;
@@ -1645,7 +1676,11 @@ impl SelfTest {
     fn apply(&self, app: &mut App, scene: Scene) {
         let now = clock::mono();
         let st = &mut app.st;
-        st.settings.idle_style = if scene == Scene::IdleEyes { IdleStyle::Eyes } else { IdleStyle::Clock };
+        st.settings.idle_style = match scene {
+            Scene::IdleEyes => IdleStyle::Eyes,
+            Scene::IdleStatus => IdleStyle::Status,
+            _ => IdleStyle::Clock,
+        };
         if st.settings.theme != self.theme {
             st.settings.theme = self.theme;
             st.accent = if self.theme == Theme::Oyen { crate::oyen::ORANGE } else { palette::BLUE };
@@ -1665,6 +1700,9 @@ impl SelfTest {
         }
         let st = &mut app.st;
         st.power = fake_power(scene == Scene::ChargingHud);
+        if scene == Scene::LowBatteryHud {
+            st.power.percent = LOW_BATTERY;
+        }
         st.stats = fake_stats();
         st.volume = VolumeState { level: 0.64, muted: false, known: true };
         st.pinned = false;
@@ -1686,7 +1724,8 @@ impl SelfTest {
         }
 
         if scene.media_playing() {
-            let timeline = Timeline::new(TRACK_POS_S, TRACK_LEN_S, now, true);
+            let pos = if scene == Scene::MediaLyric { self.lyric_pos } else { TRACK_POS_S };
+            let timeline = Timeline::new(pos, TRACK_LEN_S, now, true);
             match st.media.as_mut() {
                 Some(m) if m.track_key == self.track_key => m.timeline = timeline,
                 _ => st.media = Some(self.media_session(timeline)),
@@ -1710,6 +1749,7 @@ impl SelfTest {
             Scene::BluetoothHud => {
                 Some(Hud { kind: HudKind::Bluetooth { name: "Sound Buds".into(), connected: true, battery: Some(80), audio: true }, until })
             }
+            Scene::LowBatteryHud => Some(Hud { kind: HudKind::LowBattery { percent: LOW_BATTERY }, until }),
             _ => None,
         };
         st.notice = match scene {
@@ -1908,7 +1948,11 @@ impl SelfTest {
             checks.push(check("pixels", false, format!("{w}x{h} frame with {} bytes", px.len())));
         } else {
             let cx = ((body.x + body.w / 2.0) * scale).floor() as i32;
-            let top = (3.0 * scale).round() as i32;
+            // 3 DIPs inside the body's top edge: the window's top rows where
+            // the island hangs from the edge, below the gap where it floats.
+            let pill = crate::pill::on(self.theme);
+            let edge = if pill { body.y } else { 0.0 };
+            let top = ((edge + 3.0) * scale).round() as i32;
             let [b, g, r, a] = frame.at(cx, top);
             if self.glass.is_some() {
                 // Glass shows what's under it, so no one ground colour: opaque is
@@ -1919,10 +1963,11 @@ impl SelfTest {
             } else {
                 let ground = rgb8(poni_core::look::of(self.theme).ground);
                 let off = [r, g, b].iter().zip(ground).map(|(&p, q)| p.abs_diff(q)).max().unwrap_or(0);
+                let inside = if pill { ", 3 DIPs inside the floating body" } else { "" };
                 checks.push(check(
                     "body-opaque-ground",
                     a >= 254 && off <= 6,
-                    format!("pixel ({cx}, {top}) = rgba({r}, {g}, {b}, {a}), ground rgb{ground:?}"),
+                    format!("pixel ({cx}, {top}) = rgba({r}, {g}, {b}, {a}), ground rgb{ground:?}{inside}"),
                 ));
             }
 
@@ -1954,6 +1999,9 @@ impl SelfTest {
             if let Some(run) = self.glass {
                 self.glass_checks(app, scene, run, &px, w, h, body, scale, &mut checks);
             }
+            if pill {
+                pill_checks(&frame, body, scale, &mut checks);
+            }
         }
         // Frame time counts on a real GPU only (see FRAME_BUDGET_MS).
         let soft_gpu = app.selftest_software_gpu();
@@ -1967,6 +2015,9 @@ impl SelfTest {
         if let Some(want) = scene.page() {
             let page = app.st.page;
             checks.push(check("page", page == want, format!("showing '{}', expected '{}'", page.key(), want.key())));
+        }
+        if scene == Scene::MediaLyric {
+            checks.push(lyric_line_check(&app.st));
         }
 
         let ok = checks.iter().all(|c| c.ok);
@@ -2252,6 +2303,24 @@ fn seed_clipboard(st: &mut AppState) {
     }
 }
 
+/// Where the media-lyric scene holds the song: 1.5 s into the first sung line
+/// after the one the other music scenes hold at (so the two show different
+/// lines), else into any sung line. `None` without synced lines.
+fn lyric_scene_pos(l: &Lyrics) -> Option<f64> {
+    if !l.synced {
+        return None;
+    }
+    // A line with words that lasts a second or more, inside the track.
+    let held = |k: usize| {
+        let start = l.lines[k].time_s;
+        let len = l.lines.get(k + 1).map_or(4.0, |n| n.time_s - start);
+        let pos = start + (len / 2.0).min(1.5);
+        (len >= 1.0 && pos < TRACK_LEN_S && !l.lines[k].text.trim().is_empty()).then_some(pos)
+    };
+    let after = l.line_index_at(TRACK_POS_S).map_or(0, |i| i + 1);
+    (after..l.lines.len()).chain(0..after).find_map(held)
+}
+
 /// Procedural album art: a harbor sunset with a paper boat (premultiplied BGRA, opaque).
 fn make_art(size: u32) -> Vec<u8> {
     const SS: usize = 3; // 3x3 supersampling for smooth edges
@@ -2335,6 +2404,17 @@ fn art_sample(u: f32, v: f32) -> [f32; 3] {
 
 // ---------------------------------------------------------------- pixels
 
+/// The rows above the Pill body: the largest alpha, the largest on the top
+/// row (the screen's edge), how many pixels have colour (anything but a
+/// black shadow or a hit pixel) and how many are the invisible hit pixels
+/// (alpha 1).
+struct GapScan {
+    most: u8,
+    edge: u8,
+    coloured: usize,
+    hit: usize,
+}
+
 /// Premultiplied BGRA frame with bounds-checked reads.
 struct Frame<'a> {
     w: i32,
@@ -2410,6 +2490,45 @@ impl Frame<'_> {
         n
     }
 
+    /// What rows `0..rows` hold (see [`GapScan`]).
+    fn gap_scan(&self, rows: i32) -> GapScan {
+        let mut g = GapScan { most: 0, edge: 0, coloured: 0, hit: 0 };
+        for y in 0..rows.min(self.h) {
+            for x in 0..self.w {
+                let [b, gr, r, a] = self.at(x, y);
+                g.most = g.most.max(a);
+                if y == 0 {
+                    g.edge = g.edge.max(a);
+                }
+                // Premultiplied: black at any alpha stays (0, 0, 0); 2 allows rounding.
+                g.coloured += usize::from(r.max(gr).max(b) > 2);
+                g.hit += usize::from(a == 1);
+            }
+        }
+        g
+    }
+
+    /// The largest alpha along each edge: top, bottom, left, right.
+    fn edge_alpha(&self) -> [u8; 4] {
+        let row = |y: i32| (0..self.w).map(|x| self.at(x, y)[3]).max().unwrap_or(0);
+        let col = |x: i32| (0..self.h).map(|y| self.at(x, y)[3]).max().unwrap_or(0);
+        [row(0), row(self.h - 1), col(0), col(self.w - 1)]
+    }
+
+    /// The smallest pixel rectangle (x0, y0, x1, y1, the far edges exclusive)
+    /// holding every pixel with at least `min` alpha.
+    fn drawn_bounds(&self, min: u8) -> Option<(i32, i32, i32, i32)> {
+        let mut b: Option<(i32, i32, i32, i32)> = None;
+        for y in 0..self.h {
+            for x in 0..self.w {
+                if self.at(x, y)[3] >= min {
+                    b = Some(b.map_or((x, y, x + 1, y + 1), |(x0, y0, x1, y1)| (x0.min(x), y0.min(y), x1.max(x + 1), y1.max(y + 1))));
+                }
+            }
+        }
+        b
+    }
+
     /// The median colour (sRGB, 0..=1, per channel) inside `body`, sampled
     /// every other pixel.
     fn median_in(&self, body: Rect, scale: f32) -> [f32; 3] {
@@ -2459,6 +2578,80 @@ fn window_check(hwnd: HWND, surface: (i32, i32, i32, i32), present: (i32, i32), 
         visible && styles_ok && rect_ok,
         format!("visible {visible}, ex-style {ex:#x} (needs {need:#x}), rect {rect_s} (laid out ({sx}, {sy}) {sw}x{sh}), frame at ({}, {}) {w}x{h}", present.0, present.1),
     )
+}
+
+/// Pill: what the gap above the floating body may hold besides the invisible
+/// hit pixels. The shadow's soft upper edge reaches into it (spec 6.2: about
+/// 21/255 just above the body, 3/255 at the screen's edge); it is black, at
+/// most the first alpha anywhere in the gap and the second on the screen's
+/// edge, so the island still reads as floating. Both at 1 = nothing but the
+/// hit pixels.
+const PILL_GAP_SHADOW_MAX: u8 = 64;
+const PILL_GAP_EDGE_MAX: u8 = 8;
+
+/// The Pill theme's own checks. The island floats, so the gap above the body
+/// shows the screen: nothing in it but the invisible hit pixels (alpha 1)
+/// that take the mouse and the shadow's soft upper edge, and the body's top
+/// edge where its geometry says. Its shadow fades out inside the room the
+/// window keeps beside and below the body: a shadow that reaches the window's
+/// side or bottom edge is cut off there, a hard line on a light wallpaper.
+/// (The top edge is the screen's, and the gap check reads it.)
+fn pill_checks(frame: &Frame, body: Rect, scale: f32, checks: &mut Vec<Check>) {
+    // Rows wholly above the body.
+    let gap = (body.y * scale).floor() as i32;
+    let g = frame.gap_scan(gap);
+    let cx = ((body.x + body.w / 2.0) * scale).floor() as i32;
+    let first = (0..frame.h).find(|&y| frame.at(cx, y)[3] >= 128);
+    let want = body.y * scale;
+    let starts = first.is_some_and(|y| (y as f32 - want).abs() <= 1.0);
+    checks.push(check(
+        "pill-gap",
+        gap > 0 && g.most <= PILL_GAP_SHADOW_MAX && g.edge <= PILL_GAP_EDGE_MAX && g.coloured == 0 && starts,
+        format!(
+            "rows 0-{} above the body: max alpha {} (want <= {PILL_GAP_SHADOW_MAX}), {} on the screen's edge (want <= {PILL_GAP_EDGE_MAX}), \
+             {} coloured pixels (want 0: shadow and hit pixels are black), {} hit pixels at alpha 1; the body starts at row {} (geometry {want:.1})",
+            gap - 1,
+            g.most,
+            g.edge,
+            g.coloured,
+            g.hit,
+            first.map_or("-".to_string(), |y| y.to_string())
+        ),
+    ));
+    let [_, bottom, left, right] = frame.edge_alpha();
+    // How far past the body anything but the hit pixels is drawn, against the room there.
+    let (w, h) = (frame.w as f32 / scale, frame.h as f32 / scale);
+    let reach = frame.drawn_bounds(2).map_or("nothing drawn".to_string(), |(x0, _, x1, y1)| {
+        format!(
+            "drawn up to {:.1} DIP left, {:.1} right and {:.1} below the body (room {:.1}, {:.1}, {:.1})",
+            body.x - x0 as f32 / scale,
+            x1 as f32 / scale - body.right(),
+            y1 as f32 / scale - body.bottom(),
+            body.x,
+            w - body.right(),
+            h - body.bottom()
+        )
+    });
+    checks.push(check(
+        "pill-shadow-inside",
+        [left, right, bottom].iter().all(|&a| a <= 1),
+        format!("edge alpha left {left}, right {right}, bottom {bottom} (want <= 1); {reach}"),
+    ));
+}
+
+/// The media-lyric scene's premise: music plays and the song is inside a
+/// synced line that has words.
+fn lyric_line_check(st: &AppState) -> Check {
+    let Some(m) = st.media.as_ref().filter(|m| m.is_playing()) else {
+        return check("lyric-line", false, "no music playing");
+    };
+    let pos = m.timeline.position_at(st.now);
+    let lyrics = st.lyrics.lyrics.as_ref().filter(|_| st.lyrics.track_key == m.track_key);
+    match lyrics.and_then(|l| l.line_index_at(pos).map(|k| (k, l.lines[k].text.trim()))) {
+        Some((k, text)) if !text.is_empty() => check("lyric-line", true, format!("line {} \"{text}\" sung at {pos:.1} s", k + 1)),
+        Some((k, _)) => check("lyric-line", false, format!("line {} at {pos:.1} s has no words", k + 1)),
+        None => check("lyric-line", false, format!("no synced line at {pos:.1} s")),
+    }
 }
 
 /// Centre of the first header tab. Mirrors `pages::draw_header`: tabs start at

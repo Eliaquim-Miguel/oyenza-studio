@@ -46,6 +46,8 @@ mod island;
 mod oyen;
 #[cfg(any(windows, target_os = "macos"))]
 mod pages;
+#[cfg(any(windows, target_os = "macos"))]
+mod pill;
 #[cfg(windows)]
 mod paths;
 #[cfg(any(windows, target_os = "macos"))]
