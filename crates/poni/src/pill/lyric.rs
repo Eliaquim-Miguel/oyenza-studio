@@ -426,7 +426,7 @@ mod tests {
             can_seek: true,
             track_key: key.clone(),
         });
-        st.lyrics = LyricsState { track_key: key, status: LyricsStatus::Found, lyrics: Some(parse_lrc(lrc)), source: "Sample".into(), ruby: Vec::new() };
+        st.lyrics = LyricsState { track_key: key, status: LyricsStatus::Found, lyrics: Some(parse_lrc(lrc)), source: "Sample".into(), ruby: Vec::new(), wants_ja_readings: false };
         st
     }
 
