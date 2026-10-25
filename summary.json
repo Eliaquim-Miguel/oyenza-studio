@@ -1,31 +1,45 @@
 {
   "repo": "lucacadalora/oyenza-studio",
-  "checked_at": "2026-10-25T05:23:14Z",
+  "checked_at": "2026-10-25T05:48:41Z",
   "since": "2026-10-24",
-  "downloads": 183,
-  "github_count": 376,
-  "ci_count": 193,
-  "last_7_days": 183,
+  "downloads": 191,
+  "github_count": 391,
+  "ci_count": 202,
+  "last_7_days": 191,
   "latest": {
-    "release": "v0.1.20",
-    "downloads": 21
+    "release": "v0.1.21",
+    "downloads": 2
   },
   "stars": 15,
   "forks": 2,
   "watchers": 0,
   "releases": [
     {
+      "release": "v0.1.21",
+      "published": "2026-10-25T05:33:17Z",
+      "downloads": 2,
+      "github_count": 2,
+      "ci_count": 0,
+      "files": {
+        "Oyen-Poni-0.1.21-mac.dmg": 0,
+        "Oyen-Poni-0.1.21-portable.zip": 0,
+        "Oyen-Poni-Mac.dmg": 0,
+        "Oyen-Poni-Setup-0.1.21.exe": 1,
+        "Oyen-Poni-Setup.exe": 1
+      }
+    },
+    {
       "release": "v0.1.20",
       "published": "2026-10-24T22:47:06Z",
-      "downloads": 21,
-      "github_count": 21,
+      "downloads": 25,
+      "github_count": 25,
       "ci_count": 0,
       "files": {
         "Oyen-Poni-0.1.20-mac.dmg": 0,
         "Oyen-Poni-0.1.20-portable.zip": 0,
-        "Oyen-Poni-Mac.dmg": 1,
+        "Oyen-Poni-Mac.dmg": 4,
         "Oyen-Poni-Setup-0.1.20.exe": 3,
-        "Oyen-Poni-Setup.exe": 17
+        "Oyen-Poni-Setup.exe": 18
       }
     },
     {
@@ -59,15 +73,15 @@
     {
       "release": "v0.1.17",
       "published": "2026-10-24T18:27:12Z",
-      "downloads": 20,
-      "github_count": 20,
+      "downloads": 22,
+      "github_count": 22,
       "ci_count": 0,
       "files": {
         "Oyen-Poni-0.1.17-mac.dmg": 2,
         "Oyen-Poni-0.1.17-portable.zip": 2,
         "Oyen-Poni-Mac.dmg": 2,
-        "Oyen-Poni-Setup-0.1.17.exe": 7,
-        "Oyen-Poni-Setup.exe": 7
+        "Oyen-Poni-Setup-0.1.17.exe": 8,
+        "Oyen-Poni-Setup.exe": 8
       }
     },
     {
@@ -258,8 +272,8 @@
       "release": "v0.1.1",
       "published": "2026-10-24T05:54:33Z",
       "downloads": 15,
-      "github_count": 208,
-      "ci_count": 193,
+      "github_count": 215,
+      "ci_count": 202,
       "files": {
         "Poni-0.1.1-portable.zip": 0,
         "Poni-Setup-0.1.1.exe": 15
@@ -284,7 +298,7 @@
     },
     {
       "date": "2026-10-25",
-      "downloads": 33
+      "downloads": 41
     }
   ]
 }

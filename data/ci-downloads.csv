@@ -192,3 +192,12 @@ job_id,step,run_id,attempt,started_at,branch,workflow,release,file
 121017070461,Fetch the release to upgrade from,40142294854,1,2026-10-24T23:23:30Z,ja-readings-mac,ci.yml,v0.1.1,Poni-Setup-0.1.1.exe
 121019061127,Fetch the release to upgrade from,40142908576,1,2026-10-24T23:33:25Z,mac-pill,ci.yml,v0.1.1,Poni-Setup-0.1.1.exe
 121020221700,Fetch the release to upgrade from,40143314630,1,2026-10-24T23:39:51Z,pill-theme,ci.yml,v0.1.1,Poni-Setup-0.1.1.exe
+121081456599,Fetch the release to upgrade from,40163701955,1,2026-10-25T05:02:52Z,rename-oyenza-studio,ci.yml,v0.1.1,Poni-Setup-0.1.1.exe
+121085832859,Fetch the release to upgrade from,40165217315,1,2026-10-25T05:27:21Z,ja-readings-mac,ci.yml,v0.1.1,Poni-Setup-0.1.1.exe
+121086311977,Fetch the release to upgrade from,40165378959,1,2026-10-25T05:30:33Z,v0.1.21,ci.yml,v0.1.1,Poni-Setup-0.1.1.exe
+121086575217,Fetch the release to upgrade from,40165372837,1,2026-10-25T05:31:31Z,main,ci.yml,v0.1.1,Poni-Setup-0.1.1.exe
+121086910573,Fetch the release to upgrade from,40165638611,1,2026-10-25T05:33:22Z,ja-readings-mac,ci.yml,v0.1.1,Poni-Setup-0.1.1.exe
+121087039211,Fetch the release to upgrade from,40165758974,1,2026-10-25T05:34:05Z,sign-mac-dmg,ci.yml,v0.1.1,Poni-Setup-0.1.1.exe
+121087159726,Fetch the release to upgrade from,40165665903,1,2026-10-25T05:34:44Z,game-corner,ci.yml,v0.1.1,Poni-Setup-0.1.1.exe
+121088042068,Fetch the release to upgrade from,40166182774,1,2026-10-25T05:39:51Z,rename-oyenza-studio,ci.yml,v0.1.1,Poni-Setup-0.1.1.exe
+121088948304,Fetch the release to upgrade from,40166182774,2,2026-10-25T05:39:51Z,rename-oyenza-studio,ci.yml,v0.1.1,Poni-Setup-0.1.1.exe
