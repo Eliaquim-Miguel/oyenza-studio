@@ -61,10 +61,10 @@ CloseApplications=yes
 RestartApplications=no
 
 [Languages]
-Name: "english"; MessagesFile: "compiler:Default.isl"
+Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"
 
 [Tasks]
-Name: "autostart"; Description: "Start with Windows"; GroupDescription: "Startup:"
+Name: "autostart"; Description: "Iniciar com o Windows"; GroupDescription: "Inicialização:"
 
 [Files]
 Source: "{#ExeSource}"; DestDir: "{app}"; Flags: ignoreversion
@@ -75,14 +75,14 @@ Source: "..\THIRD-PARTY-NOTICES.txt"; DestDir: "{app}"; Flags: ignoreversion
 Type: files; Name: "{autoprograms}\Oyen Poni.lnk"
 
 [Icons]
-Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"; Comment: "A living notch for Windows"
+Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"; Comment: "Uma ilha dinâmica para o Windows"
 
 [Registry]
 ; Same value the app writes from its "Start with Windows" menu item (autostart.rs): the quoted exe path.
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "{#AppDir}"; ValueData: """{app}\{#AppExe}"""; Flags: uninsdeletevalue; Tasks: autostart
 
 [Run]
-Filename: "{app}\{#AppExe}"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#AppExe}"; Description: "Abrir o {#AppName}"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
 ; Make sure no copy is still running before its files are removed.

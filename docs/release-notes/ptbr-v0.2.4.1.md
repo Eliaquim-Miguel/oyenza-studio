@@ -12,6 +12,7 @@ Primeira versão para download do fork comunitário em Português do Brasil.
 
 ## Downloads
 
+- `Oyenza-Studio-PTBR-Setup.exe`: instalador recomendado para Windows 10 e 11. Instala por usuário, cria o atalho no Menu Iniciar e permite iniciar automaticamente com o Windows.
 - `Oyenza-Studio-PTBR.exe`: executável portátil para Windows 10 e 11.
 - `Oyenza-Studio-PTBR-portable.zip`: o mesmo executável, acompanhado da licença e dos avisos de terceiros.
 
@@ -21,6 +22,7 @@ Esta edição não possui assinatura digital. Por isso, o Windows SmartScreen po
 
 Os hashes SHA-256 estão incluídos na descrição da release e podem ser conferidos no Windows com:
 
+- `Oyenza-Studio-PTBR-Setup.exe`: `1399C657625ABD7044446523F08BC8BD6C9D3D841BBEB0D6536FB29D95037B47`
 - `Oyenza-Studio-PTBR.exe`: `E706ACD18F3B68FA2FBA0A14A08E663BA8543E4D9344C77D8193D67E2C44CF95`
 - `Oyenza-Studio-PTBR-portable.zip`: `67ED1F98D5B4FE7FE84132C8C1F2BC9D5145A008133860797B286F75343DE7B7`
 

@@ -11,7 +11,7 @@
 > O aplicativo e sua base continuam sendo o projeto open source criado pela [Jatevo Labs / Luca Cadalora](https://github.com/lucacadalora/oyenza-studio). Este repositório mantém a atribuição e a licença MIT do projeto original.
 
 <p align="center">
-  <a href="https://github.com/Eliaquim-Miguel/oyenza-studio/releases/latest/download/Oyenza-Studio-PTBR.exe"><img src="https://img.shields.io/badge/Baixar_para_Windows-PT--BR-0078D4?style=for-the-badge&logo=windows" height="34" alt="Baixar a edição PT-BR para Windows"></a>
+  <a href="https://github.com/Eliaquim-Miguel/oyenza-studio/releases/latest/download/Oyenza-Studio-PTBR-Setup.exe"><img src="https://img.shields.io/badge/Instalar_no_Windows-PT--BR-0078D4?style=for-the-badge&logo=windows" height="34" alt="Instalar a edição PT-BR no Windows"></a>
   &nbsp;
   <a href="https://github.com/Eliaquim-Miguel/oyenza-studio/releases/latest/download/Oyenza-Studio-PTBR-portable.zip"><img src="https://img.shields.io/badge/Baixar-ZIP_portátil-555555?style=for-the-badge" height="34" alt="Baixar o ZIP portátil"></a>
 </p>
@@ -29,7 +29,7 @@
 
 ### Como usar esta versão
 
-Baixe o **executável para Windows** ou o **ZIP portátil** nos botões acima. Esta edição não possui assinatura digital, portanto o Windows SmartScreen pode pedir confirmação na primeira abertura. O código também pode ser compilado seguindo a seção [Build](#build). Os instaladores do projeto original não incluem as mudanças deste fork.
+Use **Instalar no Windows** para colocar o aplicativo em uma pasta estável, criar o atalho no Menu Iniciar e habilitar a opção de iniciar junto com o Windows. O **ZIP portátil** continua disponível para quem não quiser instalar. Esta edição não possui assinatura digital, portanto o Windows SmartScreen pode pedir confirmação na primeira abertura. O código também pode ser compilado seguindo a seção [Build](#build). Os instaladores do projeto original não incluem as mudanças deste fork.
 
 Para conhecer o projeto original, consultar a documentação oficial ou baixar a versão oficial, visite [`lucacadalora/oyenza-studio`](https://github.com/lucacadalora/oyenza-studio).
 
