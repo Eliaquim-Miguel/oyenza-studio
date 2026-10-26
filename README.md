@@ -24,6 +24,7 @@
 - **Modo compacto persistente sobre janelas maximizadas**: os visuais Relógio, Oyen, Minimal e Status continuam visíveis como uma pequena barra em vez de desaparecer após alguns segundos.
 - **Abertura ao passar o mouse**: a ilha compacta continua abrindo normalmente quando o ponteiro chega até ela.
 - **Tamanho original preservado** quando não há uma janela maximizada; o visual Minimal não fica espremido.
+- **Uma ilha em cada monitor**: ative a opção nas Configurações ou no menu da bandeja e reinicie o Oyenza para manter uma ilha no topo de cada tela conectada.
 
 > A tradução ainda não cobre todas as páginas especializadas. Algumas telas de Sistema, Shelf/Phone Drop, Health, Prayer e complementos podem continuar em inglês.
 

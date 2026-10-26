@@ -90,6 +90,10 @@ pub struct Settings {
     /// menu bar keeps windows below the island.
     pub step_aside: bool,
     pub monitor: MonitorChoice,
+    /// Put one island on every connected monitor. Windows starts secondary
+    /// island processes for the other displays; the main process keeps the
+    /// tray icon and owns their lifetime.
+    pub all_monitors: bool,
     pub show_media_activity: bool,
     pub lyrics: bool,
     /// Romanized "pronunciation" line under Japanese, Korean and Chinese lyrics.
@@ -178,6 +182,7 @@ impl Default for Settings {
             hide_in_fullscreen: true,
             step_aside: true,
             monitor: MonitorChoice::Primary,
+            all_monitors: false,
             show_media_activity: true,
             lyrics: true,
             lyrics_pronunciation: true,

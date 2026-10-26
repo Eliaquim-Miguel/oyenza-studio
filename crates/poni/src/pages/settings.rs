@@ -80,6 +80,7 @@ enum Switch {
     Pronunciation,
     Sounds,
     Clipboard,
+    AllMonitors,
     Autostart,
 }
 
@@ -98,7 +99,13 @@ const LEFT: &[Row] = &[Row::Switch(Switch::Lyrics, "Synced lyrics"), Row::Switch
 /// The maximized-window choice sits under the full-screen one. A Mac has
 /// none: its menu bar keeps windows below the island.
 #[cfg(windows)]
-const RIGHT: &[Row] = &[Row::Switch(Switch::Clipboard, "Clipboard history"), Row::Fullscreen, Row::Aside, Row::Switch(Switch::Autostart, "Start with Windows")];
+const RIGHT: &[Row] = &[
+    Row::Switch(Switch::Clipboard, "Clipboard history"),
+    Row::Fullscreen,
+    Row::Aside,
+    Row::Switch(Switch::AllMonitors, "Every display (restart)"),
+    Row::Switch(Switch::Autostart, "Start with Windows"),
+];
 #[cfg(not(windows))]
 const RIGHT: &[Row] = &[Row::Switch(Switch::Clipboard, "Clipboard history"), Row::Fullscreen, Row::Switch(Switch::Autostart, "Start with Windows")];
 const COLUMNS: [&[Row]; 2] = [LEFT, RIGHT];
@@ -192,6 +199,7 @@ pub fn draw(ui: &mut Ui, st: &mut AppState, area: Rect) {
                             Switch::Pronunciation => "Pronúncia das letras",
                             Switch::Sounds => "Sons",
                             Switch::Clipboard => "Área de transferência",
+                            Switch::AllMonitors => "Cada tela (reinicie)",
                             Switch::Autostart => "Iniciar com o Windows",
                         }
                     } else {
@@ -242,6 +250,7 @@ fn switch_on(st: &AppState, sw: Switch) -> Option<bool> {
         Switch::Pronunciation => Some(s.lyrics_pronunciation),
         Switch::Sounds => Some(s.sounds),
         Switch::Clipboard => Some(s.clipboard_history),
+        Switch::AllMonitors => Some(s.all_monitors),
         Switch::Autostart => st.ui.autostart,
     }
 }
@@ -254,6 +263,7 @@ fn flip(st: &mut AppState, sw: Switch, on: Option<bool>) {
         Switch::Sounds => s.sounds = !s.sounds,
         // Off forgets the history, pinned items included (as from the tray).
         Switch::Clipboard => s.clipboard_history = !s.clipboard_history,
+        Switch::AllMonitors => s.all_monitors = !s.all_monitors,
         Switch::Autostart => {
             if let Some(on) = on {
                 st.cmd(Command::SetAutostart(!on));

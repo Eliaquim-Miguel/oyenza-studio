@@ -35,12 +35,13 @@ use poni_core::store::{load_json, parse_json, save_json_atomic, LoadOutcome, Sto
 use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
 use std::path::PathBuf;
+use std::process::{Child, Command as ProcessCommand};
 use std::sync::mpsc::{self, Receiver};
-use windows::core::{w, Result};
+use windows::core::{w, Result, PCWSTR};
 use windows::Foundation::Numerics::Matrix3x2;
 use windows::Win32::Foundation::*;
 use windows::Win32::System::Ole::{OleInitialize, OleUninitialize};
-use windows::Win32::System::Threading::CreateMutexW;
+use windows::Win32::System::Threading::{CreateMutexW, GetCurrentProcessId, OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE};
 use windows::Win32::UI::HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2};
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -102,6 +103,11 @@ pub fn main_entry() -> i32 {
         return services::frames::allow_main(args.get(i + 1).map_or("", String::as_str));
     }
     let selftest_dir = args.iter().position(|a| a == "--selftest").map(|i| args.get(i + 1).cloned().unwrap_or_else(|| "selftest-out".into()));
+    let secondary = args.iter().any(|a| a == "--secondary-island");
+    let monitor_point = args.iter().position(|a| a == "--monitor-at").and_then(|i| {
+        Some((args.get(i + 1)?.parse::<i32>().ok()?, args.get(i + 2)?.parse::<i32>().ok()?))
+    });
+    let parent_pid = args.iter().position(|a| a == "--parent-pid").and_then(|i| args.get(i + 1)?.parse::<u32>().ok());
     if let Some(dir) = &selftest_dir {
         let home = std::path::Path::new(dir).join("home");
         let _ = std::fs::remove_dir_all(&home);
@@ -117,8 +123,13 @@ pub fn main_entry() -> i32 {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     }
     // Single instance (the self-test may run next to a normal instance).
-    let mutex_name = if selftest_dir.is_some() { w!("Local\\Poni.Island.SelfTest") } else { w!("Local\\Poni.Island") };
-    let _mutex = unsafe { CreateMutexW(None, true, mutex_name) };
+    let mutex_text = match (selftest_dir.is_some(), secondary, monitor_point) {
+        (true, _, _) => "Local\\Poni.Island.SelfTest".to_string(),
+        (_, true, Some((x, y))) => format!("Local\\Poni.Island.Secondary.{x}.{y}"),
+        _ => "Local\\Poni.Island".to_string(),
+    };
+    let mutex_wide: Vec<u16> = mutex_text.encode_utf16().chain(Some(0)).collect();
+    let _mutex = unsafe { CreateMutexW(None, true, PCWSTR(mutex_wide.as_ptr())) };
     if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
         pinfo!("another instance is running; exiting");
         return 0;
@@ -130,7 +141,7 @@ pub fn main_entry() -> i32 {
     if crate::autostart::packaged() {
         pinfo!("running as the Microsoft Store package");
     }
-    let code = match run(selftest_dir) {
+    let code = match run(selftest_dir, monitor_point, secondary, parent_pid) {
         Ok(code) => code,
         Err(e) => {
             perror!("fatal: {e}");
@@ -142,10 +153,15 @@ pub fn main_entry() -> i32 {
     code
 }
 
-fn run(selftest_dir: Option<String>) -> Result<i32> {
+fn run(selftest_dir: Option<String>, monitor_point: Option<(i32, i32)>, secondary: bool, parent_pid: Option<u32>) -> Result<i32> {
     window::register_classes(island_wndproc, helper_wndproc)?;
     let hwnd = window::create_island_window()?;
     let helper = window::create_helper_window()?;
+    if secondary {
+        if let Some(pid) = parent_pid {
+            watch_parent(pid, SendHwnd::new(hwnd));
+        }
+    }
     pinfo!("windows created");
 
     let (raw_settings, s_out): (Settings, _) = load_json(&paths::settings_path());
@@ -169,7 +185,17 @@ fn run(selftest_dir: Option<String>) -> Result<i32> {
 
     let (tx, rx) = mpsc::channel();
     let sink = EventSink::new(tx, SendHwnd::new(hwnd));
-    let app = App::new(hwnd, helper, sink, rx, settings, store, selftest_dir, s_out.writable(), d_out.writable())?;
+    let monitor_override = monitor_point.map(|(x, y)| window::monitor_at(x, y));
+    let mut secondary_islands = if !secondary && selftest_dir.is_none() && settings.all_monitors {
+        spawn_secondary_islands(&settings)
+    } else {
+        Vec::new()
+    };
+    let app = App::new(
+        hwnd, helper, sink, rx, settings, store, selftest_dir,
+        s_out.writable() && !secondary, d_out.writable() && !secondary,
+        monitor_override, secondary,
+    )?;
     APP.with(|c| *c.borrow_mut() = Some(app));
     with_app(|app| app.start());
     pinfo!("started; entering message loop");
@@ -182,7 +208,49 @@ fn run(selftest_dir: Option<String>) -> Result<i32> {
         }
     }
     let code = APP.with(|c| c.borrow_mut().take().map(|mut a| a.shutdown()).unwrap_or(0));
+    for child in &mut secondary_islands {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
     Ok(code)
+}
+
+/// Start one companion process for every display except the main island's.
+fn spawn_secondary_islands(settings: &Settings) -> Vec<Child> {
+    let main = window::pick_monitor(settings.monitor);
+    let exe = match std::env::current_exe() {
+        Ok(exe) => exe,
+        Err(e) => {
+            pwarn!("multiple displays: executable path unavailable: {e}");
+            return Vec::new();
+        }
+    };
+    window::all_monitors().into_iter().filter(|m| m.handle != main.handle).filter_map(|m| {
+        let x_arg = (m.rect.left + 1).to_string();
+        let y_arg = (m.rect.top + 1).to_string();
+        let parent_arg = unsafe { GetCurrentProcessId() }.to_string();
+        match ProcessCommand::new(&exe).args(["--secondary-island", "--monitor-at", &x_arg, &y_arg, "--parent-pid", &parent_arg]).spawn() {
+            Ok(child) => {
+                pinfo!("multiple displays: island started on {:?}", m.rect);
+                Some(child)
+            }
+            Err(e) => {
+                pwarn!("multiple displays: couldn't start island on {:?}: {e}", m.rect);
+                None
+            }
+        }
+    }).collect()
+}
+
+/// A companion never outlives the main island, even after Task Manager ends it.
+fn watch_parent(pid: u32, island: SendHwnd) {
+    std::thread::Builder::new().name("poni-parent".into()).spawn(move || unsafe {
+        let Ok(parent) = OpenProcess(PROCESS_SYNCHRONIZE, false, pid) else { return };
+        if WaitForSingleObject(parent, u32::MAX) == WAIT_OBJECT_0 {
+            let _ = PostMessageW(island.hwnd(), WM_CLOSE, WPARAM(0), LPARAM(0));
+        }
+        let _ = CloseHandle(parent);
+    }).ok();
 }
 
 /// Run `f` with the app if it isn't already borrowed (re-entrancy safe).
@@ -299,6 +367,8 @@ pub struct App {
     text_focus: bool,
     prev_foreground: HWND,
     monitor: MonitorInfo,
+    fixed_monitor: bool,
+    secondary: bool,
     clock: FrameClock,
     sink: EventSink,
     rx: Receiver<AppEvent>,
@@ -494,8 +564,11 @@ impl App {
         selftest_dir: Option<String>,
         settings_writable: bool,
         store_writable: bool,
+        monitor_override: Option<MonitorInfo>,
+        secondary: bool,
     ) -> Result<Self> {
-        let monitor = window::pick_monitor(settings.monitor);
+        let fixed_monitor = monitor_override.is_some();
+        let monitor = monitor_override.unwrap_or_else(|| window::pick_monitor(settings.monitor));
         let gfx = Gfx::new(monitor.dpi as f32, hwnd)?;
         let mut st = AppState::new(settings, store);
         st.now = clock::mono();
@@ -524,6 +597,8 @@ impl App {
             text_focus: false,
             prev_foreground: HWND::default(),
             monitor,
+            fixed_monitor,
+            secondary,
             clock,
             sink,
             rx,
@@ -614,7 +689,9 @@ impl App {
             if self.st.settings.game_stats {
                 self.check_fps();
             }
-            self.try_add_tray();
+            if !self.secondary {
+                self.try_add_tray();
+            }
             services::power::register_session(self.helper);
         }
         if let Err(e) = dragdrop::register(self.hwnd, self.sink.clone()) {
@@ -1623,6 +1700,7 @@ impl App {
             ToggleGameStats => s.game_stats = !s.game_stats,
             ToggleGamePeek => s.game_peek = !s.game_peek,
             ToggleSounds => s.sounds = !s.sounds,
+            ToggleAllMonitors => s.all_monitors = !s.all_monitors,
             TogglePinned => self.st.pinned = !self.st.pinned,
             RecordScreen => crate::services::recorder::record_screen(self.hwnd),
             ToggleAutostart => {
@@ -2448,13 +2526,16 @@ impl App {
     }
 
     fn refresh_monitor(&mut self) {
-        let m = match self.st.settings.monitor {
+        let m = if self.fixed_monitor {
+            window::monitor_info(windows::Win32::Graphics::Gdi::HMONITOR(self.monitor.handle as *mut core::ffi::c_void))
+                .unwrap_or_else(|| window::pick_monitor(MonitorChoice::Primary))
+        } else { match self.st.settings.monitor {
             MonitorChoice::Cursor => {
                 window::monitor_info(windows::Win32::Graphics::Gdi::HMONITOR(self.monitor.handle as *mut core::ffi::c_void))
                     .unwrap_or_else(|| window::pick_monitor(MonitorChoice::Primary))
             }
             c => window::pick_monitor(c),
-        };
+        }};
         if m != self.monitor {
             pinfo!("monitor: {:?} dpi {}", m.rect, m.dpi);
             self.monitor = m;

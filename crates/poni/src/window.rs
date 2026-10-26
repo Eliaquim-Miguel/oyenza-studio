@@ -8,11 +8,11 @@ use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, AtomicU64, Ordering}
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 use windows::core::{w, Result, PCWSTR};
-use windows::Win32::Foundation::{HWND, LPARAM, POINT, RECT, WPARAM};
+use windows::Win32::Foundation::{BOOL, HWND, LPARAM, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Dwm::DwmFlush;
 use windows::Win32::Graphics::Dxgi::{CreateDXGIFactory1, IDXGIFactory1, IDXGIOutput};
 use windows::Win32::Graphics::Gdi::{
-    EnumDisplaySettingsW, GetMonitorInfoW, MonitorFromPoint, DEVMODEW, ENUM_CURRENT_SETTINGS, HMONITOR, MONITORINFO, MONITORINFOEXW,
+    EnumDisplayMonitors, EnumDisplaySettingsW, GetMonitorInfoW, MonitorFromPoint, DEVMODEW, HDC, ENUM_CURRENT_SETTINGS, HMONITOR, MONITORINFO, MONITORINFOEXW,
     MONITOR_DEFAULTTOPRIMARY,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -221,6 +221,34 @@ pub fn pick_monitor(choice: MonitorChoice) -> MonitorInfo {
             dpi: 96,
         })
     }
+}
+
+/// The monitor containing a screen point, used by secondary island processes.
+pub fn monitor_at(x: i32, y: i32) -> MonitorInfo {
+    unsafe {
+        let hmon = MonitorFromPoint(POINT { x, y }, MONITOR_DEFAULTTOPRIMARY);
+        monitor_info(hmon).unwrap_or_else(|| pick_monitor(MonitorChoice::Primary))
+    }
+}
+
+/// Every connected desktop monitor, in Windows' enumeration order.
+pub fn all_monitors() -> Vec<MonitorInfo> {
+    unsafe extern "system" fn collect(hmon: HMONITOR, _hdc: HDC, _rect: *mut RECT, data: LPARAM) -> BOOL {
+        let monitors = &mut *(data.0 as *mut Vec<MonitorInfo>);
+        if let Some(info) = monitor_info(hmon) {
+            monitors.push(info);
+        }
+        true.into()
+    }
+
+    let mut monitors = Vec::new();
+    unsafe {
+        let _ = EnumDisplayMonitors(HDC::default(), None, Some(collect), LPARAM(&mut monitors as *mut _ as isize));
+    }
+    if monitors.is_empty() {
+        monitors.push(pick_monitor(MonitorChoice::Primary));
+    }
+    monitors
 }
 
 // ---------------------------------------------------------------- frame clock

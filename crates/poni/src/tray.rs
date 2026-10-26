@@ -71,6 +71,7 @@ pub enum MenuCmd {
     ToggleSounds,
     TogglePinned,
     ToggleAutostart,
+    ToggleAllMonitors,
     OpenSettings,
     ReloadSettings,
     OpenDataFolder,
@@ -162,6 +163,7 @@ pub fn menu_items(s: &Settings, pinned: bool, oyenza: &OyenzaLink, recorder: boo
         },
         // A browser's tabs under the island: out of their way until pointed at.
         MenuItem::Sub { label: if pt { "Sobre janelas maximizadas".into() } else { "Over maximized windows".into() }, items: vec![aside(if pt { "Sair do caminho" } else { "Step aside" }, true), aside(if pt { "Permanecer" } else { "Stay" }, false)] },
+        item(if pt { "Uma ilha em cada tela (reinicie)" } else { "One island on every display (restart)" }, MenuCmd::ToggleAllMonitors, s.all_monitors),
         item(if pt { "Iniciar com o Windows" } else { "Start with Windows" }, MenuCmd::ToggleAutostart, crate::autostart::is_enabled()),
         MenuItem::Separator,
         item(if pt { "Abrir arquivo de configurações" } else { "Open settings file" }, MenuCmd::OpenSettings, false),
